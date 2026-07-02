@@ -1,10 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, withTenantCtx } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
-import { withAuth } from '@/lib/api-auth';
-import type { JwtPayload } from '@/lib/auth';
+import { withAuth, type JwtPayload } from '@/lib/api-auth';
 
-// POST: Find tickets by queueId + optional status filter (for AgentView)
+// Helper: compute avg service time for a queue
+async function getAvgServiceTime(
+  d1: D1Database,
+  tenantId: string,
+  queueId: string,
+  fallback: number
+): Promise<number> {
+  const result = await d1
+    .prepare(
+      'SELECT duration_seconds FROM service_logs WHERE tenant_id = ? AND queue_id = ? AND duration_seconds IS NOT NULL ORDER BY created_at DESC LIMIT 20'
+    )
+    .bind(tenantId, queueId)
+    .all<{ duration_seconds: number }>();
+
+  if (result.results.length === 0) return fallback;
+  return Math.round(
+    result.results.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0) /
+      result.results.length
+  );
+}
+
+// Helper: compute waiting ahead count for a ticket
+async function getWaitingAhead(
+  d1: D1Database,
+  queueId: string,
+  serialNumber: number
+): Promise<number> {
+  const result = await d1
+    .prepare(
+      'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ? AND serial_number < ?'
+    )
+    .bind(queueId, 'WAITING', serialNumber)
+    .first<{ cnt: number }>();
+  return result?.cnt ?? 0;
+}
+
+// POST: Find ticket by queueId + optional status filter (for AgentView)
 export const POST = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
     const { user } = ctx;
@@ -23,44 +58,64 @@ export const POST = withAuth(
         );
       }
 
-      // Tenant isolation: verify queue belongs to user's tenant
-      const queue = await db.queue.findUnique({
-        where: { id: queueId },
-        select: { tenantId: true, name: true, prefix: true },
-      });
+      const tenantId = user.tenantId!;
 
-      if (!queue || queue.tenantId !== user.tenantId) {
+      // Tenant isolation: verify queue belongs to user's tenant
+      const queue = await d1
+        .prepare(
+          'SELECT tenant_id, name, prefix, default_service_time_sec FROM queues WHERE id = ?'
+        )
+        .bind(queueId)
+        .first<{
+          tenant_id: string;
+          name: string;
+          prefix: string;
+          default_service_time_sec: number;
+        }>();
+
+      if (!queue || queue.tenant_id !== tenantId) {
         return NextResponse.json(
           { error: 'Queue not found' },
           { status: 404 }
         );
       }
 
-      const where: Record<string, unknown> = {
-        queueId,
-        tenantId: user.tenantId,
-      };
-
       // B12: Validate status against allowed values
-      const VALID_STATUSES = ['WAITING', 'SERVING', 'COMPLETED', 'CANCELLED', 'SKIPPED'];
-      if (status) {
-        if (!VALID_STATUSES.includes(status)) {
-          return NextResponse.json(
-            { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` },
-            { status: 400 }
-          );
-        }
-        where.status = status;
+      const VALID_STATUSES = [
+        'WAITING',
+        'SERVING',
+        'COMPLETED',
+        'CANCELLED',
+        'SKIPPED',
+      ];
+      if (status && !VALID_STATUSES.includes(status)) {
+        return NextResponse.json(
+          {
+            error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`,
+          },
+          { status: 400 }
+        );
       }
 
-      const ticket = await db.ticket.findFirst({
-        where,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          queue: true,
-          tenant: { select: { name: true } },
-        },
-      });
+      // Build query
+      let sql = `SELECT t.*, q.name as queue_name, q.prefix as queue_prefix, q.default_service_time_sec as queue_default_service_time_sec
+                 FROM tickets t
+                 JOIN queues q ON t.queue_id = q.id
+                 WHERE t.queue_id = ? AND t.tenant_id = ?`;
+      const bindValues: unknown[] = [queueId, tenantId];
+
+      if (status) {
+        sql += ' AND t.status = ?';
+        bindValues.push(status);
+      }
+
+      sql += ' ORDER BY t.created_at DESC LIMIT 1';
+
+      const d1 = getD1FromEnv();
+      const ticket = await d1
+        .prepare(sql)
+        .bind(...bindValues)
+        .first<Record<string, unknown>>();
 
       if (!ticket) {
         return NextResponse.json(
@@ -69,54 +124,44 @@ export const POST = withAuth(
         );
       }
 
-      const formattedSerial = `${ticket.queue.prefix}${String(ticket.serialNumber).padStart(3, '0')}`;
+      const serialNumber = ticket.serial_number as number;
+      const formattedSerial = `${ticket.queue_prefix}${String(serialNumber).padStart(3, '0')}`;
 
       // Calculate position and EWT if ticket is WAITING
       let position: number | undefined;
       let ewt: number | undefined;
 
       if (ticket.status === 'WAITING') {
-        const waitingAhead = await db.ticket.count({
-          where: {
-            queueId: ticket.queueId,
-            status: 'WAITING',
-            serialNumber: { lt: ticket.serialNumber },
-          },
-        });
+        const waitingAhead = await getWaitingAhead(
+          d1,
+          queueId,
+          serialNumber
+        );
         position = waitingAhead + 1;
 
-        const serviceLogs = await db.serviceLog.findMany({
-          where: {
-            tenantId: ticket.tenantId,
-            queueId: ticket.queueId,
-            durationSeconds: { not: null },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-          select: { durationSeconds: true },
-        });
-
-        const avgServiceTime =
-          serviceLogs.length > 0
-            ? Math.round(
-                serviceLogs.reduce(
-                  (sum, s) => sum + (s.durationSeconds ?? 0),
-                  0
-                ) / serviceLogs.length
-              )
-            : ticket.queue.defaultServiceTimeSec;
-
+        const avgServiceTime = await getAvgServiceTime(
+          d1,
+          tenantId,
+          queueId,
+          queue.default_service_time_sec
+        );
         ewt = (waitingAhead + 1) * avgServiceTime;
       }
 
-      return NextResponse.json({
-        ticket: {
-          ...ticket,
-          formattedSerial,
-          position,
-          ewt,
-        },
-      });
+      // Convert to camelCase and add extra fields
+      const result: Record<string, unknown> = {};
+      for (const key of Object.keys(ticket)) {
+        const camelKey = key.replace(
+          /_([a-z])/g,
+          (_: string, c: string) => c.toUpperCase()
+        );
+        result[camelKey] = ticket[key];
+      }
+      result.formattedSerial = formattedSerial;
+      result.position = position;
+      result.ewt = ewt;
+
+      return NextResponse.json({ ticket: result });
     } catch (error) {
       console.error('Ticket status POST error:', error);
       return NextResponse.json(
@@ -128,11 +173,13 @@ export const POST = withAuth(
   { roles: ['MANAGER', 'AGENT'], requireTenantId: true }
 );
 
+// GET: Public ticket status check (by ticketId or phone + tenantId)
 export async function GET(req: NextRequest) {
   try {
     const ticketId = req.nextUrl.searchParams.get('ticketId');
     const phone = req.nextUrl.searchParams.get('phone');
     const tenantIdParam = req.nextUrl.searchParams.get('tenantId');
+
     // B10: Clamp page ≥ 1, limit 1-100
     let page = parseInt(req.nextUrl.searchParams.get('page') || '1', 10);
     let limit = parseInt(req.nextUrl.searchParams.get('limit') || '20', 10);
@@ -145,10 +192,16 @@ export async function GET(req: NextRequest) {
 
     // B11: Validate date strings
     if (dateFrom && isNaN(new Date(dateFrom).getTime())) {
-      return NextResponse.json({ error: 'Invalid dateFrom format' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid dateFrom format' },
+        { status: 400 }
+      );
     }
     if (dateTo && isNaN(new Date(dateTo).getTime())) {
-      return NextResponse.json({ error: 'Invalid dateTo format' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid dateTo format' },
+        { status: 400 }
+      );
     }
 
     if (!ticketId && (!phone || !tenantIdParam)) {
@@ -160,17 +213,25 @@ export async function GET(req: NextRequest) {
 
     if (ticketId && !tenantIdParam) {
       return NextResponse.json(
-        { error: 'tenantId is required with ticketId for tenant context routing' },
+        {
+          error: 'tenantId is required with ticketId for tenant context routing',
+        },
         { status: 400 }
       );
     }
 
     const tenantId = tenantIdParam!;
+    const d1 = getD1FromEnv();
 
     // Rate limit
+    const ip =
+      req.headers.get('cf-connecting-ip') ||
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      'unknown';
     const rlKey = ticketId || phone || 'unknown';
-    const { allowed, retryAfterMs } = rateLimit(
-      'status:' + rlKey,
+    const { allowed, retryAfterMs } = await rateLimit(
+      `status:${ip}:${rlKey}`,
       30,
       60_000
     );
@@ -179,175 +240,148 @@ export async function GET(req: NextRequest) {
         { error: 'Too many requests. Please try again later.' },
         {
           status: 429,
-          headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) },
+          headers: {
+            'Retry-After': String(Math.ceil(retryAfterMs / 1000)),
+          },
         }
       );
     }
 
-    // Single ticket lookup — wrapped in tenant context
+    // Single ticket lookup
     if (ticketId) {
-      const result = await withTenantCtx(tenantId, async () => {
-        const ticket = await db.ticket.findUnique({
-          where: { id: ticketId },
-          include: {
-            queue: true,
-          },
-        });
+      const ticket = await d1
+        .prepare(
+          `SELECT t.id, t.queue_id, t.serial_number, t.status, t.created_at,
+                  q.name as queue_name, q.prefix as queue_prefix, q.default_service_time_sec as queue_default_service_time_sec
+           FROM tickets t
+           JOIN queues q ON t.queue_id = q.id
+           WHERE t.id = ? AND t.tenant_id = ?`
+        )
+        .bind(ticketId, tenantId)
+        .first<Record<string, unknown>>();
 
-        if (!ticket) {
-          return null;
-        }
-
-        const waitingAhead = await db.ticket.count({
-          where: {
-            queueId: ticket.queueId,
-            status: 'WAITING',
-            serialNumber: { lt: ticket.serialNumber },
-          },
-        });
-
-        const serviceLogs = await db.serviceLog.findMany({
-          where: {
-            tenantId: ticket.tenantId,
-            queueId: ticket.queueId,
-            durationSeconds: { not: null },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-          select: { durationSeconds: true },
-        });
-
-        const avgServiceTime =
-          serviceLogs.length > 0
-            ? Math.round(
-                serviceLogs.reduce(
-                  (sum, s) => sum + (s.durationSeconds ?? 0),
-                  0
-                ) / serviceLogs.length
-              )
-            : ticket.queue.defaultServiceTimeSec;
-
-        const ewt = (waitingAhead + 1) * avgServiceTime;
-        const formattedSerial = `${ticket.queue.prefix}${String(ticket.serialNumber).padStart(3, '0')}`;
-
-        return { ticket, waitingAhead, ewt, formattedSerial };
-      });
-
-      if (!result) {
+      if (!ticket) {
         return NextResponse.json(
           { error: 'Ticket not found' },
           { status: 404 }
         );
       }
 
+      const serialNumber = ticket.serial_number as number;
+      const waitingAhead = await getWaitingAhead(
+        d1,
+        ticket.queue_id as string,
+        serialNumber
+      );
+
+      const avgServiceTime = await getAvgServiceTime(
+        d1,
+        tenantId,
+        ticket.queue_id as string,
+        ticket.queue_default_service_time_sec as number
+      );
+
+      const ewt = (waitingAhead + 1) * avgServiceTime;
+      const formattedSerial = `${ticket.queue_prefix}${String(serialNumber).padStart(3, '0')}`;
+
       return NextResponse.json({
         ticket: {
-          id: result.ticket.id,
-          queueId: result.ticket.queueId,
-          serialNumber: result.ticket.serialNumber,
-          status: result.ticket.status,
-          _formattedSerial: result.formattedSerial,
-          _peopleAhead: result.waitingAhead + 1,
-          _ewt: result.ewt,
+          id: ticket.id,
+          queueId: ticket.queue_id,
+          serialNumber: ticket.serial_number,
+          status: ticket.status,
+          _formattedSerial: formattedSerial,
+          _peopleAhead: waitingAhead + 1,
+          _ewt: ewt,
           queue: {
-            name: result.ticket.queue.name,
+            name: ticket.queue_name,
           },
         },
       });
     }
 
-    // Phone lookup with pagination and date filter — wrapped in tenant context
-    const ticketsWithPosition = await withTenantCtx(tenantId, async () => {
-      const phoneFilter: Record<string, unknown> = {
-        customerPhone: phone,
-        tenantId,
-      };
+    // Phone lookup with pagination and date filter
+    let countSql =
+      'SELECT count(*) as cnt FROM tickets WHERE customer_phone = ? AND tenant_id = ?';
+    let dataSql = `SELECT t.id, t.queue_id, t.serial_number, t.status, t.created_at,
+                          q.name as queue_name, q.prefix as queue_prefix, q.default_service_time_sec as queue_default_service_time_sec, q.tenant_id as queue_tenant_id
+                   FROM tickets t
+                   JOIN queues q ON t.queue_id = q.id
+                   WHERE t.customer_phone = ? AND t.tenant_id = ?`;
+    const countBinds: unknown[] = [phone, tenantId];
+    const dataBinds: unknown[] = [phone, tenantId];
 
-      if (dateFrom || dateTo) {
-        const dateRange: Record<string, Date> = {};
-        if (dateFrom) dateRange.gte = new Date(dateFrom);
-        if (dateTo) {
-          const d = new Date(dateTo);
-          d.setHours(23, 59, 59, 999);
-          dateRange.lte = d;
-        }
-        phoneFilter.createdAt = dateRange;
+    if (dateFrom || dateTo) {
+      if (dateFrom) {
+        countSql += ' AND t.created_at >= ?';
+        dataSql += ' AND t.created_at >= ?';
+        countBinds.push(new Date(dateFrom).toISOString());
+        dataBinds.push(new Date(dateFrom).toISOString());
       }
+      if (dateTo) {
+        const d = new Date(dateTo);
+        d.setHours(23, 59, 59, 999);
+        countSql += ' AND t.created_at <= ?';
+        dataSql += ' AND t.created_at <= ?';
+        countBinds.push(d.toISOString());
+        dataBinds.push(d.toISOString());
+      }
+    }
 
-      const [tickets, total] = await Promise.all([
-        db.ticket.findMany({
-          where: phoneFilter,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-          include: {
-            queue: { select: { name: true, prefix: true, defaultServiceTimeSec: true, tenantId: true } },
-          },
-        }),
-        db.ticket.count({ where: phoneFilter }),
-      ]);
+    dataSql += ' ORDER BY t.created_at DESC LIMIT ? OFFSET ?';
+    dataBinds.push(limit, (page - 1) * limit);
 
-      const enriched = await Promise.all(
-        tickets.map(async (t) => {
-          let position: number | undefined;
-          let ewt: number | undefined;
+    const [totalResult, ticketsResult] = await Promise.all([
+      d1.prepare(countSql).bind(...countBinds).first<{ cnt: number }>(),
+      d1.prepare(dataSql).bind(...dataBinds).all<Record<string, unknown>>(),
+    ]);
 
-          if (t.status === 'WAITING') {
-            const waitingAhead = await db.ticket.count({
-              where: {
-                queueId: t.queueId,
-                status: 'WAITING',
-                serialNumber: { lt: t.serialNumber },
-              },
-            });
-            position = waitingAhead + 1;
+    const total = totalResult?.cnt ?? 0;
 
-            const serviceLogs = await db.serviceLog.findMany({
-              where: {
-                tenantId: t.queue.tenantId,
-                queueId: t.queueId,
-                durationSeconds: { not: null },
-              },
-              orderBy: { createdAt: 'desc' },
-              take: 20,
-              select: { durationSeconds: true },
-            });
+    // Enrich with position and EWT for WAITING tickets
+    const enriched = await Promise.all(
+      ticketsResult.results.map(async (t) => {
+        let position: number | undefined;
+        let ewt: number | undefined;
 
-            const avgServiceTime =
-              serviceLogs.length > 0
-                ? Math.round(
-                    serviceLogs.reduce(
-                      (sum, s) => sum + (s.durationSeconds ?? 0),
-                      0
-                    ) / serviceLogs.length
-                  )
-                : t.queue.defaultServiceTimeSec;
+        if (t.status === 'WAITING') {
+          const waitingAhead = await getWaitingAhead(
+            d1,
+            t.queue_id as string,
+            t.serial_number as number
+          );
+          position = waitingAhead + 1;
 
-            ewt = (waitingAhead + 1) * avgServiceTime;
-          }
+          const avgServiceTime = await getAvgServiceTime(
+            d1,
+            tenantId,
+            t.queue_id as string,
+            t.queue_default_service_time_sec as number
+          );
+          ewt = (waitingAhead + 1) * avgServiceTime;
+        }
 
-          return {
-            id: t.id,
-            queueId: t.queueId,
-            serialNumber: t.serialNumber,
-            status: t.status,
-            formattedSerial: `${t.queue.prefix}${String(t.serialNumber).padStart(3, '0')}`,
-            position,
-            ewt,
-          };
-        })
-      );
+        const formattedSerial = `${t.queue_prefix}${String(t.serial_number).padStart(3, '0')}`;
 
-      return { tickets: enriched, total };
-    });
+        return {
+          id: t.id,
+          queueId: t.queue_id,
+          serialNumber: t.serial_number,
+          status: t.status,
+          formattedSerial,
+          position,
+          ewt,
+        };
+      })
+    );
 
     return NextResponse.json({
-      tickets: ticketsWithPosition.tickets,
+      tickets: enriched,
       pagination: {
         page,
         limit,
-        total: ticketsWithPosition.total,
-        pages: Math.ceil(ticketsWithPosition.total / limit),
+        total,
+        pages: Math.ceil(total / limit),
       },
     });
   } catch (error) {

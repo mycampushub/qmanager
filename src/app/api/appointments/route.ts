@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 
 const TICKET_COST_CENTS = 100;
@@ -18,12 +18,12 @@ function timeToMinutes(time: string): number {
 
 // ─── GET: List appointments ─────────────────────────────────────
 
-// C-02: GET requires authentication — appointments contain customer PII
 export const GET = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       const scheduledDate = req.nextUrl.searchParams.get('scheduledDate');
       const phone = req.nextUrl.searchParams.get('phone');
@@ -34,13 +34,10 @@ export const GET = withAuth(
       );
 
       if (!tenantId) {
-        return NextResponse.json(
-          { error: 'tenantId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
-      // Tenant isolation: MANAGER/AGENT can only see own tenant
+      // Tenant isolation
       if (user.role !== 'PLATFORM_ADMIN' && user.tenantId !== tenantId) {
         return NextResponse.json(
           { error: 'You can only view your own tenant appointments' },
@@ -48,7 +45,9 @@ export const GET = withAuth(
         );
       }
 
-      const where: Record<string, unknown> = { tenantId };
+      // Build WHERE clause
+      const whereClauses: string[] = ['a.tenant_id = ?'];
+      const binds: unknown[] = [tenantId];
 
       if (scheduledDate) {
         if (!DATE_REGEX.test(scheduledDate)) {
@@ -57,66 +56,73 @@ export const GET = withAuth(
             { status: 400 }
           );
         }
-        where.scheduledDate = scheduledDate;
+        whereClauses.push('a.scheduled_date = ?');
+        binds.push(scheduledDate);
       }
 
       if (phone) {
-        where.customerPhone = phone;
+        whereClauses.push('a.customer_phone = ?');
+        binds.push(phone);
       }
 
-      const [total, appointments] = await Promise.all([
-        db.appointment.count({ where }),
-        db.appointment.findMany({
-          where,
-          orderBy: [{ scheduledDate: 'asc' }, { scheduledTime: 'asc' }],
-          skip: (page - 1) * limit,
-          take: limit,
-          include: {
-            queue: { select: { id: true, name: true, prefix: true } },
-            ticket: {
-              select: {
-                id: true,
-                serialNumber: true,
-                status: true,
-              },
-            },
-          },
-        }),
+      const whereSQL = whereClauses.join(' AND ');
+
+      const [countResult, listResult] = await d1.batch([
+        d1.prepare(`SELECT count(*) as cnt FROM appointments a WHERE ${whereSQL}`).bind(...binds),
+        d1.prepare(
+          `SELECT a.id, a.tenant_id, a.queue_id, a.customer_name, a.customer_phone,
+                  a.scheduled_date, a.scheduled_time, a.status, a.notes, a.ticket_id,
+                  a.created_at, a.updated_at,
+                  q.name as queue_name, q.prefix as queue_prefix,
+                  t.id as ticket_id_col, t.serial_number as ticket_serial, t.status as ticket_status
+           FROM appointments a
+           JOIN queues q ON a.queue_id = q.id
+           LEFT JOIN tickets t ON a.ticket_id = t.id
+           WHERE ${whereSQL}
+           ORDER BY a.scheduled_date ASC, a.scheduled_time ASC
+           LIMIT ? OFFSET ?`
+        ).bind(...binds, limit, (page - 1) * limit),
       ]);
 
-      return NextResponse.json({
-        appointments: appointments.map((a) => ({
-          id: a.id,
-          tenantId: a.tenantId,
-          queueId: a.queueId,
-          queueName: a.queue.name,
-          queuePrefix: a.queue.prefix,
-          customerName: a.customerName,
-          customerPhone: a.customerPhone,
-          scheduledDate: a.scheduledDate,
-          scheduledTime: a.scheduledTime,
-          status: a.status,
-          notes: a.notes,
-          ticketId: a.ticketId,
-          ticket: a.ticket
-            ? {
-                ...a.ticket,
-                formattedSerial: `${a.queue.prefix}${String(a.ticket.serialNumber).padStart(3, '0')}`,
-              }
-            : null,
-          createdAt: a.createdAt.toISOString(),
-          updatedAt: a.updatedAt.toISOString(),
-        })),
-        total,
-        page,
-        limit,
-      });
+      const total = ((countResult.results as { cnt: number }[])[0]?.cnt) ?? 0;
+
+      type ApptRow = {
+        id: string; tenant_id: string; queue_id: string; customer_name: string; customer_phone: string | null;
+        scheduled_date: string; scheduled_time: string; status: string; notes: string | null; ticket_id: string | null;
+        created_at: string; updated_at: string;
+        queue_name: string; queue_prefix: string;
+        ticket_id_col: string | null; ticket_serial: number | null; ticket_status: string | null;
+      };
+
+      const appointments = (listResult.results as ApptRow[]).map((a) => ({
+        id: a.id,
+        tenantId: a.tenant_id,
+        queueId: a.queue_id,
+        queueName: a.queue_name,
+        queuePrefix: a.queue_prefix,
+        customerName: a.customer_name,
+        customerPhone: a.customer_phone,
+        scheduledDate: a.scheduled_date,
+        scheduledTime: a.scheduled_time,
+        status: a.status,
+        notes: a.notes,
+        ticketId: a.ticket_id,
+        ticket: a.ticket_id_col
+          ? {
+              id: a.ticket_id_col,
+              serialNumber: a.ticket_serial,
+              status: a.ticket_status,
+              formattedSerial: `${a.queue_prefix}${String(a.ticket_serial ?? 0).padStart(3, '0')}`,
+            }
+          : null,
+        createdAt: a.created_at,
+        updatedAt: a.updated_at,
+      }));
+
+      return NextResponse.json({ appointments, total, page, limit });
     } catch (error) {
       console.error('List appointments error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['AGENT', 'MANAGER', 'PLATFORM_ADMIN'] }
@@ -129,6 +135,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const {
         tenantId,
@@ -178,101 +185,98 @@ export const POST = withAuth(
         );
       }
 
-      // H-12/H-13: Wrap queue validation, conflict check, plan limit, and creation in a single transaction
-      const appointment = await db.$transaction(async (tx) => {
-        // Validate queue exists and is active
-        const queue = await tx.queue.findUnique({ where: { id: queueId } });
-        if (!queue || !queue.isActive || queue.tenantId !== effectiveTenantId) {
-          throw new Error('Queue not found, inactive, or does not belong to this tenant');
-        }
+      // Validate queue exists and is active
+      const queue = await d1
+        .prepare('SELECT id, tenant_id, is_active FROM queues WHERE id = ?')
+        .bind(queueId)
+        .first<{ id: string; tenant_id: string; is_active: number }>();
 
-        // Check time conflict inside transaction
-        const newMinutes = timeToMinutes(scheduledTime);
-        const existing = await tx.appointment.findMany({
-          where: {
-            tenantId: effectiveTenantId,
-            queueId,
-            scheduledDate,
-            status: { in: ['SCHEDULED', 'CHECKED_IN'] },
-          },
-          select: { id: true, scheduledTime: true },
-        });
-        for (const appt of existing) {
-          const existingMinutes = timeToMinutes(appt.scheduledTime);
-          if (Math.abs(newMinutes - existingMinutes) < 15) {
-            throw new Error('CONFLICT');
-          }
-        }
-
-        // Check plan limit inside transaction
-        const tenant = await tx.tenant.findUnique({ where: { id: effectiveTenantId } });
-        if (tenant) {
-          const planLimit = await tx.planLimit.findUnique({
-            where: { planTier: tenant.planTier },
-          });
-          if (planLimit) {
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-            const todayCount = await tx.ticket.count({
-              where: {
-                tenantId: effectiveTenantId,
-                createdAt: { gte: todayStart },
-              },
-            });
-            const todayApptCount = await tx.appointment.count({
-              where: {
-                tenantId: effectiveTenantId,
-                scheduledDate: new Date().toISOString().slice(0, 10),
-                status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-              },
-            });
-            if (todayCount + todayApptCount >= planLimit.maxTicketsPerDay) {
-              throw new Error('LIMIT');
-            }
-          }
-        }
-
-        return tx.appointment.create({
-          data: {
-            tenantId: effectiveTenantId,
-            queueId,
-            customerName,
-            customerPhone: customerPhone || null,
-            scheduledDate,
-            scheduledTime,
-            notes: notes || null,
-            status: 'SCHEDULED',
-          },
-        });
-      });
-
-      return NextResponse.json({ appointment }, { status: 201 });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Internal server error';
-      if (message === 'CONFLICT') {
+      if (!queue || queue.is_active !== 1 || queue.tenant_id !== effectiveTenantId) {
         return NextResponse.json(
-          { error: 'Time slot conflict: another appointment exists within ±15 minutes' },
-          { status: 409 }
-        );
-      }
-      if (message === 'LIMIT') {
-        return NextResponse.json(
-          { error: 'Daily ticket/appointment limit reached' },
+          { error: 'Queue not found, inactive, or does not belong to this tenant' },
           { status: 400 }
         );
       }
-      if (
-        message.includes('not found') ||
-        message.includes('inactive') ||
-        message.includes('does not belong')
-      ) {
-        return NextResponse.json({ error: message }, { status: 400 });
+
+      // Check time conflict
+      const newMinutes = timeToMinutes(scheduledTime);
+      const existingAppts = await d1
+        .prepare(
+          `SELECT id, scheduled_time FROM appointments
+           WHERE tenant_id = ? AND queue_id = ? AND scheduled_date = ? AND status IN ('SCHEDULED', 'CHECKED_IN')`
+        )
+        .bind(effectiveTenantId, queueId, scheduledDate)
+        .all<{ id: string; scheduled_time: string }>();
+
+      for (const appt of existingAppts.results) {
+        const existingMinutes = timeToMinutes(appt.scheduled_time);
+        if (Math.abs(newMinutes - existingMinutes) < 15) {
+          return NextResponse.json(
+            { error: 'Time slot conflict: another appointment exists within ±15 minutes' },
+            { status: 409 }
+          );
+        }
       }
+
+      // Check plan limit
+      const tenantRow = await d1
+        .prepare(
+          `SELECT pl.max_tickets_per_day as max_tpd
+           FROM tenants t JOIN plan_limits pl ON t.plan_tier = pl.plan_tier
+           WHERE t.id = ?`
+        )
+        .bind(effectiveTenantId)
+        .first<{ max_tpd: number }>();
+
+      if (tenantRow) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const [ticketCount, apptCount] = await d1.batch([
+          d1.prepare('SELECT count(*) as cnt FROM tickets WHERE tenant_id = ? AND created_at >= ?').bind(effectiveTenantId, todayStart.toISOString()),
+          d1.prepare("SELECT count(*) as cnt FROM appointments WHERE tenant_id = ? AND scheduled_date = ? AND status NOT IN ('CANCELLED', 'NO_SHOW')").bind(effectiveTenantId, todayStr),
+        ]);
+
+        const todayTickets = ((ticketCount.results as { cnt: number }[])[0]?.cnt) ?? 0;
+        const todayAppts = ((apptCount.results as { cnt: number }[])[0]?.cnt) ?? 0;
+
+        if (todayTickets + todayAppts >= tenantRow.max_tpd) {
+          return NextResponse.json(
+            { error: 'Daily ticket/appointment limit reached' },
+            { status: 400 }
+          );
+        }
+      }
+
+      // Create appointment
+      const newId = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      await d1.prepare(
+        `INSERT INTO appointments (id, tenant_id, queue_id, customer_name, customer_phone, scheduled_date, scheduled_time, notes, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?)`
+      ).bind(newId, effectiveTenantId, queueId, customerName, customerPhone || null, scheduledDate, scheduledTime, notes || null, now, now).run();
+
+      const appointment = {
+        id: newId,
+        tenantId: effectiveTenantId,
+        queueId,
+        customerName,
+        customerPhone: customerPhone || null,
+        scheduledDate,
+        scheduledTime,
+        status: 'SCHEDULED',
+        notes: notes || null,
+        ticketId: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      return NextResponse.json({ appointment }, { status: 201 });
+    } catch (error) {
       console.error('Create appointment error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER', 'AGENT'] }
@@ -285,6 +289,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { id, status } = body as {
         id: string;
@@ -292,10 +297,7 @@ export const PUT = withAuth(
       };
 
       if (!id || !status) {
-        return NextResponse.json(
-          { error: 'id and status are required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'id and status are required' }, { status: 400 });
       }
 
       const validStatuses = ['CHECKED_IN', 'SERVING', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
@@ -306,16 +308,23 @@ export const PUT = withAuth(
         );
       }
 
-      const appointment = await db.appointment.findUnique({
-        where: { id },
-        include: { queue: true },
-      });
+      // Fetch appointment with queue info
+      const appointment = await d1.prepare(
+        `SELECT a.id, a.tenant_id, a.queue_id, a.customer_name, a.customer_phone, a.status, a.ticket_id,
+                q.prefix
+         FROM appointments a
+         JOIN queues q ON a.queue_id = q.id
+         WHERE a.id = ?`
+      ).bind(id).first<{
+        id: string; tenant_id: string; queue_id: string; customer_name: string; customer_phone: string | null;
+        status: string; ticket_id: string | null; prefix: string;
+      }>();
 
       if (!appointment) {
         return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
       }
 
-      if (user.role === 'MANAGER' && user.tenantId !== appointment.tenantId) {
+      if (user.role === 'MANAGER' && user.tenantId !== appointment.tenant_id) {
         return NextResponse.json(
           { error: 'You can only manage your own tenant' },
           { status: 403 }
@@ -329,119 +338,106 @@ export const PUT = withAuth(
         );
       }
 
-      // Handle CHECKED_IN: convert to ticket via internal call
+      // Handle CHECKED_IN: convert to ticket
       if (status === 'CHECKED_IN') {
-        // Prevent double check-in
-        if (appointment.status === 'CHECKED_IN' || appointment.ticketId) {
+        if (appointment.status === 'CHECKED_IN' || appointment.ticket_id) {
           return NextResponse.json(
             { error: 'Appointment already checked in' },
             { status: 409 }
           );
         }
 
-        // Create ticket directly (mimic /api/queues/join logic)
-        const result = await db.$transaction(async (tx) => {
-          const tenant = await tx.tenant.findUnique({
-            where: { id: appointment.tenantId },
-          });
-          if (!tenant || !tenant.isActive) {
-            throw new Error('Tenant not found or inactive');
-          }
+        const now = new Date().toISOString();
+        const ticketId = crypto.randomUUID();
+        const ledgerId = crypto.randomUUID();
+        const txnId = crypto.randomUUID();
 
-          if (tenant.walletBalance < TICKET_COST_CENTS) {
-            throw new Error('Insufficient wallet balance');
-          }
+        // Transaction: check wallet, increment serial, create ticket, create ledger, create transaction, update appointment
+        const results = await d1.batch([
+          // 1. Check tenant wallet + active status
+          d1.prepare('SELECT id, is_active, wallet_balance FROM tenants WHERE id = ?').bind(appointment.tenant_id),
+          // 2. Get current serial
+          d1.prepare('SELECT current_serial FROM queues WHERE id = ?').bind(appointment.queue_id),
+        ]);
 
-          const updatedQueue = await tx.queue.update({
-            where: { id: appointment.queueId },
-            data: { currentSerial: { increment: 1 } },
-          });
+        const tenant = (results[0].results as { id: string; is_active: number; wallet_balance: number }[])[0];
+        if (!tenant || tenant.is_active !== 1) {
+          return NextResponse.json({ error: 'Tenant not found or inactive' }, { status: 400 });
+        }
+        if (tenant.wallet_balance < TICKET_COST_CENTS) {
+          return NextResponse.json({ error: 'Insufficient wallet balance' }, { status: 400 });
+        }
 
-          const updatedTenant = await tx.tenant.update({
-            where: { id: appointment.tenantId },
-            data: { walletBalance: { decrement: TICKET_COST_CENTS } },
-          });
+        const newSerial = ((results[1].results as { current_serial: number }[])[0]?.current_serial ?? 0) + 1;
 
-          const ticket = await tx.ticket.create({
-            data: {
-              tenantId: appointment.tenantId,
-              queueId: appointment.queueId,
-              serialNumber: updatedQueue.currentSerial,
-              status: 'WAITING',
-              customerName: appointment.customerName,
-              customerPhone: appointment.customerPhone,
-            },
-          });
+        // Execute all writes in a batch (D1 transaction)
+        await d1.batch([
+          d1.prepare('UPDATE queues SET current_serial = ?, updated_at = ? WHERE id = ?').bind(newSerial, now, appointment.queue_id),
+          d1.prepare('UPDATE tenants SET wallet_balance = wallet_balance - ?, updated_at = ? WHERE id = ?').bind(TICKET_COST_CENTS, now, appointment.tenant_id),
+          d1.prepare(
+            `INSERT INTO tickets (id, tenant_id, queue_id, serial_number, status, customer_name, customer_phone, created_at)
+             VALUES (?, ?, ?, ?, 'WAITING', ?, ?, ?)`
+          ).bind(ticketId, appointment.tenant_id, appointment.queue_id, newSerial, appointment.customer_name, appointment.customer_phone, now),
+          d1.prepare(
+            `INSERT INTO usage_ledgers (id, tenant_id, ticket_id, cost_cents, created_at) VALUES (?, ?, ?, ?, ?)`
+          ).bind(ledgerId, appointment.tenant_id, ticketId, TICKET_COST_CENTS, now),
+          d1.prepare(
+            `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by, created_at)
+             VALUES (?, ?, 'TICKET_CHARGE', ?, ?, ?, ?)`
+          ).bind(txnId, appointment.tenant_id, -TICKET_COST_CENTS, `Ticket from appointment ${appointment.id}`, user.userId, now),
+          d1.prepare(
+            `UPDATE appointments SET status = 'CHECKED_IN', ticket_id = ?, updated_at = ? WHERE id = ?`
+          ).bind(ticketId, now, id),
+        ]);
 
-          await tx.usageLedger.create({
-            data: {
-              tenantId: appointment.tenantId,
-              ticketId: ticket.id,
-              costCents: TICKET_COST_CENTS,
-            },
-          });
-
-          await tx.transaction.create({
-            data: {
-              tenantId: appointment.tenantId,
-              type: 'TICKET_CHARGE',
-              amountCents: -TICKET_COST_CENTS,
-              description: `Ticket from appointment ${appointment.id}`,
-              createdBy: user.userId,
-            },
-          });
-
-          const updatedAppt = await tx.appointment.update({
-            where: { id },
-            data: { status: 'CHECKED_IN', ticketId: ticket.id },
-          });
-
-          return { ticket, updatedAppt, newBalance: updatedTenant.walletBalance };
-        });
+        const newBalance = tenant.wallet_balance - TICKET_COST_CENTS;
 
         return NextResponse.json({
           appointment: {
-            ...result.updatedAppt,
+            id,
+            tenantId: appointment.tenant_id,
+            queueId: appointment.queue_id,
+            customerName: appointment.customer_name,
+            customerPhone: appointment.customer_phone,
+            scheduledDate: '',  // not needed in check-in response but keeping shape
+            scheduledTime: '',
+            status: 'CHECKED_IN',
+            notes: null,
+            ticketId,
             ticket: {
-              ...result.ticket,
-              formattedSerial: `${appointment.queue.prefix}${String(result.ticket.serialNumber).padStart(3, '0')}`,
+              id: ticketId,
+              tenantId: appointment.tenant_id,
+              queueId: appointment.queue_id,
+              serialNumber: newSerial,
+              status: 'WAITING',
+              customerName: appointment.customer_name,
+              customerPhone: appointment.customer_phone,
+              formattedSerial: `${appointment.prefix}${String(newSerial).padStart(3, '0')}`,
             },
+            createdAt: now,
+            updatedAt: now,
           },
-          newBalance: result.newBalance,
+          newBalance,
         });
       }
 
-      // Handle CANCELLED / NO_SHOW
-      if (status === 'CANCELLED' || status === 'NO_SHOW') {
-        const updated = await db.appointment.update({
-          where: { id },
-          data: { status },
-        });
-        return NextResponse.json({ appointment: updated });
-      }
+      // Handle CANCELLED / NO_SHOW / SERVING / COMPLETED — simple update
+      const now = new Date().toISOString();
+      await d1
+        .prepare('UPDATE appointments SET status = ?, updated_at = ? WHERE id = ?')
+        .bind(status, now, id)
+        .run();
 
-      // Other statuses (SERVING, COMPLETED) — just update
-      const updated = await db.appointment.update({
-        where: { id },
-        data: { status },
-      });
+      // Fetch updated
+      const updated = await d1
+        .prepare('SELECT * FROM appointments WHERE id = ?')
+        .bind(id)
+        .first<Record<string, unknown>>();
 
       return NextResponse.json({ appointment: updated });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Internal server error';
-      if (
-        message.includes('not found') ||
-        message.includes('inactive') ||
-        message.includes('Insufficient') ||
-        message.includes('already checked')
-      ) {
-        return NextResponse.json({ error: message }, { status: 400 });
-      }
       console.error('Update appointment error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER', 'AGENT'] }
@@ -454,20 +450,22 @@ export const DELETE = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const id = req.nextUrl.searchParams.get('id');
       if (!id) {
-        return NextResponse.json(
-          { error: 'id query param is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'id query param is required' }, { status: 400 });
       }
 
-      const appointment = await db.appointment.findUnique({ where: { id } });
+      const appointment = await d1
+        .prepare('SELECT id, tenant_id, status FROM appointments WHERE id = ?')
+        .bind(id)
+        .first<{ id: string; tenant_id: string; status: string }>();
+
       if (!appointment) {
         return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
       }
 
-      if (user.role === 'MANAGER' && user.tenantId !== appointment.tenantId) {
+      if (user.role === 'MANAGER' && user.tenantId !== appointment.tenant_id) {
         return NextResponse.json(
           { error: 'You can only manage your own tenant' },
           { status: 403 }
@@ -481,18 +479,22 @@ export const DELETE = withAuth(
         );
       }
 
-      const updated = await db.appointment.update({
-        where: { id },
-        data: { status: 'CANCELLED' },
-      });
+      const now = new Date().toISOString();
+      await d1
+        .prepare("UPDATE appointments SET status = 'CANCELLED', updated_at = ? WHERE id = ?")
+        .bind(now, id)
+        .run();
+
+      // Fetch updated
+      const updated = await d1
+        .prepare('SELECT * FROM appointments WHERE id = ?')
+        .bind(id)
+        .first<Record<string, unknown>>();
 
       return NextResponse.json({ appointment: updated });
     } catch (error) {
       console.error('Cancel appointment error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER'] }

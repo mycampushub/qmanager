@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 import { analyticsToCSV } from '@/lib/csv-export';
 
@@ -15,10 +15,7 @@ export const GET = withAuth(
       const format = req.nextUrl.searchParams.get('format') || 'json';
 
       if (!tenantId) {
-        return NextResponse.json(
-          { error: 'tenantId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
       // MANAGER can only view own tenant analytics
@@ -29,14 +26,16 @@ export const GET = withAuth(
         );
       }
 
-      // Date range filters
-      const dateFilter: Record<string, Date | undefined> = {};
+      // B11: Date range validation
+      let dateFromISO: string | null = null;
+      let dateToISO: string | null = null;
+
       if (dateFrom) {
         const parsed = new Date(dateFrom);
         if (isNaN(parsed.getTime())) {
           return NextResponse.json({ error: 'Invalid dateFrom format' }, { status: 400 });
         }
-        dateFilter.gte = parsed;
+        dateFromISO = parsed.toISOString();
       }
       if (dateTo) {
         const parsed = new Date(dateTo);
@@ -44,143 +43,154 @@ export const GET = withAuth(
           return NextResponse.json({ error: 'Invalid dateTo format' }, { status: 400 });
         }
         parsed.setHours(23, 59, 59, 999);
-        dateFilter.lte = parsed;
+        dateToISO = parsed.toISOString();
       }
 
-      // Base ticket filter
-      const ticketBase: Record<string, unknown> = { tenantId };
-      if (Object.keys(dateFilter).length > 0) {
-        ticketBase.createdAt = dateFilter;
-      }
+      // Build date filter SQL fragments
+      const dateConditions: string[] = [];
+      const dateBinds: unknown[] = [];
+      if (dateFromISO) { dateConditions.push('created_at >= ?'); dateBinds.push(dateFromISO); }
+      if (dateToISO) { dateConditions.push('created_at <= ?'); dateBinds.push(dateToISO); }
+      const dateWhere = dateConditions.length > 0 ? `AND ${dateConditions.join(' AND ')}` : '';
 
-      // Overall stats
-      const [totalTickets, completedTickets, skippedTickets] = await Promise.all([
-        db.ticket.count({ where: ticketBase }),
-        db.ticket.count({
-          where: { ...ticketBase, status: 'COMPLETED' },
-        }),
-        db.ticket.count({
-          where: { ...ticketBase, status: 'SKIPPED' },
-        }),
+      const d1 = getD1FromEnv();
+
+      // ── Overall stats ──────────────────────────────────────────────────
+      const [totalResult, completedResult, skippedResult] = await Promise.all([
+        d1
+          .prepare(`SELECT count(*) as cnt FROM tickets WHERE tenant_id = ? ${dateWhere}`)
+          .bind(tenantId, ...dateBinds)
+          .first<{ cnt: number }>(),
+        d1
+          .prepare(`SELECT count(*) as cnt FROM tickets WHERE tenant_id = ? AND status = 'COMPLETED' ${dateWhere}`)
+          .bind(tenantId, ...dateBinds)
+          .first<{ cnt: number }>(),
+        d1
+          .prepare(`SELECT count(*) as cnt FROM tickets WHERE tenant_id = ? AND status = 'SKIPPED' ${dateWhere}`)
+          .bind(tenantId, ...dateBinds)
+          .first<{ cnt: number }>(),
       ]);
 
-      // Avg wait time (completed tickets: completedAt - createdAt)
-      const completedWithTimes = await db.ticket.findMany({
-        where: {
-          ...ticketBase,
-          status: 'COMPLETED',
-          completedAt: { not: null },
-          servedAt: { not: null },
-        },
-        select: { createdAt: true, servedAt: true, completedAt: true },
-      });
+      const totalTickets = totalResult?.cnt ?? 0;
+      const completedTickets = completedResult?.cnt ?? 0;
+      const skippedTickets = skippedResult?.cnt ?? 0;
 
-      const avgWaitTimeSec =
-        completedWithTimes.length > 0
-          ? Math.round(
-              completedWithTimes.reduce((sum, t) => {
-                const wait = (t.servedAt!.getTime() - t.createdAt.getTime()) / 1000;
-                return sum + wait;
-              }, 0) / completedWithTimes.length
-            )
-          : 0;
+      // ── Avg wait/service time ──────────────────────────────────────────
+      const completedWithTimes = await d1
+        .prepare(
+          `SELECT created_at, served_at, completed_at
+           FROM tickets
+           WHERE tenant_id = ? AND status = 'COMPLETED' AND served_at IS NOT NULL AND completed_at IS NOT NULL ${dateWhere}`
+        )
+        .bind(tenantId, ...dateBinds)
+        .all<{ created_at: string; served_at: string; completed_at: string }>();
 
-      const avgServiceTimeSec =
-        completedWithTimes.length > 0
-          ? Math.round(
-              completedWithTimes.reduce((sum, t) => {
-                const svc = (t.completedAt!.getTime() - t.servedAt!.getTime()) / 1000;
-                return sum + svc;
-              }, 0) / completedWithTimes.length
-            )
-          : 0;
+      let avgWaitTimeSec = 0;
+      let avgServiceTimeSec = 0;
+      if (completedWithTimes.results.length > 0) {
+        const rows = completedWithTimes.results;
+        const totalWaitSec = rows.reduce((sum, t) => {
+          return sum + (new Date(t.served_at).getTime() - new Date(t.created_at).getTime()) / 1000;
+        }, 0);
+        avgWaitTimeSec = Math.round(totalWaitSec / rows.length);
 
-      // Peak hour calculation
-      const hourBuckets = new Array(24).fill(0);
-      for (const t of await db.ticket.findMany({
-        where: ticketBase,
-        select: { createdAt: true },
-      })) {
-        hourBuckets[t.createdAt.getHours()]++;
+        const totalServiceSec = rows.reduce((sum, t) => {
+          return sum + (new Date(t.completed_at).getTime() - new Date(t.served_at).getTime()) / 1000;
+        }, 0);
+        avgServiceTimeSec = Math.round(totalServiceSec / rows.length);
+      }
+
+      // ── Peak hour ──────────────────────────────────────────────────────
+      const hourTickets = await d1
+        .prepare(`SELECT created_at FROM tickets WHERE tenant_id = ? ${dateWhere}`)
+        .bind(tenantId, ...dateBinds)
+        .all<{ created_at: string }>();
+
+      const hourBuckets = new Array(24).fill(0) as number[];
+      for (const t of hourTickets.results) {
+        hourBuckets[new Date(t.created_at).getHours()]++;
       }
       const peakHour = hourBuckets.indexOf(Math.max(...hourBuckets));
 
-      // Queue stats with per-queue EWT
-      const queues = await db.queue.findMany({
-        where: { tenantId, isActive: true },
-      });
+      // ── Queue stats with per-queue EWT ─────────────────────────────────
+      const queues = await d1
+        .prepare(`SELECT id, name, prefix, default_service_time_sec FROM queues WHERE tenant_id = ? AND is_active = 1`)
+        .bind(tenantId)
+        .all<{ id: string; name: string; prefix: string; default_service_time_sec: number }>();
 
       const queueStats = await Promise.all(
-        queues.map(async (queue) => {
-          const queueTicketBase: Record<string, unknown> = {
-            tenantId,
-            queueId: queue.id,
-          };
-          if (Object.keys(dateFilter).length > 0) {
-            queueTicketBase.createdAt = dateFilter;
-          }
-
-          const [waiting, serving, completed] = await Promise.all([
-            db.ticket.count({
-              where: { queueId: queue.id, status: 'WAITING' },
-            }),
-            db.ticket.count({
-              where: { queueId: queue.id, status: 'SERVING' },
-            }),
-            db.ticket.count({
-              where: { ...queueTicketBase, status: 'COMPLETED' },
-            }),
+        queues.results.map(async (queue) => {
+          const [waitingResult, servingResult, completedQResult] = await Promise.all([
+            d1
+              .prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'WAITING'`)
+              .bind(queue.id)
+              .first<{ cnt: number }>(),
+            d1
+              .prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'SERVING'`)
+              .bind(queue.id)
+              .first<{ cnt: number }>(),
+            d1
+              .prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'COMPLETED' ${dateWhere}`)
+              .bind(queue.id, ...dateBinds)
+              .first<{ cnt: number }>(),
           ]);
 
-          const serviceLogs = await db.serviceLog.findMany({
-            where: {
-              tenantId,
-              queueId: queue.id,
-              durationSeconds: { not: null },
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 20,
-            select: { durationSeconds: true },
-          });
+          const logsResult = await d1
+            .prepare(
+              `SELECT duration_seconds FROM service_logs
+               WHERE tenant_id = ? AND queue_id = ? AND duration_seconds IS NOT NULL
+               ORDER BY created_at DESC LIMIT 20`
+            )
+            .bind(tenantId, queue.id)
+            .all<{ duration_seconds: number }>();
 
           const queueAvgServiceTime =
-            serviceLogs.length > 0
+            logsResult.results.length > 0
               ? Math.round(
-                  serviceLogs.reduce(
-                    (sum, s) => sum + (s.durationSeconds ?? 0),
+                  logsResult.results.reduce(
+                    (sum, s) => sum + s.duration_seconds,
                     0
-                  ) / serviceLogs.length
+                  ) / logsResult.results.length
                 )
-              : queue.defaultServiceTimeSec;
+              : queue.default_service_time_sec;
 
-          const ewt = waiting * queueAvgServiceTime;
+          const ewt = (waitingResult?.cnt ?? 0) * queueAvgServiceTime;
 
           return {
             queueId: queue.id,
             queueName: queue.name,
             prefix: queue.prefix,
-            waiting,
-            serving,
-            completed,
+            waiting: waitingResult?.cnt ?? 0,
+            serving: servingResult?.cnt ?? 0,
+            completed: completedQResult?.cnt ?? 0,
             avgServiceTime: queueAvgServiceTime,
             ewt,
           };
         })
       );
 
-      // M-13: Recent activity must also respect date filter
-      const recentWhere: Record<string, unknown> = { tenantId };
-      if (Object.keys(dateFilter).length > 0) {
-        recentWhere.createdAt = dateFilter;
-      }
-      const recentTickets = await db.ticket.findMany({
-        where: recentWhere,
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-        include: { queue: { select: { name: true, prefix: true } } },
-      });
+      // ── Recent activity (respects date filter) ─────────────────────────
+      const recentTickets = await d1
+        .prepare(
+          `SELECT t.id, t.status, t.customer_name, t.serial_number, t.created_at,
+                  q.name as queue_name, q.prefix as queue_prefix
+           FROM tickets t
+           JOIN queues q ON q.id = t.queue_id
+           WHERE t.tenant_id = ? ${dateWhere}
+           ORDER BY t.created_at DESC LIMIT 20`
+        )
+        .bind(tenantId, ...dateBinds)
+        .all<{
+          id: string;
+          status: string;
+          customer_name: string;
+          serial_number: number;
+          created_at: string;
+          queue_name: string;
+          queue_prefix: string;
+        }>();
 
-      const recentActivity = recentTickets.map((t) => ({
+      const recentActivity = recentTickets.results.map((t) => ({
         id: t.id,
         type: t.status as
           | 'JOINED'
@@ -188,10 +198,10 @@ export const GET = withAuth(
           | 'COMPLETED'
           | 'SKIPPED'
           | 'CANCELLED',
-        customerName: t.customerName,
-        ticketSerial: `${t.queue.prefix}${String(t.serialNumber).padStart(3, '0')}`,
-        queueName: t.queue.name,
-        timestamp: t.createdAt.toISOString(),
+        customerName: t.customer_name,
+        ticketSerial: `${t.queue_prefix}${String(t.serial_number).padStart(3, '0')}`,
+        queueName: t.queue_name,
+        timestamp: t.created_at,
       }));
 
       const analyticsData: Record<string, unknown> = {
@@ -206,7 +216,7 @@ export const GET = withAuth(
         exportedAt: new Date().toISOString(),
       };
 
-      // ── Format switch ──────────────────────────────────────────
+      // ── Format switch ──────────────────────────────────────────────────
       if (format === 'csv') {
         const dateSlug = dateFrom && dateTo
           ? `${dateFrom}_to_${dateTo}`
@@ -224,10 +234,7 @@ export const GET = withAuth(
       });
     } catch (error) {
       console.error('Analytics export error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER', 'PLATFORM_ADMIN'] }

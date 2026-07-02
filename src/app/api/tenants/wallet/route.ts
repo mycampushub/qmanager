@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db, withTenantCtx } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 
 // GET: Wallet balance, usage stats, and transaction history
@@ -18,78 +18,75 @@ export const GET = withAuth(
         );
       }
 
-      // Read Tenant metadata from the correct DB based on user context
-      const tenant = await db.tenant.findUnique({
-        where: { id: effectiveTenantId },
-        select: {
-          id: true,
-          name: true,
-          walletBalance: true,
-          planTier: true,
-        },
-      });
+      const d1 = getD1FromEnv();
+
+      // Read tenant metadata
+      const tenant = await d1
+        .prepare(`SELECT id, name, wallet_balance, plan_tier FROM tenants WHERE id = ?`)
+        .bind(effectiveTenantId)
+        .first<{ id: string; name: string; wallet_balance: number; plan_tier: string }>();
 
       if (!tenant) {
-        return NextResponse.json(
-          { error: 'Tenant not found' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
       }
 
-      // Tenant-specific queries (tickets, usage, transactions) go to the tenant DB
-      const { todayTickets, totalCharges, transactions } = await withTenantCtx(effectiveTenantId, async () => {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+      // Today's start (UTC ISO string)
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayISO = todayStart.toISOString();
 
-        const [tt, tc, tr] = await Promise.all([
-          db.ticket.count({
-            where: {
-              tenantId: effectiveTenantId,
-              createdAt: { gte: todayStart },
-              status: { notIn: ['CANCELLED'] },
-            },
-          }),
-          db.usageLedger.aggregate({
-            where: { tenantId: effectiveTenantId },
-            _sum: { costCents: true },
-          }),
-          db.transaction.findMany({
-            where: { tenantId: effectiveTenantId },
-            orderBy: { createdAt: 'desc' },
-            take: 20,
-            select: {
-              id: true,
-              type: true,
-              amountCents: true,
-              description: true,
-              createdBy: true,
-              createdAt: true,
-            },
-          }),
-        ]);
+      // Fetch today's tickets (non-cancelled), total charges, and recent transactions in parallel
+      const [todayTicketsResult, totalChargesResult, transactionsResult] = await Promise.all([
+        d1
+          .prepare(`SELECT count(*) as cnt FROM tickets WHERE tenant_id = ? AND created_at >= ? AND status != 'CANCELLED'`)
+          .bind(effectiveTenantId, todayISO)
+          .first<{ cnt: number }>(),
+        d1
+          .prepare(`SELECT COALESCE(SUM(cost_cents), 0) as total FROM usage_ledgers WHERE tenant_id = ?`)
+          .bind(effectiveTenantId)
+          .first<{ total: number }>(),
+        d1
+          .prepare(
+            `SELECT id, type, amount_cents, description, created_by, created_at
+             FROM transactions WHERE tenant_id = ?
+             ORDER BY created_at DESC LIMIT 20`
+          )
+          .bind(effectiveTenantId)
+          .all<{
+            id: string;
+            type: string;
+            amount_cents: number;
+            description: string | null;
+            created_by: string | null;
+            created_at: string;
+          }>(),
+      ]);
 
-        return { todayTickets: tt, totalCharges: tc, transactions: tr };
-      });
+      const transactions = transactionsResult.results.map((t) => ({
+        id: t.id,
+        type: t.type,
+        amountCents: t.amount_cents,
+        description: t.description,
+        createdBy: t.created_by,
+        createdAt: t.created_at,
+      }));
 
       return NextResponse.json({
         tenant: {
           id: tenant.id,
           name: tenant.name,
-          planTier: tenant.planTier,
-          walletBalance: tenant.walletBalance,
+          planTier: tenant.plan_tier,
+          walletBalance: tenant.wallet_balance,
         },
         usage: {
-          todayTickets,
-          totalCharged: totalCharges._sum.costCents || 0,
+          todayTickets: todayTicketsResult?.cnt ?? 0,
+          totalCharged: totalChargesResult?.total ?? 0,
         },
         transactions,
       });
     } catch (error) {
       console.error('Get wallet error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER', 'PLATFORM_ADMIN'] }
@@ -131,60 +128,59 @@ export const POST = withAuth(
         );
       }
 
-      // Wallet operations go to the tenant DB
-      const result = await withTenantCtx(tenantId, async () => {
-        return db.$transaction(async (tx) => {
-          const updated = await tx.tenant.update({
-            where: { id: tenantId },
-            data: { walletBalance: { increment: amountCents } },
-          });
-
-          const transaction = await tx.transaction.create({
-            data: {
-              tenantId,
-              type: 'TOP_UP',
-              amountCents,
-              description: description || `Wallet top-up`,
-              createdBy: user.userId,
-            },
-          });
-
-          return { updated, transaction };
-        });
-      });
-
-      // Audit log (platform DB)
+      const d1 = getD1FromEnv();
+      const transactionId = crypto.randomUUID();
       const ip =
-        req.headers.get('x-forwarded-for') ||
+        req.headers.get('cf-connecting-ip') ||
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
         req.headers.get('x-real-ip') ||
         'unknown';
 
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'WALLET_TOP_UP',
-          details: JSON.stringify({
-            tenantId,
-            amountCents,
-            description,
-            newBalance: result.updated.walletBalance,
-          }),
-          ipAddress: ip,
-        },
-      });
+      // Transactional: increment balance + create transaction record + audit log
+      await d1.batch([
+        d1
+          .prepare(`UPDATE tenants SET wallet_balance = wallet_balance + ?, updated_at = datetime('now') WHERE id = ?`)
+          .bind(amountCents, tenantId),
+        d1
+          .prepare(
+            `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by) VALUES (?, ?, 'TOP_UP', ?, ?, ?)`
+          )
+          .bind(transactionId, tenantId, amountCents, description || 'Wallet top-up', user.userId),
+        d1
+          .prepare(
+            `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address) VALUES (?, ?, ?, 'WALLET_TOP_UP', ?, ?)`
+          )
+          .bind(
+            crypto.randomUUID(),
+            user.userId,
+            user.type,
+            JSON.stringify({ tenantId, amountCents, description }),
+            ip
+          ),
+      ]);
+
+      // Fetch updated balance for response
+      const updated = await d1
+        .prepare(`SELECT wallet_balance FROM tenants WHERE id = ?`)
+        .bind(tenantId)
+        .first<{ wallet_balance: number }>();
 
       return NextResponse.json({
         success: true,
-        walletBalance: result.updated.walletBalance,
-        transaction: result.transaction,
+        walletBalance: updated?.wallet_balance ?? 0,
+        transaction: {
+          id: transactionId,
+          tenantId,
+          type: 'TOP_UP',
+          amountCents,
+          description: description || 'Wallet top-up',
+          createdBy: user.userId,
+          createdAt: new Date().toISOString(),
+        },
       });
     } catch (error) {
       console.error('Top-up wallet error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER', 'PLATFORM_ADMIN'] }

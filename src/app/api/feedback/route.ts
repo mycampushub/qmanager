@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db, withTenantCtx } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import { verifyToken } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
 
@@ -8,6 +8,7 @@ import type { JwtPayload } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
+    const d1 = getD1FromEnv();
     const body = await req.json();
     const { ticketId, tenantId, rating, comment } = body as {
       ticketId: string;
@@ -34,7 +35,8 @@ export async function POST(req: NextRequest) {
     const authHeader = req.headers.get('authorization');
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
-      const user = verifyToken(token) as JwtPayload | null;
+      // verifyToken is async — must await
+      const user = await verifyToken(token);
       if (user && user.role !== 'PLATFORM_ADMIN' && user.tenantId !== tenantId) {
         return NextResponse.json(
           { error: 'You can only submit feedback for your tenant' },
@@ -43,55 +45,60 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const feedback = await withTenantCtx(tenantId, async () => {
-      // Fetch ticket and verify
-      const ticket = await db.ticket.findUnique({
-        where: { id: ticketId },
-      });
+    // Fetch ticket and verify
+    const ticket = await d1
+      .prepare('SELECT id, status FROM tickets WHERE id = ?')
+      .bind(ticketId)
+      .first<{ id: string; status: string }>();
 
-      if (!ticket) {
-        throw new Error('NOT_FOUND:Ticket not found');
-      }
+    if (!ticket) {
+      return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
+    }
 
-      // Ticket must be COMPLETED
-      if (ticket.status !== 'COMPLETED') {
-        throw new Error('VALIDATION:Feedback can only be submitted for completed tickets');
-      }
+    if (ticket.status !== 'COMPLETED') {
+      return NextResponse.json(
+        { error: 'Feedback can only be submitted for completed tickets' },
+        { status: 400 }
+      );
+    }
 
-      // No duplicate feedback
-      const existingFeedback = await db.feedback.findUnique({ where: { ticketId } });
-      if (existingFeedback) {
-        throw new Error('CONFLICT:Feedback already submitted for this ticket');
-      }
+    // No duplicate feedback
+    const existingFeedback = await d1
+      .prepare('SELECT id FROM feedback WHERE ticket_id = ?')
+      .bind(ticketId)
+      .first<{ id: string }>();
 
-      return db.feedback.create({
-        data: {
+    if (existingFeedback) {
+      return NextResponse.json(
+        { error: 'Feedback already submitted for this ticket' },
+        { status: 409 }
+      );
+    }
+
+    const newId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    await d1.prepare(
+      `INSERT INTO feedback (id, tenant_id, ticket_id, rating, comment, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(newId, tenantId, ticketId, Math.round(rating), comment || null, now).run();
+
+    return NextResponse.json(
+      {
+        feedback: {
+          id: newId,
           tenantId,
           ticketId,
           rating: Math.round(rating),
           comment: comment || null,
+          createdAt: now,
         },
-      });
-    });
-
-    return NextResponse.json({ feedback }, { status: 201 });
-  } catch (error: unknown) {
-    if (error instanceof Error) {
-      if (error.message.startsWith('NOT_FOUND:')) {
-        return NextResponse.json({ error: error.message.slice(10) }, { status: 404 });
-      }
-      if (error.message.startsWith('VALIDATION:')) {
-        return NextResponse.json({ error: error.message.slice(11) }, { status: 400 });
-      }
-      if (error.message.startsWith('CONFLICT:')) {
-        return NextResponse.json({ error: error.message.slice(9) }, { status: 409 });
-      }
-    }
-    console.error('Submit feedback error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      },
+      { status: 201 }
     );
+  } catch (error) {
+    console.error('Submit feedback error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -102,6 +109,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       const page = parseInt(req.nextUrl.searchParams.get('page') || '1', 10);
       const limit = Math.min(
@@ -112,10 +120,7 @@ export const GET = withAuth(
       const dateTo = req.nextUrl.searchParams.get('to');
 
       if (!tenantId) {
-        return NextResponse.json(
-          { error: 'tenantId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
       if (user.role === 'MANAGER' && user.tenantId !== tenantId) {
@@ -125,71 +130,68 @@ export const GET = withAuth(
         );
       }
 
-      // Date filter
-      const dateFilter: Record<string, Date> = {};
+      // Build date filter clause
+      let dateClause = '';
+      const dateBinds: unknown[] = [];
       if (dateFrom) {
-        dateFilter.gte = new Date(dateFrom);
+        dateClause += ' AND f.created_at >= ?';
+        dateBinds.push(dateFrom);
       }
       if (dateTo) {
         const d = new Date(dateTo);
         d.setHours(23, 59, 59, 999);
-        dateFilter.lte = d;
+        dateClause += ' AND f.created_at <= ?';
+        dateBinds.push(d.toISOString());
       }
 
-      const where: Record<string, unknown> = { tenantId };
-      if (Object.keys(dateFilter).length > 0) {
-        where.createdAt = dateFilter;
-      }
+      const baseBinds = [tenantId, ...dateBinds];
 
-      const [total, feedbacks, avgResult, ratingCounts] = await Promise.all([
-        db.feedback.count({ where }),
-        db.feedback.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          skip: (page - 1) * limit,
-          take: limit,
-          include: {
-            ticket: {
-              select: {
-                id: true,
-                customerName: true,
-                serialNumber: true,
-                queue: { select: { prefix: true } },
-              },
-            },
-          },
-        }),
-        db.feedback.aggregate({
-          where, // M-13: apply date filter to average calculation
-          _avg: { rating: true },
-        }),
-        // D6: Fetch rating distribution for NPS calculation
-        db.feedback.groupBy({
-          by: ['rating'],
-          where, // M-13: apply date filter to NPS calculation
-          _count: { rating: true },
-        }),
+      // Run all queries in parallel via batch
+      const [countResult, feedbackResult, avgResult, ratingCountResult] = await d1.batch([
+        d1.prepare(`SELECT count(*) as cnt FROM feedback f WHERE tenant_id = ?${dateClause}`).bind(...baseBinds),
+        d1.prepare(
+          `SELECT f.id, f.ticket_id, f.rating, f.comment, f.created_at,
+                  t.customer_name, t.serial_number, q.prefix
+           FROM feedback f
+           JOIN tickets t ON f.ticket_id = t.id
+           JOIN queues q ON t.queue_id = q.id
+           WHERE f.tenant_id = ?${dateClause}
+           ORDER BY f.created_at DESC LIMIT ? OFFSET ?`
+        ).bind(...baseBinds, limit, (page - 1) * limit),
+        d1.prepare(`SELECT AVG(rating) as avg_rating FROM feedback WHERE tenant_id = ?${dateClause}`).bind(...baseBinds),
+        d1.prepare(
+          `SELECT rating, count(*) as cnt FROM feedback WHERE tenant_id = ?${dateClause} GROUP BY rating`
+        ).bind(...baseBinds),
       ]);
 
-      // D6: Calculate NPS (adapted for 1-5 scale: Promoters=5, Passives=3-4, Detractors=1-2)
-      const totalRated = ratingCounts.reduce((sum, rc) => sum + rc._count.rating, 0);
+      const total = ((countResult.results as { cnt: number }[])[0]?.cnt) ?? 0;
+      const avgRating = (avgResult.results as { avg_rating: number | null }[])[0]?.avg_rating ?? 0;
+
+      // Calculate NPS
+      const ratingRows = (ratingCountResult.results as { rating: number; cnt: number }[]) ?? [];
+      const totalRated = ratingRows.reduce((sum, rc) => sum + rc.cnt, 0);
       let promoters = 0;
       let detractors = 0;
-      for (const rc of ratingCounts) {
-        if (rc.rating >= 5) promoters += rc._count.rating;
-        if (rc.rating <= 2) detractors += rc._count.rating;
+      for (const rc of ratingRows) {
+        if (rc.rating >= 5) promoters += rc.cnt;
+        if (rc.rating <= 2) detractors += rc.cnt;
       }
       const npsScore = totalRated > 0 ? Math.round(((promoters - detractors) / totalRated) * 100) : 0;
 
-      const enrichedFeedbacks = feedbacks.map((f) => ({
+      const feedbackRows = (feedbackResult.results as {
+        id: string; ticket_id: string; rating: number; comment: string | null; created_at: string;
+        customer_name: string; serial_number: number; prefix: string;
+      }[]) ?? [];
+
+      const enrichedFeedbacks = feedbackRows.map((f) => ({
         id: f.id,
-        ticketId: f.ticketId,
+        ticketId: f.ticket_id,
         rating: f.rating,
         comment: f.comment,
-        createdAt: f.createdAt.toISOString(),
+        createdAt: f.created_at,
         ticket: {
-          customerName: f.ticket.customerName,
-          _formattedSerial: `${f.ticket.queue.prefix}${String(f.ticket.serialNumber).padStart(3, '0')}`,
+          customerName: f.customer_name,
+          _formattedSerial: `${f.prefix}${String(f.serial_number).padStart(3, '0')}`,
         },
       }));
 
@@ -198,21 +200,16 @@ export const GET = withAuth(
         total,
         page,
         limit,
-        avgRating: avgResult._avg.rating
-          ? Math.round(avgResult._avg.rating * 100) / 100
-          : 0,
+        avgRating: avgRating ? Math.round(avgRating * 100) / 100 : 0,
         npsScore,
-        ratingDistribution: ratingCounts.map((rc) => ({
+        ratingDistribution: ratingRows.map((rc) => ({
           rating: rc.rating,
-          count: rc._count.rating,
+          count: rc.cnt,
         })),
       });
     } catch (error) {
       console.error('List feedback error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER', 'PLATFORM_ADMIN'] }

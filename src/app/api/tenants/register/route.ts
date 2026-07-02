@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { registerTenantDatabase, getTenantDb } from '@/lib/tenant-db';
+import { getD1FromEnv } from '@/lib/db';
 import { hashPassword, signToken, rateLimit, generateCsrfToken } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
@@ -55,10 +54,9 @@ export async function POST(req: NextRequest) {
     const tier = 'FREE';
 
     // Rate limit: 3 per hour per IP — A13 fallback
-    const ipForwarded = req.headers.get('x-forwarded-for');
-    const ip = ipForwarded || req.headers.get('x-real-ip') ||
-      // @ts-expect-error NextRequest extends Request, connection may not be typed
-      (req.connection?.remoteAddress as string) || 'unknown';
+    const ip = req.headers.get('cf-connecting-ip') ||
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') || 'unknown';
 
     const { allowed, retryAfterMs } = rateLimit('register:' + ip, 3, 3_600_000);
     if (!allowed) {
@@ -71,59 +69,60 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const d1 = getD1FromEnv();
+
     // H-02: Create tenant + manager in a single transaction to prevent email race condition
-    // Email uniqueness is enforced by DB @unique constraints inside the transaction.
     const passwordHash = await hashPassword(password);
 
-    let result: { tenant: { id: string; name: string; planTier: string }; staff: { id: string; email: string; name: string; tenantId: string } };
+    // Double-check email uniqueness before attempting insert
+    const existingUser = await d1
+      .prepare('SELECT id FROM users WHERE email = ?')
+      .bind(email)
+      .first<{ id: string }>();
+    if (existingUser) {
+      return NextResponse.json(
+        { error: 'Email already registered' },
+        { status: 409 }
+      );
+    }
+
+    const existingAdmin = await d1
+      .prepare('SELECT id FROM platform_admins WHERE email = ?')
+      .bind(email)
+      .first<{ id: string }>();
+    if (existingAdmin) {
+      return NextResponse.json(
+        { error: 'Email already registered' },
+        { status: 409 }
+      );
+    }
+
+    const tenantId = crypto.randomUUID();
+    const staffId = crypto.randomUUID();
+    const queueId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    let result: { tenantId: string; staffId: string; email: string; name: string };
     try {
-      result = await db.$transaction(async (tx) => {
-        // Double-check email uniqueness inside transaction (DB constraint is the real guard)
-        const existingEmail = await tx.staffUser.findUnique({ where: { email } })
-          || await tx.platformAdmin.findUnique({ where: { email } });
-        if (existingEmail) {
-          throw new Error('CONFLICT:email');
-        }
-
-        const tenant = await tx.tenant.create({
-          data: {
-            name: businessName,
-            planTier: tier,
-            walletBalance: 50000, // Default 500 TK
-          },
-        });
-
-        const staff = await tx.staffUser.create({
-          data: {
-            tenantId: tenant.id,
-            email,
-            name,
-            passwordHash,
-            role: 'MANAGER',
-          },
-        });
-
-        // Create default queue so the tenant can immediately start accepting tickets
-        await tx.queue.create({
-          data: {
-            tenantId: tenant.id,
-            name: 'General Service',
-            prefix: 'A',
-            defaultServiceTimeSec: 300,
-          },
-        });
-
-        return { tenant, staff };
-      });
+      // Atomic batch: create tenant, staff user, and default queue in one transaction
+      await d1.batch([
+        d1.prepare(
+          `INSERT INTO tenants (id, name, plan_tier, wallet_balance, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 1, ?, ?)`
+        ).bind(tenantId, businessName, tier, 50000, now, now),
+        d1.prepare(
+          `INSERT INTO users (id, tenant_id, email, name, password_hash, role, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'MANAGER', 1, ?, ?)`
+        ).bind(staffId, tenantId, email, name, passwordHash, now, now),
+        d1.prepare(
+          `INSERT INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, 'A', 300, 0, 0, 1, ?, ?)`
+        ).bind(queueId, tenantId, 'General Service', now, now),
+      ]);
+      result = { tenantId, staffId, email, name };
     } catch (error: unknown) {
-      if (error instanceof Error && error.message === 'CONFLICT:email') {
-        return NextResponse.json(
-          { error: 'Email already registered' },
-          { status: 409 }
-        );
-      }
-      // Prisma unique constraint violation (P2002) — race condition caught at DB level
-      if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'P2002') {
+      // Handle SQLite UNIQUE constraint violation (race condition caught at DB level)
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
         return NextResponse.json(
           { error: 'Email already registered' },
           { status: 409 }
@@ -132,30 +131,10 @@ export async function POST(req: NextRequest) {
       throw error;
     }
 
-    // Create isolated tenant database with a Tenant record for FK integrity
-    await registerTenantDatabase(result.tenant.id, {
-      name: result.tenant.name,
-      planTier: result.tenant.planTier,
-      walletBalance: result.tenant.walletBalance,
-    });
-
-    // Sync StaffUser to tenant DB for FK integrity (ServiceLog.agentId)
-    const tenantDb = getTenantDb(result.tenant.id);
-    await tenantDb.staffUser.create({
-      data: {
-        id: result.staff.id,
-        tenantId: result.tenant.id,
-        email: result.staff.email,
-        name: result.staff.name,
-        passwordHash,
-        role: 'MANAGER',
-      },
-    }).catch(() => {});
-
     // Sign token for auto-login
-    const token = signToken({
-      userId: result.staff.id,
-      tenantId: result.tenant.id,
+    const token = await signToken({
+      userId: result.staffId,
+      tenantId: result.tenantId,
       role: 'MANAGER',
       type: 'staff',
     });
@@ -163,36 +142,37 @@ export async function POST(req: NextRequest) {
     const csrfToken = generateCsrfToken();
 
     // Audit log
-    await db.auditLog.create({
-      data: {
-        userId: result.staff.id,
-        userType: 'staff',
-        action: 'REGISTRATION',
-        details: JSON.stringify({
-          email,
-          tenantId: result.tenant.id,
-          businessName,
-          planTier: tier,
-        }),
-        ipAddress: ip,
-      },
-    });
+    await d1.prepare(
+      `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+       VALUES (?, ?, 'staff', 'REGISTRATION', ?, ?, ?)`
+    ).bind(
+      crypto.randomUUID(),
+      result.staffId,
+      JSON.stringify({
+        email: result.email,
+        tenantId: result.tenantId,
+        businessName,
+        planTier: tier,
+      }),
+      ip,
+      new Date().toISOString()
+    ).run();
 
     return NextResponse.json(
       {
         success: true,
         message: 'Account created successfully!',
         user: {
-          id: result.staff.id,
-          email: result.staff.email,
-          name: result.staff.name,
+          id: result.staffId,
+          email: result.email,
+          name: result.name,
           role: 'MANAGER',
           type: 'staff',
-          tenantId: result.tenant.id,
+          tenantId: result.tenantId,
           tenant: {
-            id: result.tenant.id,
-            name: result.tenant.name,
-            planTier: result.tenant.planTier,
+            id: result.tenantId,
+            name: businessName,
+            planTier: tier,
           },
         },
         token,

@@ -1,19 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
-import type { JwtPayload } from '@/lib/auth';
-import { canTransition } from '@/lib/state-machine';
+import { withAuth, type JwtPayload } from '@/lib/api-auth';
+import { getD1FromEnv } from '@/lib/db';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
 
-async function broadcastWS(tenantId: string, event: string, payload: Record<string, unknown>) {
-  try {
-    const wsUrl = process.env.WS_SERVICE_URL || 'http://localhost:3003';
-    await fetch(`${wsUrl}/broadcast`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId, event, payload }),
-    });
-  } catch { /* WS unavailable */ }
+// Helper: convert snake_case DB row to camelCase
+function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result;
+}
+
+// Helper: get client IP
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+interface TicketWithQueue {
+  id: string;
+  tenant_id: string;
+  queue_id: string;
+  serial_number: number;
+  status: string;
+  customer_name: string;
+  customer_phone: string | null;
+  skip_count: number;
+  served_at: string | null;
+  served_by_agent: string | null;
+  created_at: string;
+  // Joined queue fields
+  queue_name: string;
+  queue_prefix: string;
 }
 
 export const POST = withAuth(
@@ -32,35 +56,41 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
+      const d1 = getD1FromEnv();
 
-      // Find ticket
-      const ticket = await db.ticket.findUnique({
-        where: { id: ticketId },
-        include: { queue: true },
-      });
+      // Find ticket with queue
+      const ticket = await d1
+        .prepare(
+          `SELECT t.*, q.name as queue_name, q.prefix as queue_prefix
+           FROM tickets t
+           JOIN queues q ON t.queue_id = q.id
+           WHERE t.id = ?`
+        )
+        .bind(ticketId)
+        .first<TicketWithQueue>();
 
-      if (!ticket || ticket.tenantId !== tenantId) {
+      if (!ticket || ticket.tenant_id !== tenantId) {
         return NextResponse.json(
           { error: 'Ticket not found' },
           { status: 404 }
         );
       }
 
-      // D2: Validate via state machine. Skip is a special re-queue: SERVING→WAITING.
-      // The standard transition table doesn't include SERVING→WAITING, so we check
-      // for SERVING status explicitly as the allowed skip-source.
+      // D2: Only SERVING tickets can be skipped
       if (ticket.status !== 'SERVING') {
         return NextResponse.json(
-          { error: `Cannot skip ticket with status: ${ticket.status}. Only SERVING tickets can be skipped.` },
+          {
+            error: `Cannot skip ticket with status: ${ticket.status}. Only SERVING tickets can be skipped.`,
+          },
           { status: 400 }
         );
       }
 
-      // FIX A2: Proper serial update logic
-      // Get the queue first, then compare
-      const queue = await db.queue.findUnique({
-        where: { id: ticket.queueId },
-      });
+      // Get queue for current serial and now_serving_serial
+      const queue = await d1
+        .prepare('SELECT current_serial, now_serving_serial FROM queues WHERE id = ?')
+        .bind(ticket.queue_id)
+        .first<{ current_serial: number; now_serving_serial: number }>();
 
       if (!queue) {
         return NextResponse.json(
@@ -69,107 +99,105 @@ export const POST = withAuth(
         );
       }
 
-      // Re-queue: set back to WAITING with higher serial number
-      const now = new Date();
+      const newSerial = queue.current_serial + 1;
+      const newNowServing = Math.max(newSerial, queue.now_serving_serial);
+      const nowISO = new Date().toISOString();
 
-      // A4: Update serial and ticket in transaction — use atomic increment inside tx
-      const result = await db.$transaction(async (tx) => {
-        // Atomic increment inside transaction
-        const updatedQueue = await tx.queue.update({
-          where: { id: ticket.queueId },
-          data: {
-            currentSerial: { increment: 1 },
-          },
-        });
-
-        const newSerial = updatedQueue.currentSerial;
+      // A4: Update serial and ticket in transaction
+      await d1.batch([
+        // Atomic increment queue serial
+        d1
+          .prepare(
+            'UPDATE queues SET current_serial = ?, updated_at = ? WHERE id = ?'
+          )
+          .bind(newSerial, nowISO, ticket.queue_id),
 
         // Update ticket: skip and re-queue
-        const updatedTicket = await tx.ticket.update({
-          where: { id: ticketId },
-          data: {
-            status: 'WAITING',
-            serialNumber: newSerial,
-            skipCount: { increment: 1 },
-            skippedAt: now,
-            servedByAgent: null,
-            servedAt: null,
-          },
-        });
+        d1
+          .prepare(
+            `UPDATE tickets SET status = 'WAITING', serial_number = ?, skip_count = skip_count + 1, skipped_at = ?, served_by_agent = NULL, served_at = NULL WHERE id = ?`
+          )
+          .bind(newSerial, nowISO, ticketId),
 
         // Update nowServingSerial
-        await tx.queue.update({
-          where: { id: ticket.queueId },
-          data: {
-            nowServingSerial: Math.max(newSerial, updatedQueue.nowServingSerial),
-          },
-        });
+        d1
+          .prepare(
+            'UPDATE queues SET now_serving_serial = ?, updated_at = ? WHERE id = ?'
+          )
+          .bind(newNowServing, nowISO, ticket.queue_id),
+      ]);
 
-        return { updatedQueue, updatedTicket };
-      });
+      const formattedSerial = `${ticket.queue_prefix}${String(newSerial).padStart(3, '0')}`;
+      const newSkipCount = ticket.skip_count + 1;
 
-      const formattedSerial = `${queue.prefix}${String(result.updatedTicket.serialNumber).padStart(3, '0')}`;
-
-      // D7: Fire webhooks (fire-and-forget)
+      // Fire webhooks (fire-and-forget)
       dispatchWebhooks(tenantId, 'TICKET_SKIPPED', {
         ticketId,
         serialNumber: formattedSerial,
-        queueName: queue.name,
-        queueId: ticket.queueId,
-        skipCount: result.updatedTicket.skipCount,
+        queueName: ticket.queue_name,
+        queueId: ticket.queue_id,
+        skipCount: newSkipCount,
       });
 
       // Audit log
-      const ip =
-        req.headers.get('x-forwarded-for') ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
-
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'TICKET_SKIP',
-          details: JSON.stringify({
+      const ip = getClientIp(req);
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          crypto.randomUUID(),
+          user.userId,
+          user.type,
+          'TICKET_SKIP',
+          JSON.stringify({
             ticketId,
-            queueId: ticket.queueId,
-            skipCount: result.updatedTicket.skipCount,
+            queueId: ticket.queue_id,
+            skipCount: newSkipCount,
           }),
-          ipAddress: ip,
-        },
-      });
+          ip,
+          nowISO
+        )
+        .run();
 
       // Count remaining
-      const remainingWaiting = await db.ticket.count({
-        where: { queueId: ticket.queueId, status: 'WAITING' },
-      });
+      const remainingResult = await d1
+        .prepare(
+          'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
+        )
+        .bind(ticket.queue_id, 'WAITING')
+        .first<{ cnt: number }>();
 
-      // G1: Broadcast WebSocket event
-      await broadcastWS(tenantId, 'TICKET_SKIPPED', {
-        ticketId,
-        serialNumber: formattedSerial,
-        queueName: queue.name,
-        prefix: queue.prefix,
-      });
+      const remainingWaiting = remainingResult?.cnt ?? 0;
+
+      // Build ticket response
+      const ticketResponse: Record<string, unknown> = {
+        ...toCamel(ticket as unknown as Record<string, unknown>),
+        status: 'WAITING',
+        serialNumber: newSerial,
+        skipCount: newSkipCount,
+        skippedAt: nowISO,
+        servedByAgent: null,
+        servedAt: null,
+        formattedSerial,
+        queueName: ticket.queue_name,
+      };
 
       return NextResponse.json({
         success: true,
-        ticket: {
-          ...result.updatedTicket,
-          formattedSerial,
-          queueName: queue.name,
-        },
+        ticket: ticketResponse,
         remainingWaiting,
         _event: {
           type: 'TICKET_SKIPPED',
           tenantId,
-          queueId: ticket.queueId,
+          queueId: ticket.queue_id,
           payload: {
             ticketId,
             serialNumber: formattedSerial,
-            customerName: ticket.customerName,
-            queueName: queue.name,
-            skipCount: result.updatedTicket.skipCount,
+            customerName: ticket.customer_name,
+            queueName: ticket.queue_name,
+            skipCount: newSkipCount,
             newPosition: remainingWaiting,
           },
         },

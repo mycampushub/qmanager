@@ -1,23 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import { aggregateAcrossTenants } from '@/lib/aggregate-tenants';
 
 // C4: Accept (req, ctx) parameters for future extensibility
 export const GET = withAuth(async (_req: NextRequest, _ctx: { user: unknown }) => {
   try {
+    const d1 = getD1FromEnv();
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthStartISO = monthStart.toISOString();
 
     // Platform-level stats
-    const [totalTenants, activeTenants, newTenantsThisMonth, totalStaff] = await Promise.all([
-      db.tenant.count(),
-      db.tenant.count({ where: { isActive: true } }),
-      db.tenant.count({ where: { createdAt: { gte: monthStart } } }),
-      db.staffUser.count({ where: { isActive: true } }),
+    const [tenantStats, activeStats, newMonthStats, staffStats] = await d1.batch([
+      d1.prepare('SELECT count(*) as cnt FROM tenants'),
+      d1.prepare('SELECT count(*) as cnt FROM tenants WHERE is_active = 1'),
+      d1.prepare('SELECT count(*) as cnt FROM tenants WHERE created_at >= ?').bind(monthStartISO),
+      d1.prepare('SELECT count(*) as cnt FROM users WHERE is_active = 1'),
     ]);
 
-    // Cross-tenant aggregation (tickets, revenue, queues across all tenant DBs)
+    const totalTenants = ((tenantStats.results as { cnt: number }[])[0]?.cnt) ?? 0;
+    const activeTenants = ((activeStats.results as { cnt: number }[])[0]?.cnt) ?? 0;
+    const newTenantsThisMonth = ((newMonthStats.results as { cnt: number }[])[0]?.cnt) ?? 0;
+    const totalStaff = ((staffStats.results as { cnt: number }[])[0]?.cnt) ?? 0;
+
+    // Cross-tenant aggregation
     const tenantAgg = await aggregateAcrossTenants();
 
     return NextResponse.json({
@@ -33,9 +40,6 @@ export const GET = withAuth(async (_req: NextRequest, _ctx: { user: unknown }) =
     });
   } catch (error) {
     console.error('Admin analytics error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }, { roles: ['PLATFORM_ADMIN'] });

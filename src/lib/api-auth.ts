@@ -1,19 +1,31 @@
+// =============================================================================
+// QueueFlow — Cloudflare Workers API Auth Wrapper
+// Replaces: src/lib/api-auth.ts
+//
+// Changes:
+//   - Removed AsyncLocalStorage / withTenantCtx (not available on CF Workers)
+//   - Uses cf-connecting-ip instead of connection.remoteAddress
+//   - Passes tenantId explicitly instead of via context
+//   - KV-backed rate limiting
+// =============================================================================
+
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateRequest, rateLimit, type JwtPayload } from '@/lib/auth';
-import { withTenantCtx } from '@/lib/db';
 
 type RequireRole = 'PLATFORM_ADMIN' | 'MANAGER' | 'AGENT';
 
 interface AuthenticatedRequest {
   user: JwtPayload;
+  d1?: D1Database;
+  kv?: KVNamespace;
+  ctx?: ExecutionContext;
 }
 
 /**
  * Wraps an API handler with authentication + optional rate limiting + optional role check.
- * Usage:
- *   export const GET = withAuth(handler);                          // any authenticated user
- *   export const POST = withAuth(handler, { rateLimit: { max: 10, windowMs: 60_000 } });
- *   export const PUT = withAuth(handler, { roles: ['MANAGER'] });  // manager only
+ *
+ * CF Workers compatible: no AsyncLocalStorage, uses cf-connecting-ip, KV rate limits.
+ * Tenant context is passed via user.tenantId (explicit, not AsyncLocalStorage).
  */
 export function withAuth<T extends AuthenticatedRequest>(
   handler: (req: NextRequest, ctx: T) => Promise<NextResponse> | NextResponse,
@@ -21,24 +33,31 @@ export function withAuth<T extends AuthenticatedRequest>(
     roles?: RequireRole[];
     rateLimit?: { max?: number; windowMs?: number; keyPrefix?: string };
     requireTenantId?: boolean;
+    public?: boolean; // Skip auth entirely
   }
 ) {
   return async (req: NextRequest) => {
-    // Rate limiting
+    // Rate limiting (public endpoints also get rate limited)
     if (options?.rateLimit) {
       const rl = options.rateLimit;
-      const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') ||
-        // A13: Fallback to connection.remoteAddress
-        // @ts-expect-error NextRequest extends Request, connection may not be typed
-        (req.connection?.remoteAddress as string) || 'unknown';
+      const ip = req.headers.get('cf-connecting-ip') ||
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        req.headers.get('x-real-ip') ||
+        'unknown';
+
       const key = `${rl.keyPrefix || 'api'}:${ip}`;
-      const { allowed, retryAfterMs } = rateLimit(key, rl.max ?? 60, rl.windowMs ?? 60_000);
+      const { allowed, retryAfterMs } = await rateLimit(key, rl.max ?? 60, rl.windowMs ?? 60_000);
       if (!allowed) {
         return NextResponse.json(
           { error: 'Too many requests. Please try again later.' },
           { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
         );
       }
+    }
+
+    // Public endpoints — skip auth
+    if (options?.public) {
+      return handler(req, {} as T);
     }
 
     // Authentication
@@ -64,6 +83,8 @@ export function withAuth<T extends AuthenticatedRequest>(
       return NextResponse.json({ error: 'Tenant context required' }, { status: 400 });
     }
 
-    return withTenantCtx(user.tenantId ?? null, () => handler(req, { user } as T));
+    // Call handler with user context (no AsyncLocalStorage needed)
+    return handler(req, { user } as T);
   };
 }
+

@@ -1,24 +1,21 @@
-import { NextResponse } from 'next/server';
+// =============================================================================
+// QueueFlow — CSV Export (CF Workers compatible)
+// Replaces: src/lib/csv-export.ts
+//
+// Changes: Uses Response instead of NextResponse for CF Workers compatibility.
+//   Both work in Next.js, but Response is the universal Web API.
+// =============================================================================
 
 /**
- * Convert analytics data to CSV and return a downloadable NextResponse.
- *
- * Expected `data` shape (same as the analytics export route):
- *   {
- *     totalTickets, completedToday, skippedToday,
- *     avgWaitTimeSec, avgServiceTimeSec, peakHour,
- *     queueStats: [{ queueId, queueName, prefix, waiting, serving, completed, avgServiceTime, ewt }],
- *     recentActivity: [{ id, type, customerName, ticketSerial, queueName, timestamp }],
- *     exportedAt
- *   }
+ * Convert analytics data to CSV and return a downloadable Response.
  */
 export function analyticsToCSV(
   data: Record<string, unknown>,
   filename: string = 'analytics.csv'
-): NextResponse {
+): Response {
   const rows: string[][] = [];
 
-  // ── Summary Section ──────────────────────────────────────────
+  // ── Summary Section ──────────────────────────────────────────────────
   rows.push(['--- QueueFlow Analytics Export ---']);
   rows.push(['Exported At', String(data.exportedAt ?? new Date().toISOString())]);
   rows.push([]);
@@ -31,19 +28,10 @@ export function analyticsToCSV(
   rows.push(['Peak Hour', String(data.peakHour ?? 'N/A')]);
   rows.push([]);
 
-  // ── Queue Stats Section ──────────────────────────────────────
+  // ── Queue Stats Section ──────────────────────────────────────────────
   const queueStats = (data.queueStats as Record<string, unknown>[]) ?? [];
   rows.push(['Queue Stats']);
-  rows.push([
-    'Queue ID',
-    'Queue Name',
-    'Prefix',
-    'Waiting',
-    'Serving',
-    'Completed',
-    'Avg Service Time (sec)',
-    'Est. Wait Time (sec)',
-  ]);
+  rows.push(['Queue ID', 'Queue Name', 'Prefix', 'Waiting', 'Serving', 'Completed', 'Avg Service Time (sec)', 'Est. Wait Time (sec)']);
   for (const qs of queueStats) {
     rows.push([
       String(qs.queueId ?? ''),
@@ -58,17 +46,10 @@ export function analyticsToCSV(
   }
   rows.push([]);
 
-  // ── Recent Activity Section ──────────────────────────────────
+  // ── Recent Activity Section ──────────────────────────────────────────
   const recentActivity = (data.recentActivity as Record<string, unknown>[]) ?? [];
   rows.push(['Recent Activity']);
-  rows.push([
-    'ID',
-    'Type',
-    'Customer Name',
-    'Ticket Serial',
-    'Queue Name',
-    'Timestamp',
-  ]);
+  rows.push(['ID', 'Type', 'Customer Name', 'Ticket Serial', 'Queue Name', 'Timestamp']);
   for (const act of recentActivity) {
     rows.push([
       String(act.id ?? ''),
@@ -80,11 +61,10 @@ export function analyticsToCSV(
     ]);
   }
 
-  // ── Build CSV string ─────────────────────────────────────────
+  // ── Build CSV string ─────────────────────────────────────────────────
   const csvContent = rows
     .map((row) =>
       row.map((cell) => {
-        // Escape cells that contain commas, quotes, or newlines
         if (/[",\r\n]/.test(cell)) {
           return `"${cell.replace(/"/g, '""')}"`;
         }
@@ -93,7 +73,7 @@ export function analyticsToCSV(
     )
     .join('\n');
 
-  return new NextResponse(csvContent, {
+  return new Response(csvContent, {
     status: 200,
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',

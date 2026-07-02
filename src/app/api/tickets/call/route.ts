@@ -1,9 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
-import type { JwtPayload } from '@/lib/auth';
+import { withAuth, type JwtPayload } from '@/lib/api-auth';
+import { getD1FromEnv } from '@/lib/db';
 import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
+
+// Helper: convert snake_case DB row to camelCase
+function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result;
+}
+
+interface TicketRow {
+  id: string;
+  tenant_id: string;
+  queue_id: string;
+  serial_number: number;
+  status: string;
+  customer_name: string;
+  customer_phone: string | null;
+  device_id: string | null;
+  notes: string | null;
+  served_by_agent: string | null;
+  skip_count: number;
+  created_at: string;
+  served_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  skipped_at: string | null;
+}
+
+interface QueueRow {
+  id: string;
+  tenant_id: string;
+  name: string;
+  prefix: string;
+  default_service_time_sec: number;
+  now_serving_serial: number;
+}
 
 export const POST = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
@@ -24,15 +61,28 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
+      const d1 = getD1FromEnv();
 
       // A10: If agentId is provided, verify it belongs to same tenant
       let validatedAgentId = user.userId;
       if (agentId) {
-        const agentUser = await db.staffUser.findUnique({
-          where: { id: agentId },
-          select: { id: true, tenantId: true, role: true, isActive: true },
-        });
-        if (!agentUser || agentUser.tenantId !== tenantId || !agentUser.isActive || !['AGENT', 'MANAGER'].includes(agentUser.role)) {
+        const agentUser = await d1
+          .prepare(
+            'SELECT id, tenant_id, role, is_active FROM users WHERE id = ?'
+          )
+          .bind(agentId)
+          .first<{
+            id: string;
+            tenant_id: string;
+            role: string;
+            is_active: number;
+          }>();
+        if (
+          !agentUser ||
+          agentUser.tenant_id !== tenantId ||
+          agentUser.is_active !== 1 ||
+          !['AGENT', 'MANAGER'].includes(agentUser.role)
+        ) {
           return NextResponse.json(
             { error: 'Invalid agentId' },
             { status: 400 }
@@ -42,98 +92,36 @@ export const POST = withAuth(
       }
 
       // Verify queue belongs to tenant
-      const queue = await db.queue.findUnique({
-        where: { id: queueId },
-      });
+      const queue = await d1
+        .prepare('SELECT * FROM queues WHERE id = ?')
+        .bind(queueId)
+        .first<QueueRow>();
 
-      if (!queue || queue.tenantId !== tenantId) {
+      if (!queue || queue.tenant_id !== tenantId) {
         return NextResponse.json(
           { error: 'Queue not found' },
           { status: 404 }
         );
       }
 
-      // A3: Wrap the entire call-next flow in a single db.$transaction
-      const result = await db.$transaction(async (tx) => {
-        // Auto-complete previous SERVING ticket
-        const prevServing = await tx.ticket.findFirst({
-          where: { queueId, status: 'SERVING' },
-        });
+      // A3: Pre-read for transaction
+      // Find current SERVING ticket
+      const prevServing = await d1
+        .prepare(
+          'SELECT * FROM tickets WHERE queue_id = ? AND status = ? LIMIT 1'
+        )
+        .bind(queueId, 'SERVING')
+        .first<TicketRow>();
 
-        if (prevServing) {
-          const now = new Date();
-          const durationSec = Math.round(
-            (now.getTime() - (prevServing.servedAt?.getTime() || now.getTime())) /
-              1000
-          );
+      // Find next WAITING ticket
+      const nextWaiting = await d1
+        .prepare(
+          'SELECT * FROM tickets WHERE queue_id = ? AND status = ? ORDER BY serial_number ASC LIMIT 1'
+        )
+        .bind(queueId, 'WAITING')
+        .first<TicketRow>();
 
-          await tx.ticket.update({
-            where: { id: prevServing.id },
-            data: { status: 'COMPLETED', completedAt: now },
-          });
-
-          await tx.serviceLog.create({
-            data: {
-              tenantId,
-              queueId,
-              agentId: prevServing.servedByAgent || validatedAgentId,
-              ticketId: prevServing.id,
-              durationSeconds: durationSec,
-            },
-          });
-
-          // Update customer profile completed tickets count for auto-completed ticket
-          if (prevServing.customerPhone) {
-            await tx.customerProfile.update({
-              where: { tenantId_phone: { tenantId, phone: prevServing.customerPhone } },
-              data: { completedTickets: { increment: 1 } },
-            }).catch(() => { /* profile may not exist */ });
-          }
-        }
-
-        // Find next WAITING ticket
-        const nextTicket = await tx.ticket.findFirst({
-          where: {
-            queueId,
-            status: 'WAITING',
-          },
-          orderBy: { serialNumber: 'asc' },
-        });
-
-        if (!nextTicket) {
-          return { noNext: true as const };
-        }
-
-        // D4: Validate state machine transition WAITING→SERVING
-        if (!canTransition(nextTicket.status, 'SERVING')) {
-          throw new Error(`Next ticket has invalid status: ${nextTicket.status}`);
-        }
-
-        // Update ticket to SERVING
-        const updatedTicket = await tx.ticket.update({
-          where: { id: nextTicket.id },
-          data: {
-            status: 'SERVING',
-            servedAt: new Date(),
-            servedByAgent: validatedAgentId,
-          },
-        });
-
-        // Update queue nowServingSerial
-        await tx.queue.update({
-          where: { id: queueId },
-          data: {
-            nowServingSerial: Math.max(
-              queue.nowServingSerial,
-              updatedTicket.serialNumber
-            ),
-          },
-        });
-
-        return { noNext: false as const, updatedTicket };
-      });
-
-      if (result.noNext) {
+      if (!nextWaiting) {
         return NextResponse.json({
           calledTicket: null,
           remainingWaiting: 0,
@@ -143,54 +131,137 @@ export const POST = withAuth(
         });
       }
 
-      const updatedTicket = result.updatedTicket;
+      // D4: Validate state machine transition WAITING→SERVING
+      if (!canTransition(nextWaiting.status, 'SERVING')) {
+        return NextResponse.json(
+          { error: `Next ticket has invalid status: ${nextWaiting.status}` },
+          { status: 400 }
+        );
+      }
+
+      // Build batch statements
+      const nowISO = new Date().toISOString();
+      const statements: unknown[] = [];
+
+      // Auto-complete previous SERVING ticket
+      if (prevServing) {
+        const durationSec = prevServing.served_at
+          ? Math.round(
+              (Date.now() - new Date(prevServing.served_at).getTime()) / 1000
+            )
+          : 0;
+
+        statements.push(
+          d1
+            .prepare(
+              'UPDATE tickets SET status = ?, completed_at = ? WHERE id = ? AND status = ?'
+            )
+            .bind('COMPLETED', nowISO, prevServing.id, 'SERVING'),
+          d1
+            .prepare(
+              `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              crypto.randomUUID(),
+              tenantId,
+              queueId,
+              prevServing.served_by_agent || validatedAgentId,
+              prevServing.id,
+              durationSec,
+              nowISO
+            )
+        );
+
+        // Update customer profile completed tickets count
+        if (prevServing.customer_phone) {
+          statements.push(
+            d1
+              .prepare(
+                'UPDATE customer_profiles SET completed_tickets = completed_tickets + 1, updated_at = ? WHERE tenant_id = ? AND phone = ?'
+              )
+              .bind(nowISO, tenantId, prevServing.customer_phone)
+          );
+        }
+      }
+
+      // Update next ticket to SERVING
+      statements.push(
+        d1
+          .prepare(
+            'UPDATE tickets SET status = ?, served_at = ?, served_by_agent = ? WHERE id = ? AND status = ?'
+          )
+          .bind('SERVING', nowISO, validatedAgentId, nextWaiting.id, 'WAITING')
+      );
+
+      // Update queue nowServingSerial
+      const newNowServing = Math.max(
+        nextWaiting.serial_number,
+        queue.now_serving_serial
+      );
+      statements.push(
+        d1
+          .prepare(
+            'UPDATE queues SET now_serving_serial = ?, updated_at = ? WHERE id = ?'
+          )
+          .bind(newNowServing, nowISO, queueId)
+      );
+
+      await d1.batch(statements as Parameters<typeof d1.batch>[0]);
 
       // Stats for response
-      const [remainingWaiting, serviceLogs] = await Promise.all([
-        db.ticket.count({
-          where: { queueId, status: 'WAITING' },
-        }),
-        db.serviceLog.findMany({
-          where: {
-            tenantId,
-            queueId,
-            durationSeconds: { not: null },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-          select: { durationSeconds: true },
-        }),
+      const [remainingResult, serviceLogsResult] = await Promise.all([
+        d1
+          .prepare(
+            'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
+          )
+          .bind(queueId, 'WAITING')
+          .first<{ cnt: number }>(),
+        d1
+          .prepare(
+            'SELECT duration_seconds FROM service_logs WHERE tenant_id = ? AND queue_id = ? AND duration_seconds IS NOT NULL ORDER BY created_at DESC LIMIT 20'
+          )
+          .bind(tenantId, queueId)
+          .all<{ duration_seconds: number }>(),
       ]);
 
+      const remainingWaiting = remainingResult?.cnt ?? 0;
+
       const avgServiceTime =
-        serviceLogs.length > 0
+        serviceLogsResult.results.length > 0
           ? Math.round(
-              serviceLogs.reduce(
-                (sum, s) => sum + (s.durationSeconds ?? 0),
+              serviceLogsResult.results.reduce(
+                (sum, s) => sum + (s.duration_seconds ?? 0),
                 0
-              ) / serviceLogs.length
+              ) / serviceLogsResult.results.length
             )
-          : queue.defaultServiceTimeSec;
+          : queue.default_service_time_sec;
 
       const ewt = remainingWaiting * avgServiceTime;
 
-      const formattedSerial = `${queue.prefix}${String(updatedTicket.serialNumber).padStart(3, '0')}`;
+      const formattedSerial = `${queue.prefix}${String(nextWaiting.serial_number).padStart(3, '0')}`;
 
-      // D7: Fire webhooks (fire-and-forget)
+      // Build the updated ticket object for response
+      const updatedTicket: Record<string, unknown> = {
+        ...toCamel(nextWaiting as unknown as Record<string, unknown>),
+        status: 'SERVING',
+        servedAt: nowISO,
+        servedByAgent: validatedAgentId,
+        formattedSerial,
+        queueName: queue.name,
+      };
+
+      // Fire webhooks (fire-and-forget)
       dispatchWebhooks(tenantId, 'TICKET_CALLED', {
-        ticketId: updatedTicket.id,
+        ticketId: nextWaiting.id,
         serialNumber: formattedSerial,
-        customerName: updatedTicket.customerName,
+        customerName: nextWaiting.customer_name,
         queueName: queue.name,
         queueId,
       });
 
       return NextResponse.json({
-        calledTicket: {
-          ...updatedTicket,
-          formattedSerial,
-          queueName: queue.name,
-        },
+        calledTicket: updatedTicket,
         remainingWaiting,
         avgServiceTime,
         ewt,
@@ -199,9 +270,9 @@ export const POST = withAuth(
           tenantId,
           queueId,
           payload: {
-            ticketId: updatedTicket.id,
+            ticketId: nextWaiting.id,
             serialNumber: formattedSerial,
-            customerName: updatedTicket.customerName,
+            customerName: nextWaiting.customer_name,
             queueName: queue.name,
             position: 1,
           },

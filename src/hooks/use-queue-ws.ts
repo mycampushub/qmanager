@@ -1,111 +1,103 @@
+// =============================================================================
+// QueueFlow — WebSocket Client Hook (Cloudflare Durable Objects compatible)
+// Uses native WebSocket with JSON protocol.
+// =============================================================================
+
 'use client';
 
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useAppStore } from '@/stores/app-store';
 
-const MAX_RECONNECT_ATTEMPTS = 10;
-const INITIAL_BACKOFF_MS = 1000;
-const MAX_BACKOFF_MS = 30000;
+interface WSEvent {
+  type: string;
+  event?: string;
+  tenantId?: string;
+  payload?: Record<string, unknown>;
+}
 
-export function useQueueWebSocket(tenantId: string | null, token?: string | null) {
-  const socketRef = useRef<Socket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [reconnecting, setReconnecting] = useState(false);
-  const [lastEvent, setLastEvent] = useState<{ event: string; payload: Record<string, unknown> } | null>(null);
+interface UseQueueWebSocketResult {
+  connected: boolean;
+  isConnected: boolean;
+  lastEvent: WSEvent | null;
+  clearLastEvent: () => void;
+  broadcast: (tenantId: string, event: string, payload: Record<string, unknown>) => void;
+}
+
+const MAX_RECONNECT = 10;
+
+export function useQueueWS(tenantId?: string, authToken?: string): UseQueueWebSocketResult {
+  const wsRef = useRef<WebSocket | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [lastEvent, setLastEvent] = useState<WSEvent | null>(null);
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttempts = useRef(0);
+  const storeAuthToken = useAppStore((s) => s.authToken);
+  const effectiveToken = authToken || storeAuthToken;
+
+  const clearLastEvent = useCallback(() => setLastEvent(null), []);
 
   useEffect(() => {
-    if (!tenantId) return;
+    function scheduleReconnect() {
+      if (reconnectAttempts.current >= MAX_RECONNECT) return;
+      const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts.current), 30000);
+      reconnectAttempts.current++;
+      reconnectTimeout.current = setTimeout(doConnect, delay);
+    }
 
-    let reconnectAttempts = 0;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let intentionallyClosed = false;
+    function doConnect() {
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      try {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${window.location.host}/?XTransformPort=3003`);
+        wsRef.current = ws;
 
-    const createSocket = () => {
-      const socket = io('/?XTransformPort=3003', {
-        transports: ['websocket'],
-      });
+        ws.onopen = () => {
+          setConnected(true);
+          reconnectAttempts.current = 0;
+          // Subscribe to tenant updates
+          if (tenantId) {
+            ws.send(JSON.stringify({ action: 'subscribe', tenantId }));
+          }
+        };
+        ws.onmessage = (e) => {
+          try {
+            const event: WSEvent = JSON.parse(e.data);
+            setLastEvent(event);
+          } catch {
+            /* ignore malformed messages */
+          }
+        };
+        ws.onclose = () => {
+          setConnected(false);
+          wsRef.current = null;
+          scheduleReconnect();
+        };
+        ws.onerror = () => ws.close();
+      } catch {
+        scheduleReconnect();
+      }
+    }
 
-      socket.on('connect', () => {
-        console.log('[WS Client] Connected');
-        setIsConnected(true);
-        setReconnecting(false);
-        reconnectAttempts = 0;
-        socket.emit('join-tenant', tenantId);
-        if (token) {
-          socket.emit('authenticate', token);
-        }
-      });
-
-      socket.on('disconnect', (reason) => {
-        console.log('[WS Client] Disconnected:', reason);
-        setIsConnected(false);
-        socketRef.current = null;
-
-        // Only attempt reconnect if not intentionally closed
-        if (!intentionallyClosed && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-          const backoffMs = Math.min(
-            INITIAL_BACKOFF_MS * Math.pow(2, reconnectAttempts),
-            MAX_BACKOFF_MS
-          );
-          reconnectAttempts++;
-          setReconnecting(true);
-          console.log(`[WS Client] Reconnecting in ${backoffMs}ms (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-          reconnectTimer = setTimeout(createSocket, backoffMs);
-        } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-          setReconnecting(false);
-          console.log('[WS Client] Max reconnection attempts reached');
-        }
-      });
-
-      // Listen for all queue events
-      socket.on('TICKET_CALLED', (payload) => {
-        setLastEvent({ event: 'TICKET_CALLED', payload });
-      });
-
-      socket.on('TICKET_COMPLETED', (payload) => {
-        setLastEvent({ event: 'TICKET_COMPLETED', payload });
-      });
-
-      socket.on('TICKET_CREATED', (payload) => {
-        setLastEvent({ event: 'TICKET_CREATED', payload });
-      });
-
-      socket.on('TICKET_SKIPPED', (payload) => {
-        setLastEvent({ event: 'TICKET_SKIPPED', payload });
-      });
-
-      socket.on('QUEUE_UPDATE', (payload) => {
-        setLastEvent({ event: 'QUEUE_UPDATE', payload });
-      });
-
-      socketRef.current = socket;
-    };
-
-    createSocket();
+    if (effectiveToken) {
+      doConnect();
+    } else {
+      wsRef.current?.close();
+    }
 
     return () => {
-      intentionallyClosed = true;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-      setIsConnected(false);
-      setReconnecting(false);
+      wsRef.current?.close();
+      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
     };
-  }, [tenantId, token]);
+  }, [effectiveToken, tenantId]);
 
-  const broadcast = useCallback((event: string, payload: Record<string, unknown>) => {
-    if (socketRef.current && tenantId) {
-      socketRef.current.emit('broadcast', { tenantId, event, payload });
+  const broadcast = useCallback((tid: string, event: string, payload: Record<string, unknown>) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'broadcast', tenantId: tid, event, payload }));
     }
-  }, [tenantId]);
-
-  const clearLastEvent = useCallback(() => {
-    setLastEvent(null);
   }, []);
 
-  return { isConnected, reconnecting, lastEvent, broadcast, clearLastEvent };
+  return { connected, isConnected: connected, lastEvent, clearLastEvent, broadcast };
 }
+
+// Alias for backward compatibility
+export const useQueueWebSocket = useQueueWS;

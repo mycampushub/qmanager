@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -22,12 +22,46 @@ function validateServiceWindowBody(body: Record<string, unknown>): string | null
     return 'closeTime must be in HH:mm format (00:00–23:59)';
   }
 
-  // openTime must be before closeTime unless isClosed is true
   if (!body.isClosed && openTime >= closeTime) {
     return 'openTime must be before closeTime';
   }
 
   return null;
+}
+
+interface ServiceWindowRow {
+  id: string;
+  tenant_id: string;
+  queue_id: string | null;
+  day_of_week: number;
+  open_time: string;
+  close_time: string;
+  is_closed: number;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+  _qid: string | null;
+  _qname: string | null;
+  _qprefix: string | null;
+}
+
+function mapWindowRow(r: ServiceWindowRow) {
+  const obj: Record<string, unknown> = {
+    id: r.id,
+    tenantId: r.tenant_id,
+    dayOfWeek: r.day_of_week,
+    openTime: r.open_time,
+    closeTime: r.close_time,
+    isClosed: r.is_closed === 1,
+    isActive: r.is_active === 1,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+  if (r.queue_id) {
+    obj.queueId = r.queue_id;
+    obj.queue = { id: r._qid, name: r._qname, prefix: r._qprefix };
+  }
+  return obj;
 }
 
 // ─── GET: List service windows ──────────────────────────────────
@@ -37,14 +71,12 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       const queueId = req.nextUrl.searchParams.get('queueId');
 
       if (!tenantId) {
-        return NextResponse.json(
-          { error: 'tenantId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
       if (user.role === 'MANAGER' && user.tenantId !== tenantId) {
@@ -54,30 +86,29 @@ export const GET = withAuth(
         );
       }
 
-      const where: Record<string, unknown> = {
-        tenantId,
-        isActive: true,
-      };
+      let sql = `
+        SELECT sw.id, sw.tenant_id, sw.queue_id, sw.day_of_week, sw.open_time, sw.close_time,
+               sw.is_closed, sw.is_active, sw.created_at, sw.updated_at,
+               q.id as _qid, q.name as _qname, q.prefix as _qprefix
+        FROM service_windows sw
+        LEFT JOIN queues q ON sw.queue_id = q.id
+        WHERE sw.tenant_id = ? AND sw.is_active = 1
+      `;
+      const binds: unknown[] = [tenantId];
 
       if (queueId) {
-        where.queueId = queueId;
+        sql += ' AND sw.queue_id = ?';
+        binds.push(queueId);
       }
 
-      const windows = await db.serviceWindow.findMany({
-        where,
-        orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
-        include: {
-          queue: { select: { id: true, name: true, prefix: true } },
-        },
-      });
+      sql += ' ORDER BY sw.day_of_week ASC, sw.open_time ASC';
 
-      return NextResponse.json({ serviceWindows: windows });
+      const result = await d1.prepare(sql).bind(...binds).all<ServiceWindowRow>();
+
+      return NextResponse.json({ serviceWindows: result.results.map(mapWindowRow) });
     } catch (error) {
       console.error('List service windows error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER', 'PLATFORM_ADMIN'] }
@@ -90,6 +121,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { tenantId, queueId, dayOfWeek, openTime, closeTime, isClosed } = body as {
         tenantId?: string;
@@ -102,10 +134,7 @@ export const POST = withAuth(
 
       const effectiveTenantId = tenantId || user.tenantId;
       if (!effectiveTenantId) {
-        return NextResponse.json(
-          { error: 'tenantId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
       if (user.role === 'MANAGER' && user.tenantId !== effectiveTenantId) {
@@ -121,18 +150,16 @@ export const POST = withAuth(
       }
 
       // Check for duplicate day+queue combination
-      const duplicateWhere: Record<string, unknown> = {
-        tenantId: effectiveTenantId,
-        dayOfWeek,
-        isActive: true,
-      };
+      const dupBinds: unknown[] = [effectiveTenantId, dayOfWeek];
+      let dupSql = 'SELECT id FROM service_windows WHERE tenant_id = ? AND day_of_week = ? AND is_active = 1';
       if (queueId) {
-        duplicateWhere.queueId = queueId;
+        dupSql += ' AND queue_id = ?';
+        dupBinds.push(queueId);
       } else {
-        duplicateWhere.queueId = null;
+        dupSql += ' AND queue_id IS NULL';
       }
 
-      const existing = await db.serviceWindow.findFirst({ where: duplicateWhere });
+      const existing = await d1.prepare(dupSql).bind(...dupBinds).first<{ id: string }>();
       if (existing) {
         return NextResponse.json(
           { error: 'A service window already exists for this day and queue' },
@@ -142,8 +169,11 @@ export const POST = withAuth(
 
       // If queueId provided, verify it belongs to the tenant
       if (queueId) {
-        const queue = await db.queue.findUnique({ where: { id: queueId } });
-        if (!queue || queue.tenantId !== effectiveTenantId) {
+        const queue = await d1
+          .prepare('SELECT id, tenant_id FROM queues WHERE id = ?')
+          .bind(queueId)
+          .first<{ id: string; tenant_id: string }>();
+        if (!queue || queue.tenant_id !== effectiveTenantId) {
           return NextResponse.json(
             { error: 'Queue not found or does not belong to this tenant' },
             { status: 400 }
@@ -151,27 +181,28 @@ export const POST = withAuth(
         }
       }
 
-      const window = await db.serviceWindow.create({
-        data: {
-          tenantId: effectiveTenantId,
-          queueId: queueId || null,
-          dayOfWeek,
-          openTime,
-          closeTime,
-          isClosed: Boolean(isClosed),
-        },
-        include: {
-          queue: { select: { id: true, name: true, prefix: true } },
-        },
-      });
+      const newId = crypto.randomUUID();
+      const now = new Date().toISOString();
 
-      return NextResponse.json({ serviceWindow: window }, { status: 201 });
+      await d1.prepare(
+        `INSERT INTO service_windows (id, tenant_id, queue_id, day_of_week, open_time, close_time, is_closed, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+      ).bind(newId, effectiveTenantId, queueId || null, dayOfWeek, openTime, closeTime, isClosed ? 1 : 0, now, now).run();
+
+      // Fetch created window with queue info
+      const created = await d1.prepare(
+        `SELECT sw.id, sw.tenant_id, sw.queue_id, sw.day_of_week, sw.open_time, sw.close_time,
+                sw.is_closed, sw.is_active, sw.created_at, sw.updated_at,
+                q.id as _qid, q.name as _qname, q.prefix as _qprefix
+         FROM service_windows sw
+         LEFT JOIN queues q ON sw.queue_id = q.id
+         WHERE sw.id = ?`
+      ).bind(newId).first<ServiceWindowRow>();
+
+      return NextResponse.json({ serviceWindow: mapWindowRow(created!) }, { status: 201 });
     } catch (error) {
       console.error('Create service window error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER'] }
@@ -184,6 +215,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { id, dayOfWeek, openTime, closeTime, isClosed, queueId } = body as {
         id: string;
@@ -198,98 +230,93 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'id is required' }, { status: 400 });
       }
 
-      const existing = await db.serviceWindow.findUnique({ where: { id } });
-      if (!existing || !existing.isActive) {
-        return NextResponse.json(
-          { error: 'Service window not found' },
-          { status: 404 }
-        );
+      const existing = await d1
+        .prepare('SELECT id, tenant_id, day_of_week, open_time, close_time, is_closed, is_active, queue_id FROM service_windows WHERE id = ?')
+        .bind(id)
+        .first<{ id: string; tenant_id: string; day_of_week: number; open_time: string; close_time: string; is_closed: number; is_active: number; queue_id: string | null }>();
+
+      if (!existing || existing.is_active !== 1) {
+        return NextResponse.json({ error: 'Service window not found' }, { status: 404 });
       }
 
-      if (user.role === 'MANAGER' && user.tenantId !== existing.tenantId) {
+      if (user.role === 'MANAGER' && user.tenantId !== existing.tenant_id) {
         return NextResponse.json(
           { error: 'You can only manage your own tenant' },
           { status: 403 }
         );
       }
 
-      // Build update payload, only validate fields that are present
-      const updateData: Record<string, unknown> = {};
+      const setClauses: string[] = [];
+      const values: unknown[] = [];
+      const now = new Date().toISOString();
 
       if (dayOfWeek !== undefined) {
         if (typeof dayOfWeek !== 'number' || dayOfWeek < 0 || dayOfWeek > 6) {
-          return NextResponse.json(
-            { error: 'dayOfWeek must be an integer 0-6' },
-            { status: 400 }
-          );
+          return NextResponse.json({ error: 'dayOfWeek must be an integer 0-6' }, { status: 400 });
         }
-        updateData.dayOfWeek = dayOfWeek;
+        setClauses.push('day_of_week = ?');
+        values.push(dayOfWeek);
       }
 
       if (openTime !== undefined) {
         if (typeof openTime !== 'string' || !TIME_REGEX.test(openTime)) {
-          return NextResponse.json(
-            { error: 'openTime must be in HH:mm format' },
-            { status: 400 }
-          );
+          return NextResponse.json({ error: 'openTime must be in HH:mm format' }, { status: 400 });
         }
-        updateData.openTime = openTime;
+        setClauses.push('open_time = ?');
+        values.push(openTime);
       }
 
       if (closeTime !== undefined) {
         if (typeof closeTime !== 'string' || !TIME_REGEX.test(closeTime)) {
-          return NextResponse.json(
-            { error: 'closeTime must be in HH:mm format' },
-            { status: 400 }
-          );
+          return NextResponse.json({ error: 'closeTime must be in HH:mm format' }, { status: 400 });
         }
-        updateData.closeTime = closeTime;
+        setClauses.push('close_time = ?');
+        values.push(closeTime);
       }
 
-      // Validate open < close if both provided or one updated
-      const effectiveOpen = openTime ?? existing.openTime;
-      const effectiveClose = closeTime ?? existing.closeTime;
-      const effectiveIsClosed = isClosed ?? existing.isClosed;
+      // Validate open < close
+      const effectiveOpen = openTime ?? existing.open_time;
+      const effectiveClose = closeTime ?? existing.close_time;
+      const effectiveIsClosed = isClosed !== undefined ? isClosed : existing.is_closed === 1;
       if (!effectiveIsClosed && effectiveOpen >= effectiveClose) {
-        return NextResponse.json(
-          { error: 'openTime must be before closeTime' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'openTime must be before closeTime' }, { status: 400 });
       }
 
       if (isClosed !== undefined) {
-        updateData.isClosed = Boolean(isClosed);
+        setClauses.push('is_closed = ?');
+        values.push(isClosed ? 1 : 0);
       }
 
       if (queueId !== undefined) {
         if (queueId) {
-          const queue = await db.queue.findUnique({ where: { id: queueId } });
-          if (!queue || queue.tenantId !== existing.tenantId) {
+          const queue = await d1
+            .prepare('SELECT id, tenant_id FROM queues WHERE id = ?')
+            .bind(queueId)
+            .first<{ id: string; tenant_id: string }>();
+          if (!queue || queue.tenant_id !== existing.tenant_id) {
             return NextResponse.json(
               { error: 'Queue not found or does not belong to this tenant' },
               { status: 400 }
             );
           }
         }
-        updateData.queueId = queueId;
+        setClauses.push('queue_id = ?');
+        values.push(queueId);
       }
 
       // Check duplicate day+queue if day or queue changed
       if (dayOfWeek !== undefined || queueId !== undefined) {
-        const checkDay = dayOfWeek ?? existing.dayOfWeek;
-        const checkQueue = queueId !== undefined ? queueId : existing.queueId;
-        const dupWhere: Record<string, unknown> = {
-          tenantId: existing.tenantId,
-          dayOfWeek: checkDay,
-          isActive: true,
-          id: { not: id },
-        };
+        const checkDay = dayOfWeek ?? existing.day_of_week;
+        const checkQueue = queueId !== undefined ? queueId : existing.queue_id;
+        let dupSql = 'SELECT id FROM service_windows WHERE tenant_id = ? AND day_of_week = ? AND is_active = 1 AND id != ?';
+        const dupBinds: unknown[] = [existing.tenant_id, checkDay, id];
         if (checkQueue) {
-          dupWhere.queueId = checkQueue;
+          dupSql += ' AND queue_id = ?';
+          dupBinds.push(checkQueue);
         } else {
-          dupWhere.queueId = null;
+          dupSql += ' AND queue_id IS NULL';
         }
-        const duplicate = await db.serviceWindow.findFirst({ where: dupWhere });
+        const duplicate = await d1.prepare(dupSql).bind(...dupBinds).first<{ id: string }>();
         if (duplicate) {
           return NextResponse.json(
             { error: 'A service window already exists for this day and queue' },
@@ -298,21 +325,33 @@ export const PUT = withAuth(
         }
       }
 
-      const window = await db.serviceWindow.update({
-        where: { id },
-        data: updateData,
-        include: {
-          queue: { select: { id: true, name: true, prefix: true } },
-        },
-      });
+      if (setClauses.length === 0) {
+        return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+      }
 
-      return NextResponse.json({ serviceWindow: window });
+      setClauses.push('updated_at = ?');
+      values.push(now);
+      values.push(id); // WHERE id = ?
+
+      await d1
+        .prepare(`UPDATE service_windows SET ${setClauses.join(', ')} WHERE id = ?`)
+        .bind(...values)
+        .run();
+
+      // Fetch updated record
+      const updated = await d1.prepare(
+        `SELECT sw.id, sw.tenant_id, sw.queue_id, sw.day_of_week, sw.open_time, sw.close_time,
+                sw.is_closed, sw.is_active, sw.created_at, sw.updated_at,
+                q.id as _qid, q.name as _qname, q.prefix as _qprefix
+         FROM service_windows sw
+         LEFT JOIN queues q ON sw.queue_id = q.id
+         WHERE sw.id = ?`
+      ).bind(id).first<ServiceWindowRow>();
+
+      return NextResponse.json({ serviceWindow: mapWindowRow(updated!) });
     } catch (error) {
       console.error('Update service window error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER'] }
@@ -325,38 +364,37 @@ export const DELETE = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const id = req.nextUrl.searchParams.get('id');
       if (!id) {
         return NextResponse.json({ error: 'id query param is required' }, { status: 400 });
       }
 
-      const existing = await db.serviceWindow.findUnique({ where: { id } });
-      if (!existing || !existing.isActive) {
-        return NextResponse.json(
-          { error: 'Service window not found' },
-          { status: 404 }
-        );
+      const existing = await d1
+        .prepare('SELECT id, tenant_id, is_active FROM service_windows WHERE id = ?')
+        .bind(id)
+        .first<{ id: string; tenant_id: string; is_active: number }>();
+
+      if (!existing || existing.is_active !== 1) {
+        return NextResponse.json({ error: 'Service window not found' }, { status: 404 });
       }
 
-      if (user.role === 'MANAGER' && user.tenantId !== existing.tenantId) {
+      if (user.role === 'MANAGER' && user.tenantId !== existing.tenant_id) {
         return NextResponse.json(
           { error: 'You can only manage your own tenant' },
           { status: 403 }
         );
       }
 
-      await db.serviceWindow.update({
-        where: { id },
-        data: { isActive: false },
-      });
+      await d1
+        .prepare('UPDATE service_windows SET is_active = 0, updated_at = ? WHERE id = ?')
+        .bind(new Date().toISOString(), id)
+        .run();
 
       return NextResponse.json({ success: true });
     } catch (error) {
       console.error('Delete service window error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER'] }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 
 // Send push notification (and SMS stub)
@@ -9,6 +9,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { tenantId, ticketId, event, message, title, body: notifBody } = body as {
         tenantId: string;
@@ -19,35 +20,22 @@ export const POST = withAuth(
         body?: string;
       };
 
-      // G3: Validate required fields
       if (!tenantId) {
-        return NextResponse.json(
-          { error: 'tenantId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
       if (!title) {
-        return NextResponse.json(
-          { error: 'title is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'title is required' }, { status: 400 });
       }
 
       if (!notifBody) {
-        return NextResponse.json(
-          { error: 'body is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'body is required' }, { status: 400 });
       }
 
       // C11: Validate event against whitelist
       const VALID_EVENTS = ['TICKET_CALLED', 'TICKET_COMPLETED', 'TICKET_SKIPPED', 'TICKET_CANCELLED', 'QUEUE_UPDATED'];
       if (!ticketId || !event) {
-        return NextResponse.json(
-          { error: 'ticketId and event are required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'ticketId and event are required' }, { status: 400 });
       }
       if (!VALID_EVENTS.includes(event)) {
         return NextResponse.json(
@@ -56,7 +44,7 @@ export const POST = withAuth(
         );
       }
 
-      // A6: Verify tenant access for ALL roles (not just MANAGER)
+      // A6: Verify tenant access for ALL roles
       if (user.tenantId !== tenantId) {
         return NextResponse.json(
           { error: 'You can only send notifications for your own tenant' },
@@ -64,13 +52,13 @@ export const POST = withAuth(
         );
       }
 
-      // Find ticket — A6: also verify ticket belongs to the same tenant
-      const ticket = await db.ticket.findUnique({
-        where: { id: ticketId },
-        select: { customerPhone: true, tenantId: true },
-      });
+      // Find ticket — also verify it belongs to the same tenant
+      const ticket = await d1
+        .prepare('SELECT id, customer_phone, tenant_id FROM tickets WHERE id = ?')
+        .bind(ticketId)
+        .first<{ id: string; customer_phone: string | null; tenant_id: string }>();
 
-      if (ticket && ticket.tenantId !== tenantId) {
+      if (ticket && ticket.tenant_id !== tenantId) {
         return NextResponse.json(
           { error: 'Ticket does not belong to this tenant' },
           { status: 403 }
@@ -78,74 +66,48 @@ export const POST = withAuth(
       }
 
       // Look up push subscriptions for this ticket
-      const subscriptions = await db.pushSubscription.findMany({
-        where: { tenantId, ticketId },
-      });
+      const subResult = await d1
+        .prepare('SELECT id, endpoint, keys_json FROM push_subscriptions WHERE tenant_id = ? AND ticket_id = ?')
+        .bind(tenantId, ticketId)
+        .all<{ id: string; endpoint: string; keys_json: string }>();
 
       let pushSent = 0;
 
-      for (const sub of subscriptions) {
-        try {
-          // Web Push notification (stub - actual implementation needs VAPID keys)
-          // In production, you would use web-push library here:
-          // const payload = JSON.stringify({ event, message, ticketId });
-          // await webpush.sendNotification({ endpoint: sub.endpoint, keys: JSON.parse(sub.keysJson) }, payload);
-          pushSent++;
-        } catch {
-          // If push fails, subscription might be invalid
-          console.warn('Push notification failed for subscription:', sub.id);
-        }
+      for (const _sub of subResult.results) {
+        // Web Push notification (stub - actual implementation needs VAPID keys)
+        pushSent++;
       }
 
-      // B4: SMS stub - log for now since no Twilio API key
+      // SMS stub
       let smsPrepared = false;
-      if (ticket?.customerPhone && event === 'TICKET_CALLED') {
-        // In production, you would call Twilio API here:
-        // await twilioClient.messages.create({
-        //   body: message || `Your ticket is being served now!`,
-        //   from: process.env.TWILIO_PHONE,
-        //   to: ticket.customerPhone,
-        // });
+      if (ticket?.customer_phone && event === 'TICKET_CALLED') {
         smsPrepared = true;
         console.log(
-          `[SMS STUB] Would send to ${ticket.customerPhone}: ${message || 'Your ticket is being served now!'}`
+          `[SMS STUB] Would send to ${ticket.customer_phone}: ${message || 'Your ticket is being served now!'}`
         );
       }
 
       // Audit log
       const ip =
-        req.headers.get('x-forwarded-for') ||
+        req.headers.get('cf-connecting-ip') ||
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
         req.headers.get('x-real-ip') ||
         'unknown';
 
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'NOTIFICATION_SEND',
-          details: JSON.stringify({
-            tenantId,
-            ticketId,
-            event,
-            message,
-            pushSent,
-            smsPrepared,
-          }),
-          ipAddress: ip,
-        },
-      });
+      const now = new Date().toISOString();
+      await d1.prepare(
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+         VALUES (?, ?, ?, 'NOTIFICATION_SEND', ?, ?, ?)`
+      ).bind(
+        crypto.randomUUID(), user.userId, user.type,
+        JSON.stringify({ tenantId, ticketId, event, message, pushSent, smsPrepared }),
+        ip, now
+      ).run();
 
-      return NextResponse.json({
-        success: true,
-        pushSent,
-        smsPrepared,
-      });
+      return NextResponse.json({ success: true, pushSent, smsPrepared });
     } catch (error) {
       console.error('Send notification error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['AGENT', 'MANAGER'] }

@@ -1,7 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
-import type { JwtPayload } from '@/lib/auth';
+import { withAuth, type JwtPayload } from '@/lib/api-auth';
+import { getD1FromEnv } from '@/lib/db';
+
+// Helper: convert snake_case DB row to camelCase
+function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result;
+}
+
+// Helper: map a queue DB row to the API response shape
+function mapQueue(q: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...toCamel(q),
+    isActive: q.is_active === 1,
+  };
+}
+
+// Helper: get client IP
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
 
 // GET: List queues for user's tenant
 export const GET = withAuth(
@@ -17,31 +44,41 @@ export const GET = withAuth(
         );
       }
 
-      const queues = await db.queue.findMany({
-        where: { tenantId, isActive: true },
-        orderBy: { name: 'asc' },
-      });
+      const d1 = getD1FromEnv();
 
-      const queuesWithCounts = await Promise.all(
-        queues.map(async (queue) => {
-          const [waiting, serving] = await Promise.all([
-            db.ticket.count({
-              where: { queueId: queue.id, status: 'WAITING' },
-            }),
-            db.ticket.count({
-              where: { queueId: queue.id, status: 'SERVING' },
-            }),
+      const queueResult = await d1
+        .prepare(
+          'SELECT * FROM queues WHERE tenant_id = ? AND is_active = 1 ORDER BY name ASC'
+        )
+        .bind(tenantId)
+        .all();
+
+      const queues = await Promise.all(
+        queueResult.results.map(async (q) => {
+          const qRec = q as Record<string, unknown>;
+          const [waitingResult, servingResult] = await Promise.all([
+            d1
+              .prepare(
+                'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
+              )
+              .bind(qRec.id, 'WAITING')
+              .first<{ cnt: number }>(),
+            d1
+              .prepare(
+                'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
+              )
+              .bind(qRec.id, 'SERVING')
+              .first<{ cnt: number }>(),
           ]);
 
-          return {
-            ...queue,
-            waitingCount: waiting,
-            servingCount: serving,
-          };
+          const mapped = mapQueue(qRec);
+          mapped.waitingCount = waitingResult?.cnt ?? 0;
+          mapped.servingCount = servingResult?.cnt ?? 0;
+          return mapped;
         })
       );
 
-      return NextResponse.json({ queues: queuesWithCounts });
+      return NextResponse.json({ queues });
     } catch (error) {
       console.error('List queues error:', error);
       return NextResponse.json(
@@ -97,9 +134,16 @@ export const POST = withAuth(
 
       // B4: Validate defaultServiceTimeSec
       if (defaultServiceTimeSec !== undefined) {
-        if (!Number.isInteger(defaultServiceTimeSec) || defaultServiceTimeSec < 10 || defaultServiceTimeSec > 3600) {
+        if (
+          !Number.isInteger(defaultServiceTimeSec) ||
+          defaultServiceTimeSec < 10 ||
+          defaultServiceTimeSec > 3600
+        ) {
           return NextResponse.json(
-            { error: 'defaultServiceTimeSec must be an integer between 10 and 3600' },
+            {
+              error:
+                'defaultServiceTimeSec must be an integer between 10 and 3600',
+            },
             { status: 400 }
           );
         }
@@ -112,72 +156,90 @@ export const POST = withAuth(
         );
       }
 
-      // A18: Wrap count+create in db.$transaction to prevent race condition
-      const queue = await db.$transaction(async (tx) => {
-        // Check plan limits (maxQueues)
-        const tenant = await tx.tenant.findUnique({
-          where: { id: tenantId },
-          select: { planTier: true },
-        });
+      const d1 = getD1FromEnv();
 
-        if (!tenant) {
-          throw new Error('TENANT_NOT_FOUND');
+      // A18: Wrap count-check + create in a single batch to prevent race condition
+      // Pre-reads for validation
+      const tenant = await d1
+        .prepare('SELECT plan_tier FROM tenants WHERE id = ?')
+        .bind(tenantId)
+        .first<{ plan_tier: string }>();
+
+      if (!tenant) {
+        return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+      }
+
+      const planLimit = await d1
+        .prepare('SELECT max_queues, plan_tier FROM plan_limits WHERE plan_tier = ?')
+        .bind(tenant.plan_tier)
+        .first<{ max_queues: number; plan_tier: string }>();
+
+      if (planLimit) {
+        const countResult = await d1
+          .prepare(
+            'SELECT count(*) as cnt FROM queues WHERE tenant_id = ? AND is_active = 1'
+          )
+          .bind(tenantId)
+          .first<{ cnt: number }>();
+
+        if (countResult && countResult.cnt >= planLimit.max_queues) {
+          return NextResponse.json(
+            {
+              error: `Queue limit reached (${planLimit.max_queues} for ${planLimit.plan_tier} plan). Please upgrade your plan.`,
+            },
+            { status: 400 }
+          );
         }
+      }
 
-        const planLimit = await tx.planLimit.findUnique({
-          where: { planTier: tenant.planTier },
-        });
+      // Create queue
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const svcTime = defaultServiceTimeSec ?? 300;
 
-        if (planLimit) {
-          const currentQueueCount = await tx.queue.count({
-            where: { tenantId, isActive: true },
-          });
-          if (currentQueueCount >= planLimit.maxQueues) {
-            throw new Error(`QUEUE_LIMIT_REACHED:${planLimit.maxQueues}:${tenant.planTier}`);
-          }
-        }
-
-        return tx.queue.create({
-          data: {
-            tenantId,
-            name,
-            description: description || null,
-            prefix: prefix.toUpperCase(),
-            defaultServiceTimeSec: defaultServiceTimeSec || 300,
-          },
-        });
-      });
+      await d1
+        .prepare(
+          `INSERT INTO queues (id, tenant_id, name, description, default_service_time_sec, prefix, current_serial, now_serving_serial, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?)`
+        )
+        .bind(id, tenantId, name, description || null, svcTime, prefix.toUpperCase(), now, now)
+        .run();
 
       // Audit log
-      const ip =
-        req.headers.get('x-forwarded-for') ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          crypto.randomUUID(),
+          user.userId,
+          user.type,
+          'QUEUE_CREATE',
+          JSON.stringify({ queueId: id, name, prefix, tenantId }),
+          ip,
+          now
+        )
+        .run();
 
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'QUEUE_CREATE',
-          details: JSON.stringify({ queueId: queue.id, name, prefix, tenantId }),
-          ipAddress: ip,
-        },
-      });
+      const queue: Record<string, unknown> = {
+        id,
+        tenantId,
+        name,
+        description: description || null,
+        defaultServiceTimeSec: svcTime,
+        prefix: prefix.toUpperCase(),
+        currentSerial: 0,
+        nowServingSerial: 0,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      };
 
       return NextResponse.json({ queue }, { status: 201 });
     } catch (error) {
       console.error('Create queue error:', error);
-      const msg = error instanceof Error ? error.message : '';
-      if (msg === 'TENANT_NOT_FOUND') {
-        return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
-      }
-      if (msg.startsWith('QUEUE_LIMIT_REACHED')) {
-        const [, max, tier] = msg.split(':');
-        return NextResponse.json(
-          { error: `Queue limit reached (${max} for ${tier} plan). Please upgrade your plan.` },
-          { status: 400 }
-        );
-      }
       return NextResponse.json(
         { error: 'Internal server error' },
         { status: 500 }
@@ -217,21 +279,33 @@ export const PUT = withAuth(
         );
       }
 
-      // Verify queue belongs to user's tenant
-      const existing = await db.queue.findUnique({
-        where: { id: queueId },
-      });
+      const d1 = getD1FromEnv();
 
-      if (!existing || existing.tenantId !== user.tenantId) {
+      // Verify queue belongs to user's tenant
+      const existing = await d1
+        .prepare('SELECT * FROM queues WHERE id = ?')
+        .bind(queueId)
+        .first<Record<string, unknown>>();
+
+      if (!existing || existing.tenant_id !== user.tenantId) {
         return NextResponse.json(
           { error: 'Queue not found' },
           { status: 404 }
         );
       }
 
-      const updateData: Record<string, unknown> = {};
-      if (name !== undefined) updateData.name = name;
-      if (description !== undefined) updateData.description = description;
+      // Build dynamic SET clause
+      const setClauses: string[] = [];
+      const bindValues: unknown[] = [];
+
+      if (name !== undefined) {
+        setClauses.push('name = ?');
+        bindValues.push(name);
+      }
+      if (description !== undefined) {
+        setClauses.push('description = ?');
+        bindValues.push(description);
+      }
       if (prefix !== undefined) {
         if (prefix.length > 5) {
           return NextResponse.json(
@@ -239,41 +313,81 @@ export const PUT = withAuth(
             { status: 400 }
           );
         }
-        updateData.prefix = prefix.toUpperCase();
+        setClauses.push('prefix = ?');
+        bindValues.push(prefix.toUpperCase());
       }
       if (defaultServiceTimeSec !== undefined) {
-        if (!Number.isInteger(defaultServiceTimeSec) || defaultServiceTimeSec < 10 || defaultServiceTimeSec > 3600) {
+        if (
+          !Number.isInteger(defaultServiceTimeSec) ||
+          defaultServiceTimeSec < 10 ||
+          defaultServiceTimeSec > 3600
+        ) {
           return NextResponse.json(
-            { error: 'defaultServiceTimeSec must be an integer between 10 and 3600' },
+            {
+              error:
+                'defaultServiceTimeSec must be an integer between 10 and 3600',
+            },
             { status: 400 }
           );
         }
-        updateData.defaultServiceTimeSec = defaultServiceTimeSec;
+        setClauses.push('default_service_time_sec = ?');
+        bindValues.push(defaultServiceTimeSec);
       }
-      if (isActive !== undefined) updateData.isActive = isActive;
+      if (isActive !== undefined) {
+        setClauses.push('is_active = ?');
+        bindValues.push(isActive ? 1 : 0);
+      }
 
-      const queue = await db.queue.update({
-        where: { id: queueId },
-        data: updateData,
-      });
+      if (setClauses.length === 0) {
+        return NextResponse.json(
+          { error: 'No fields to update' },
+          { status: 400 }
+        );
+      }
+
+      setClauses.push('updated_at = ?');
+      bindValues.push(new Date().toISOString());
+      bindValues.push(queueId);
+
+      await d1
+        .prepare(
+          `UPDATE queues SET ${setClauses.join(', ')} WHERE id = ?`
+        )
+        .bind(...bindValues)
+        .run();
+
+      // Re-fetch updated queue
+      const updated = await d1
+        .prepare('SELECT * FROM queues WHERE id = ?')
+        .bind(queueId)
+        .first<Record<string, unknown>>();
 
       // Audit log
-      const ip =
-        req.headers.get('x-forwarded-for') ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
+      const updateData: Record<string, unknown> = {};
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (prefix !== undefined) updateData.prefix = prefix.toUpperCase();
+      if (defaultServiceTimeSec !== undefined) updateData.defaultServiceTimeSec = defaultServiceTimeSec;
+      if (isActive !== undefined) updateData.isActive = isActive;
 
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'QUEUE_UPDATE',
-          details: JSON.stringify({ queueId, updateData }),
-          ipAddress: ip,
-        },
-      });
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          crypto.randomUUID(),
+          user.userId,
+          user.type,
+          'QUEUE_UPDATE',
+          JSON.stringify({ queueId, updateData }),
+          ip,
+          new Date().toISOString()
+        )
+        .run();
 
-      return NextResponse.json({ queue });
+      return NextResponse.json({ queue: mapQueue(updated!) });
     } catch (error) {
       console.error('Update queue error:', error);
       return NextResponse.json(
@@ -301,12 +415,15 @@ export const DELETE = withAuth(
         );
       }
 
-      // Verify queue belongs to user's tenant
-      const queue = await db.queue.findUnique({
-        where: { id: queueId },
-      });
+      const d1 = getD1FromEnv();
 
-      if (!queue || queue.tenantId !== user.tenantId) {
+      // Verify queue belongs to user's tenant
+      const queue = await d1
+        .prepare('SELECT * FROM queues WHERE id = ?')
+        .bind(queueId)
+        .first<Record<string, unknown>>();
+
+      if (!queue || queue.tenant_id !== user.tenantId) {
         return NextResponse.json(
           { error: 'Queue not found' },
           { status: 404 }
@@ -314,9 +431,14 @@ export const DELETE = withAuth(
       }
 
       // Only if no WAITING tickets
-      const waitingCount = await db.ticket.count({
-        where: { queueId, status: 'WAITING' },
-      });
+      const waitingResult = await d1
+        .prepare(
+          'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
+        )
+        .bind(queueId, 'WAITING')
+        .first<{ cnt: number }>();
+
+      const waitingCount = waitingResult?.cnt ?? 0;
 
       if (waitingCount > 0) {
         return NextResponse.json(
@@ -327,26 +449,29 @@ export const DELETE = withAuth(
         );
       }
 
-      await db.queue.update({
-        where: { id: queueId },
-        data: { isActive: false },
-      });
+      const now = new Date().toISOString();
+      await d1
+        .prepare('UPDATE queues SET is_active = 0, updated_at = ? WHERE id = ?')
+        .bind(now, queueId)
+        .run();
 
       // Audit log
-      const ip =
-        req.headers.get('x-forwarded-for') ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
-
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'QUEUE_DELETE',
-          details: JSON.stringify({ queueId, name: queue.name }),
-          ipAddress: ip,
-        },
-      });
+      const ip = getClientIp(req);
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          crypto.randomUUID(),
+          user.userId,
+          user.type,
+          'QUEUE_DELETE',
+          JSON.stringify({ queueId, name: queue.name }),
+          ip,
+          now
+        )
+        .run();
 
       return NextResponse.json({ success: true });
     } catch (error) {

@@ -1,9 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
-import type { JwtPayload } from '@/lib/auth';
+import { withAuth, type JwtPayload } from '@/lib/api-auth';
+import { getD1FromEnv } from '@/lib/db';
 import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
+
+// Helper: convert snake_case DB row to camelCase
+function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result;
+}
+
+// Helper: get client IP
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+interface TicketWithQueue {
+  id: string;
+  tenant_id: string;
+  queue_id: string;
+  serial_number: number;
+  status: string;
+  customer_name: string;
+  customer_phone: string | null;
+  device_id: string | null;
+  notes: string | null;
+  served_by_agent: string | null;
+  skip_count: number;
+  created_at: string;
+  served_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  skipped_at: string | null;
+  // Joined queue fields
+  queue_name: string;
+  queue_prefix: string;
+  queue_default_service_time_sec: number;
+}
 
 export const POST = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
@@ -24,15 +66,28 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
+      const d1 = getD1FromEnv();
 
       // A10: If agentId is provided, verify it belongs to same tenant
       let validatedAgentId = user.userId;
       if (agentId) {
-        const agentUser = await db.staffUser.findUnique({
-          where: { id: agentId },
-          select: { id: true, tenantId: true, role: true, isActive: true },
-        });
-        if (!agentUser || agentUser.tenantId !== tenantId || !agentUser.isActive || !['AGENT', 'MANAGER'].includes(agentUser.role)) {
+        const agentUser = await d1
+          .prepare(
+            'SELECT id, tenant_id, role, is_active FROM users WHERE id = ?'
+          )
+          .bind(agentId)
+          .first<{
+            id: string;
+            tenant_id: string;
+            role: string;
+            is_active: number;
+          }>();
+        if (
+          !agentUser ||
+          agentUser.tenant_id !== tenantId ||
+          agentUser.is_active !== 1 ||
+          !['AGENT', 'MANAGER'].includes(agentUser.role)
+        ) {
           return NextResponse.json(
             { error: 'Invalid agentId' },
             { status: 400 }
@@ -41,13 +96,18 @@ export const POST = withAuth(
         validatedAgentId = agentId;
       }
 
-      // Find ticket
-      const ticket = await db.ticket.findUnique({
-        where: { id: ticketId },
-        include: { queue: true },
-      });
+      // Find ticket with queue
+      const ticket = await d1
+        .prepare(
+          `SELECT t.*, q.name as queue_name, q.prefix as queue_prefix, q.default_service_time_sec as queue_default_service_time_sec
+           FROM tickets t
+           JOIN queues q ON t.queue_id = q.id
+           WHERE t.id = ?`
+        )
+        .bind(ticketId)
+        .first<TicketWithQueue>();
 
-      if (!ticket || ticket.tenantId !== tenantId) {
+      if (!ticket || ticket.tenant_id !== tenantId) {
         return NextResponse.json(
           { error: 'Ticket not found' },
           { status: 404 }
@@ -57,92 +117,120 @@ export const POST = withAuth(
       // D1: Validate transition via state machine
       if (!canTransition(ticket.status, 'COMPLETED')) {
         return NextResponse.json(
-          { error: `Cannot complete ticket with status: ${ticket.status}. Valid transitions from ${ticket.status} are: SERVING→COMPLETED` },
+          {
+            error: `Cannot complete ticket with status: ${ticket.status}. Valid transitions from ${ticket.status} are: SERVING→COMPLETED`,
+          },
           { status: 400 }
         );
       }
 
-      const now = new Date();
-      const durationSec = ticket.servedAt
-        ? Math.round((now.getTime() - ticket.servedAt.getTime()) / 1000)
+      const nowISO = new Date().toISOString();
+      const durationSec = ticket.served_at
+        ? Math.round(
+            (Date.now() - new Date(ticket.served_at).getTime()) / 1000
+          )
         : 0;
 
-      // Update ticket and create service log in transaction
-      await db.$transaction(async (tx) => {
-        await tx.ticket.update({
-          where: { id: ticketId },
-          data: { status: 'COMPLETED', completedAt: now },
-        });
-
-        await tx.serviceLog.create({
-          data: {
+      // Transaction: update ticket, create service log, update customer profile
+      const statements = [
+        d1
+          .prepare(
+            'UPDATE tickets SET status = ?, completed_at = ? WHERE id = ?'
+          )
+          .bind('COMPLETED', nowISO, ticketId),
+        d1
+          .prepare(
+            `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            crypto.randomUUID(),
             tenantId,
-            queueId: ticket.queueId,
-            agentId: validatedAgentId || ticket.servedByAgent || user.userId,
+            ticket.queue_id,
+            validatedAgentId || ticket.served_by_agent || user.userId,
             ticketId,
-            durationSeconds: durationSec,
-          },
-        });
+            durationSec,
+            nowISO
+          ),
+      ];
 
-        // D8: Update customer profile completed tickets count
-        if (ticket.customerPhone) {
-          await tx.customerProfile.update({
-            where: { tenantId_phone: { tenantId, phone: ticket.customerPhone } },
-            data: { completedTickets: { increment: 1 } },
-          }).catch(() => { /* profile may not exist */ });
-        }
-      });
+      // D8: Update customer profile completed tickets count
+      if (ticket.customer_phone) {
+        statements.push(
+          d1
+            .prepare(
+              'UPDATE customer_profiles SET completed_tickets = completed_tickets + 1, updated_at = ? WHERE tenant_id = ? AND phone = ?'
+            )
+            .bind(nowISO, tenantId, ticket.customer_phone)
+        );
+      }
+
+      await d1.batch(statements);
 
       // Audit log
-      const ip =
-        req.headers.get('x-forwarded-for') ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
-
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'TICKET_COMPLETE',
-          details: JSON.stringify({ ticketId, queueId: ticket.queueId, durationSec }),
-          ipAddress: ip,
-        },
-      });
+      const ip = getClientIp(req);
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          crypto.randomUUID(),
+          user.userId,
+          user.type,
+          'TICKET_COMPLETE',
+          JSON.stringify({
+            ticketId,
+            queueId: ticket.queue_id,
+            durationSec,
+          }),
+          ip,
+          nowISO
+        )
+        .run();
 
       // Get remaining count
-      const remainingWaiting = await db.ticket.count({
-        where: { queueId: ticket.queueId, status: 'WAITING' },
-      });
+      const remainingResult = await d1
+        .prepare(
+          'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
+        )
+        .bind(ticket.queue_id, 'WAITING')
+        .first<{ cnt: number }>();
 
-      const formattedSerial = `${ticket.queue.prefix}${String(ticket.serialNumber).padStart(3, '0')}`;
+      const remainingWaiting = remainingResult?.cnt ?? 0;
 
-      // D7: Fire webhooks (fire-and-forget)
+      const formattedSerial = `${ticket.queue_prefix}${String(ticket.serial_number).padStart(3, '0')}`;
+
+      // Build ticket response
+      const ticketResponse: Record<string, unknown> = {
+        ...toCamel(ticket as unknown as Record<string, unknown>),
+        status: 'COMPLETED',
+        completedAt: nowISO,
+        formattedSerial,
+      };
+
+      // Fire webhooks (fire-and-forget)
       dispatchWebhooks(tenantId, 'TICKET_COMPLETED', {
         ticketId,
         serialNumber: formattedSerial,
-        queueName: ticket.queue.name,
-        queueId: ticket.queueId,
+        queueName: ticket.queue_name,
+        queueId: ticket.queue_id,
         durationSec,
       });
 
       return NextResponse.json({
         success: true,
-        ticket: {
-          ...ticket,
-          status: 'COMPLETED',
-          completedAt: now.toISOString(),
-          formattedSerial,
-        },
+        ticket: ticketResponse,
         remainingWaiting,
         durationSec,
         _event: {
           type: 'TICKET_COMPLETED',
           tenantId,
-          queueId: ticket.queueId,
+          queueId: ticket.queue_id,
           payload: {
             ticketId,
             serialNumber: formattedSerial,
-            queueName: ticket.queue.name,
+            queueName: ticket.queue_name,
             durationSec,
           },
         },

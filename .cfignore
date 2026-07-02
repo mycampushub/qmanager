@@ -1,0 +1,18 @@
+# Cloudflare Workers deploy ignore
+node_modules
+.next
+.git
+*.md
+!README.md
+db/
+upload/
+download/
+examples/
+agent-ctx/
+audit-*.md
+prd-text.txt
+bun.lock
+*.log
+.mini-services/
+scripts/
+!scripts/seed.sql

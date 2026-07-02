@@ -1,48 +1,42 @@
-import { getPlatformDb, getTenantDb } from './tenant-db'
+// =============================================================================
+// QueueFlow — Cross-Tenant Aggregation (D1 compatible)
+// Replaces: src/lib/aggregate-tenants.ts
+//
+// Changes: Single D1 database — no per-tenant SQLite files.
+//   Uses SQL GROUP BY for efficient cross-tenant aggregation.
+// =============================================================================
+
+import { getD1FromEnv } from './db';
 
 export interface TenantAggregates {
-  totalTickets: number
-  totalTicketsToday: number
-  completedToday: number
-  totalRevenue: number
-  totalQueues: number
+  totalTickets: number;
+  totalTicketsToday: number;
+  completedToday: number;
+  totalRevenue: number;
+  totalQueues: number;
 }
 
 export async function aggregateAcrossTenants(): Promise<TenantAggregates> {
-  const platformDb = getPlatformDb()
-  const tenants = await platformDb.tenant.findMany({
-    where: { isActive: true },
-    select: { id: true },
-  })
+  const d1 = getD1FromEnv();
 
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayISO = todayStart.toISOString();
 
-  let totalTickets = 0
-  let totalTicketsToday = 0
-  let completedToday = 0
-  let totalRevenue = 0
-  let totalQueues = 0
+  // Single query aggregation — much faster than per-tenant loops
+  const results = await d1.batch([
+    d1.prepare('SELECT count(*) as cnt FROM tickets').bind(),
+    d1.prepare('SELECT count(*) as cnt FROM tickets WHERE created_at >= ?').bind(todayISO),
+    d1.prepare('SELECT count(*) as cnt FROM tickets WHERE created_at >= ? AND status = ?').bind(todayISO, 'COMPLETED'),
+    d1.prepare('SELECT COALESCE(SUM(cost_cents), 0) as total FROM usage_ledgers').bind(),
+    d1.prepare('SELECT count(*) as cnt FROM queues WHERE is_active = 1').bind(),
+  ]);
 
-  for (const tenant of tenants) {
-    try {
-      const tdb = getTenantDb(tenant.id)
-      const [tickets, ticketsToday, completed, revenue, queues] = await Promise.all([
-        tdb.ticket.count(),
-        tdb.ticket.count({ where: { createdAt: { gte: todayStart } } }),
-        tdb.ticket.count({ where: { createdAt: { gte: todayStart }, status: 'COMPLETED' } }),
-        tdb.usageLedger.aggregate({ _sum: { costCents: true } }),
-        tdb.queue.count({ where: { isActive: true } }),
-      ])
-      totalTickets += tickets
-      totalTicketsToday += ticketsToday
-      completedToday += completed
-      totalRevenue += revenue._sum.costCents || 0
-      totalQueues += queues
-    } catch {
-      // skip tenant DB if inaccessible
-    }
-  }
-
-  return { totalTickets, totalTicketsToday, completedToday, totalRevenue, totalQueues }
+  return {
+    totalTickets: (results[0].results as { cnt: number }[])[0]?.cnt ?? 0,
+    totalTicketsToday: (results[1].results as { cnt: number }[])[0]?.cnt ?? 0,
+    completedToday: (results[2].results as { cnt: number }[])[0]?.cnt ?? 0,
+    totalRevenue: (results[3].results as { total: number }[])[0]?.total ?? 0,
+    totalQueues: (results[4].results as { cnt: number }[])[0]?.cnt ?? 0,
+  };
 }

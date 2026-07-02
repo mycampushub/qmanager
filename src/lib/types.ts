@@ -1,6 +1,6 @@
 export type TicketStatus = 'WAITING' | 'SERVING' | 'COMPLETED' | 'SKIPPED' | 'CANCELLED';
-export type UserRole = 'MANAGER' | 'AGENT';
-export type PlanTier = 'FREE' | 'PRO' | 'ENTERPRISE';
+type UserRole = 'MANAGER' | 'AGENT';
+type PlanTier = 'FREE' | 'PRO' | 'ENTERPRISE';
 export type AppView = 'marketing' | 'join' | 'dashboard' | 'display' | 'admin' | 'masterTenant' | 'kiosk';
 
 export interface BrandingConfig {
@@ -87,21 +87,6 @@ export interface UsageLedger {
   createdAt: string;
 }
 
-export interface ServiceLog {
-  id: string;
-  tenantId: string;
-  agentId: string | null;
-  ticketId: string;
-  durationSeconds: number | null;
-  createdAt: string;
-}
-
-export interface AuthResponse {
-  user: StaffUser;
-  token: string;
-  csrfToken?: string;
-}
-
 export interface AnalyticsData {
   totalTickets: number;
   completedToday: number;
@@ -127,24 +112,4 @@ export interface AnalyticsData {
     queueName: string;
     timestamp: string;
   }>;
-}
-
-export interface JoinQueueRequest {
-  tenantId: string;
-  queueId: string;
-  customerName: string;
-  customerPhone?: string;
-}
-
-export interface TicketActionRequest {
-  ticketId: string;
-  agentId?: string;
-}
-
-// WebSocket events
-export interface WSEvent {
-  type: 'TICKET_CREATED' | 'TICKET_CALLED' | 'TICKET_COMPLETED' | 'TICKET_SKIPPED' | 'TICKET_CANCELLED' | 'QUEUE_UPDATE';
-  tenantId: string;
-  queueId?: string;
-  payload: Record<string, unknown>;
 }

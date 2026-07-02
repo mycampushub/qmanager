@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import { verifyPassword, hashPassword } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
 
@@ -25,6 +25,7 @@ export const POST = withAuth(
     }
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { currentPassword, newPassword } = body as {
         currentPassword: string;
@@ -48,15 +49,16 @@ export const POST = withAuth(
       }
 
       if (user.type === 'staff') {
-        const staff = await db.staffUser.findUnique({
-          where: { id: user.userId },
-        });
+        const staff = await d1
+          .prepare('SELECT id, password_hash FROM users WHERE id = ?')
+          .bind(user.userId)
+          .first<{ id: string; password_hash: string }>();
 
         if (!staff) {
           return NextResponse.json({ error: 'User not found' }, { status: 404 });
         }
 
-        const valid = await verifyPassword(currentPassword, staff.passwordHash);
+        const valid = await verifyPassword(currentPassword, staff.password_hash);
         if (!valid) {
           return NextResponse.json(
             { error: 'Current password is incorrect' },
@@ -65,21 +67,22 @@ export const POST = withAuth(
         }
 
         const newHash = await hashPassword(newPassword);
-        await db.staffUser.update({
-          where: { id: user.userId },
-          data: { passwordHash: newHash },
-        });
+        await d1
+          .prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?')
+          .bind(newHash, user.userId)
+          .run();
       } else {
         // A16: Platform admin password change
-        const admin = await db.platformAdmin.findUnique({
-          where: { id: user.userId },
-        });
+        const admin = await d1
+          .prepare('SELECT id, password_hash FROM platform_admins WHERE id = ?')
+          .bind(user.userId)
+          .first<{ id: string; password_hash: string }>();
 
         if (!admin) {
           return NextResponse.json({ error: 'User not found' }, { status: 404 });
         }
 
-        const valid = await verifyPassword(currentPassword, admin.passwordHash);
+        const valid = await verifyPassword(currentPassword, admin.password_hash);
         if (!valid) {
           return NextResponse.json(
             { error: 'Current password is incorrect' },
@@ -88,27 +91,26 @@ export const POST = withAuth(
         }
 
         const newHash = await hashPassword(newPassword);
-        await db.platformAdmin.update({
-          where: { id: user.userId },
-          data: { passwordHash: newHash },
-        });
+        await d1
+          .prepare('UPDATE platform_admins SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?')
+          .bind(newHash, user.userId)
+          .run();
       }
 
       // Audit log
       const ip =
-        req.headers.get('x-forwarded-for') ||
+        req.headers.get('cf-connecting-ip') ||
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
         req.headers.get('x-real-ip') ||
         'unknown';
 
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'PASSWORD_CHANGE',
-          details: JSON.stringify({ tenantId: user.tenantId }),
-          ipAddress: ip,
-        },
-      });
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, 'PASSWORD_CHANGE', ?, ?, datetime('now'))`
+        )
+        .bind(crypto.randomUUID(), user.userId, user.type, JSON.stringify({ tenantId: user.tenantId }), ip)
+        .run();
 
       return NextResponse.json({ success: true });
     } catch (error) {

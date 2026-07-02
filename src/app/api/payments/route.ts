@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 
 const PAYMENT_METHODS = ['bKash', 'Nagad', 'Bank Transfer', 'Rocket'] as const;
@@ -9,13 +9,13 @@ type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 const MIN_AMOUNT_CENTS = 100; // 1 TK
 
 // ─── POST: Create payment intent (PLATFORM_ADMIN only) ─────────
-// C-03: Only platform admins can create payment intents — prevents self-service free credits
 
 export const POST = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { tenantId, amountCents } = body as {
         tenantId?: string;
@@ -24,10 +24,7 @@ export const POST = withAuth(
 
       const effectiveTenantId = tenantId || user.tenantId;
       if (!effectiveTenantId) {
-        return NextResponse.json(
-          { error: 'tenantId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
       if (!amountCents || typeof amountCents !== 'number' || amountCents < MIN_AMOUNT_CENTS) {
@@ -38,28 +35,27 @@ export const POST = withAuth(
       }
 
       // Verify tenant exists
-      const tenant = await db.tenant.findUnique({
-        where: { id: effectiveTenantId },
-        select: { id: true, name: true },
-      });
+      const tenant = await d1
+        .prepare('SELECT id, name FROM tenants WHERE id = ?')
+        .bind(effectiveTenantId)
+        .first<{ id: string; name: string }>();
+
       if (!tenant) {
         return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
       }
 
       // Create a PAYMENT transaction (negative amount, simulates pending payment)
-      const payment = await db.transaction.create({
-        data: {
-          tenantId: effectiveTenantId,
-          type: 'PAYMENT',
-          amountCents: -amountCents, // negative: debit
-          description: 'Pending payment',
-          createdBy: user.userId,
-        },
-      });
+      const paymentId = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      await d1.prepare(
+        `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by, created_at)
+         VALUES (?, ?, 'PAYMENT', ?, 'Pending payment', ?, ?)`
+      ).bind(paymentId, effectiveTenantId, -amountCents, user.userId, now).run();
 
       return NextResponse.json(
         {
-          paymentId: payment.id,
+          paymentId,
           amountCents,
           status: 'PENDING',
           paymentMethods: [...PAYMENT_METHODS],
@@ -68,23 +64,20 @@ export const POST = withAuth(
       );
     } catch (error) {
       console.error('Create payment error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['PLATFORM_ADMIN'] }
 );
 
 // ─── PUT: Confirm payment (PLATFORM_ADMIN only) ───────────────
-// C-03: Only platform admins can confirm payments — requires admin verification
 
 export const PUT = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { paymentId, method } = body as {
         paymentId: string;
@@ -92,13 +85,9 @@ export const PUT = withAuth(
       };
 
       if (!paymentId) {
-        return NextResponse.json(
-          { error: 'paymentId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'paymentId is required' }, { status: 400 });
       }
 
-      // Validate method if provided
       if (method && !PAYMENT_METHODS.includes(method as PaymentMethod)) {
         return NextResponse.json(
           { error: `method must be one of: ${PAYMENT_METHODS.join(', ')}` },
@@ -106,79 +95,74 @@ export const PUT = withAuth(
         );
       }
 
-      const result = await db.$transaction(async (tx) => {
-        // Fetch payment transaction
-        const payment = await tx.transaction.findUnique({
-          where: { id: paymentId },
-        });
+      // Fetch payment transaction
+      const payment = await d1
+        .prepare('SELECT id, tenant_id, type, amount_cents FROM transactions WHERE id = ?')
+        .bind(paymentId)
+        .first<{ id: string; tenant_id: string; type: string; amount_cents: number }>();
 
-        if (!payment) {
-          throw new Error('Payment not found');
-        }
+      if (!payment) {
+        return NextResponse.json({ error: 'Payment not found' }, { status: 400 });
+      }
 
-        if (payment.type !== 'PAYMENT') {
-          throw new Error('Invalid payment ID');
-        }
+      if (payment.type !== 'PAYMENT') {
+        return NextResponse.json({ error: 'Invalid payment ID' }, { status: 400 });
+      }
 
-        // Check if already confirmed (non-negative means it was reversed)
-        if (payment.amountCents >= 0) {
-          throw new Error('Payment already confirmed');
-        }
+      // Check if already confirmed (non-negative means it was reversed)
+      if (payment.amount_cents >= 0) {
+        return NextResponse.json({ error: 'Payment already confirmed' }, { status: 400 });
+      }
 
-        const topUpAmount = Math.abs(payment.amountCents);
-        const methodLabel = method || 'Unknown';
+      const topUpAmount = Math.abs(payment.amount_cents);
+      const methodLabel = method || 'Unknown';
+      const now = new Date().toISOString();
 
-        // Update payment description with method
-        await tx.transaction.update({
-          where: { id: paymentId },
-          data: {
-            amountCents: 0, // Mark as processed (zeroed out)
-            description: `Payment confirmed via ${methodLabel}`,
-          },
-        });
+      // Get current wallet balance before update
+      const tenantRow = await d1
+        .prepare('SELECT wallet_balance FROM tenants WHERE id = ?')
+        .bind(payment.tenant_id)
+        .first<{ wallet_balance: number }>();
 
+      if (!tenantRow) {
+        return NextResponse.json({ error: 'Tenant not found' }, { status: 400 });
+      }
+
+      const newBalance = tenantRow.wallet_balance + topUpAmount;
+
+      // Execute all in a batch (transaction)
+      const topUpId = crypto.randomUUID();
+
+      await d1.batch([
+        // Mark payment as processed (zeroed out)
+        d1.prepare(
+          `UPDATE transactions SET amount_cents = 0, description = ?, created_at = created_at WHERE id = ?`
+        ).bind(`Payment confirmed via ${methodLabel}`, paymentId),
         // Credit wallet
-        const updatedTenant = await tx.tenant.update({
-          where: { id: payment.tenantId },
-          data: { walletBalance: { increment: topUpAmount } },
-        });
+        d1.prepare(
+          `UPDATE tenants SET wallet_balance = wallet_balance + ?, updated_at = ? WHERE id = ?`
+        ).bind(topUpAmount, now, payment.tenant_id),
+        // Create TOP_UP transaction
+        d1.prepare(
+          `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by, created_at)
+           VALUES (?, ?, 'TOP_UP', ?, ?, ?, ?)`
+        ).bind(topUpId, payment.tenant_id, topUpAmount, `Wallet top-up via ${methodLabel}`, user.userId, now),
+      ]);
 
-        // Create a TOP_UP transaction for the credit
-        const topUpTransaction = await tx.transaction.create({
-          data: {
-            tenantId: payment.tenantId,
-            type: 'TOP_UP',
-            amountCents: topUpAmount,
-            description: `Wallet top-up via ${methodLabel}`,
-            createdBy: user.userId,
-          },
-        });
-
-        return {
-          newBalance: updatedTenant.walletBalance,
-          topUpTransaction,
-        };
-      });
+      // Fetch the created transaction for response
+      const topUpTransaction = await d1
+        .prepare('SELECT * FROM transactions WHERE id = ?')
+        .bind(topUpId)
+        .first<Record<string, unknown>>();
 
       return NextResponse.json({
         success: true,
-        walletBalance: result.newBalance,
-        transaction: result.topUpTransaction,
+        walletBalance: newBalance,
+        transaction: topUpTransaction,
       });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Internal server error';
-      if (
-        message.includes('not found') ||
-        message.includes('Invalid') ||
-        message.includes('already confirmed')
-      ) {
-        return NextResponse.json({ error: message }, { status: 400 });
-      }
       console.error('Confirm payment error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['PLATFORM_ADMIN'] }

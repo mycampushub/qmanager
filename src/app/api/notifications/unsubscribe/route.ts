@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, withTenantCtx } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
 
 // A14: Public endpoint with IP rate limiting
 export async function POST(req: NextRequest) {
   try {
-    // A14: IP-based rate limit (10/min) with A13 fallback
-    const ipForwarded = req.headers.get('x-forwarded-for');
-    const ip = ipForwarded || req.headers.get('x-real-ip') ||
-      // @ts-expect-error NextRequest extends Request, connection may not be typed
-      (req.connection?.remoteAddress as string) || 'unknown';
-    const { allowed, retryAfterMs } = rateLimit('unsubscribe:' + ip, 10, 60_000);
+    const ip =
+      req.headers.get('cf-connecting-ip') ||
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      'unknown';
+
+    const { allowed, retryAfterMs } = await rateLimit('unsubscribe:' + ip, 10, 60_000);
     if (!allowed) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },
@@ -18,14 +19,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const d1 = getD1FromEnv();
     const body = await req.json();
     const { endpoint, tenantId } = body as { endpoint: string; tenantId?: string };
 
     if (!endpoint) {
-      return NextResponse.json(
-        { error: 'endpoint is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'endpoint is required' }, { status: 400 });
     }
 
     if (!tenantId) {
@@ -36,21 +35,15 @@ export async function POST(req: NextRequest) {
     }
 
     // H-14: Always include tenantId filter to prevent cross-tenant deletion
-    await withTenantCtx(tenantId, async () => {
-      await db.pushSubscription.deleteMany({
-        where: { endpoint, tenantId },
-      });
-    });
+    await d1
+      .prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND tenant_id = ?')
+      .bind(endpoint, tenantId)
+      .run();
 
     // C7: Always return success regardless of deletion count to prevent information leak
-    return NextResponse.json({
-      success: true,
-    });
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Unsubscribe notification error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

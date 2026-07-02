@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db, withTenantCtx } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 
-// GET: Public - anyone can read branding for display purposes
+// GET: Public — anyone can read branding for display purposes
 export async function GET(req: NextRequest) {
   try {
     const tenantId = req.nextUrl.searchParams.get('tenantId');
@@ -14,63 +14,51 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const tenantData = await withTenantCtx(tenantId, async () => {
-      const tenant = await db.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-          id: true,
-          name: true,
-          brandingConfig: true,
-          welcomeMessage: true,
-        },
-      });
-      return tenant;
-    });
+    const d1 = getD1FromEnv();
 
-    if (!tenantData) {
-      return NextResponse.json(
-        { error: 'Tenant not found' },
-        { status: 404 }
-      );
+    const tenant = await d1
+      .prepare(`SELECT id, name, branding_config, welcome_message FROM tenants WHERE id = ?`)
+      .bind(tenantId)
+      .first<{ id: string; name: string; branding_config: string | null; welcome_message: string | null }>();
+
+    if (!tenant) {
+      return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
 
     // B8: Wrap JSON.parse in try/catch to handle malformed stored data
     const branding = (() => {
-      if (!tenantData.brandingConfig) {
+      if (!tenant.branding_config) {
         return {
           primaryColor: '#10b981',
           secondaryColor: '#059669',
-          logoText: tenantData.name,
-          welcomeMessage: tenantData.welcomeMessage || 'Welcome!',
+          logoText: tenant.name,
+          welcomeMessage: tenant.welcome_message || 'Welcome!',
         };
       }
       try {
-        return JSON.parse(tenantData.brandingConfig);
+        return JSON.parse(tenant.branding_config);
       } catch {
         return {
           primaryColor: '#10b981',
           secondaryColor: '#059669',
-          logoText: tenantData.name,
-          welcomeMessage: tenantData.welcomeMessage || 'Welcome!',
+          logoText: tenant.name,
+          welcomeMessage: tenant.welcome_message || 'Welcome!',
         };
       }
     })();
 
     return NextResponse.json({
-      tenantId: tenantData.id,
-      tenantName: tenantData.name,
+      tenantId: tenant.id,
+      tenantName: tenant.name,
       branding,
     });
   } catch (error) {
     console.error('Get branding error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-// PUT: MANAGER | PLATFORM_ADMIN - update branding
+// PUT: MANAGER | PLATFORM_ADMIN — update branding
 export const PUT = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
     const { user } = ctx;
@@ -97,15 +85,15 @@ export const PUT = withAuth(
         );
       }
 
-      const tenant = await db.tenant.findUnique({
-        where: { id: tenantId },
-      });
+      const d1 = getD1FromEnv();
+
+      const tenant = await d1
+        .prepare(`SELECT id, welcome_message FROM tenants WHERE id = ?`)
+        .bind(tenantId)
+        .first<{ id: string; welcome_message: string | null }>();
 
       if (!tenant) {
-        return NextResponse.json(
-          { error: 'Tenant not found' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
       }
 
       // B9: Validate brandingConfig structure — only allow known string fields
@@ -117,38 +105,39 @@ export const PUT = withAuth(
         }
       }
 
-      await db.tenant.update({
-        where: { id: tenantId },
-        data: {
-          brandingConfig: JSON.stringify(sanitizedConfig),
-          welcomeMessage:
-            sanitizedConfig.welcomeMessage || tenant.welcomeMessage,
-        },
-      });
-
-      // Audit log
       const ip =
-        req.headers.get('x-forwarded-for') ||
+        req.headers.get('cf-connecting-ip') ||
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
         req.headers.get('x-real-ip') ||
         'unknown';
 
-      await db.auditLog.create({
-        data: {
-          userId: user.userId,
-          userType: user.type,
-          action: 'BRANDING_UPDATE',
-          details: JSON.stringify({ tenantId, brandingConfig }),
-          ipAddress: ip,
-        },
-      });
+      await d1.batch([
+        d1
+          .prepare(
+            `UPDATE tenants SET branding_config = ?, welcome_message = ?, updated_at = datetime('now') WHERE id = ?`
+          )
+          .bind(
+            JSON.stringify(sanitizedConfig),
+            sanitizedConfig.welcomeMessage || tenant.welcome_message,
+            tenantId
+          ),
+        d1
+          .prepare(
+            `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address) VALUES (?, ?, ?, 'BRANDING_UPDATE', ?, ?)`
+          )
+          .bind(
+            crypto.randomUUID(),
+            user.userId,
+            user.type,
+            JSON.stringify({ tenantId, brandingConfig }),
+            ip
+          ),
+      ]);
 
       return NextResponse.json({ success: true });
     } catch (error) {
       console.error('Update branding error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER', 'PLATFORM_ADMIN'] }

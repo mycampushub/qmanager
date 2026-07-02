@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/api-auth';
-import { db, withTenantCtx } from '@/lib/db';
+import { withAuth, type JwtPayload } from '@/lib/api-auth';
+import { getD1FromEnv } from '@/lib/db';
 import { verifyToken } from '@/lib/auth';
-import type { JwtPayload } from '@/lib/auth';
+import type { JwtPayload as JwtPayloadFull } from '@/lib/auth';
 
 // ─── Loyalty Tier Logic ─────────────────────────────────────────
 
@@ -31,6 +31,37 @@ function getLoyaltyTier(totalVisits: number): LoyaltyTier {
   return tier;
 }
 
+// ─── Types for D1 rows ──────────────────────────────────────────
+
+interface CustomerProfileRow {
+  id: string;
+  tenant_id: string;
+  phone: string;
+  name: string | null;
+  total_visits: number;
+  total_tickets: number;
+  completed_tickets: number;
+  avg_service_time: number | null;
+  last_visit_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TicketWithQueueRow {
+  id: string;
+  tenant_id: string;
+  queue_id: string;
+  serial_number: number;
+  status: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  created_at: string;
+  served_at: string | null;
+  completed_at: string | null;
+  queue_name: string | null;
+  queue_prefix: string | null;
+}
+
 // ─── GET: Get customer profile (public when tenantId+phone provided) ─
 
 export async function GET(req: NextRequest) {
@@ -49,7 +80,7 @@ export async function GET(req: NextRequest) {
     const authHeader = req.headers.get('authorization');
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
-      const user = verifyToken(token) as JwtPayload | null;
+      const user = await verifyToken(token) as JwtPayloadFull | null;
       if (user && user.role !== 'PLATFORM_ADMIN' && user.tenantId !== tenantId) {
         return NextResponse.json(
           { error: 'You can only view your own tenant data' },
@@ -58,56 +89,48 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const tenantData = await withTenantCtx(tenantId, async () => {
-      const profile = await db.customerProfile.findUnique({
-        where: {
-          tenantId_phone: {
-            tenantId,
-            phone,
-          },
-        },
-      });
+    const d1 = getD1FromEnv();
 
-      if (!profile) {
-        return null;
-      }
+    const profile = await d1
+      .prepare(
+        'SELECT * FROM customer_profiles WHERE tenant_id = ? AND phone = ?'
+      )
+      .bind(tenantId, phone)
+      .first<CustomerProfileRow>();
 
-      const tickets = await db.ticket.findMany({
-        where: {
-          tenantId,
-          customerPhone: phone,
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        include: {
-          queue: { select: { id: true, name: true, prefix: true } },
-        },
-      });
-
-      return { profile, tickets };
-    });
-
-    if (!tenantData) {
+    if (!profile) {
       return NextResponse.json(
         { error: 'Customer profile not found' },
         { status: 404 }
       );
     }
 
-    const { profile, tickets } = tenantData;
+    const ticketsResult = await d1
+      .prepare(
+        `SELECT t.*, q.name AS queue_name, q.prefix AS queue_prefix
+         FROM tickets t
+         LEFT JOIN queues q ON t.queue_id = q.id
+         WHERE t.tenant_id = ? AND t.customer_phone = ?
+         ORDER BY t.created_at DESC
+         LIMIT 10`
+      )
+      .bind(tenantId, phone)
+      .all<TicketWithQueueRow>();
+
+    const tickets = ticketsResult.results;
 
     const visitHistory = tickets.map((t) => ({
       id: t.id,
-      serialNumber: t.serialNumber,
-      formattedSerial: `${t.queue.prefix}${String(t.serialNumber).padStart(3, '0')}`,
-      queueName: t.queue.name,
+      serialNumber: t.serial_number,
+      formattedSerial: `${t.queue_prefix ?? ''}${String(t.serial_number).padStart(3, '0')}`,
+      queueName: t.queue_name,
       status: t.status,
-      createdAt: t.createdAt.toISOString(),
-      servedAt: t.servedAt?.toISOString() ?? null,
-      completedAt: t.completedAt?.toISOString() ?? null,
+      createdAt: t.created_at,
+      servedAt: t.served_at ?? null,
+      completedAt: t.completed_at ?? null,
     }));
 
-    const tier = getLoyaltyTier(profile.totalVisits);
+    const tier = getLoyaltyTier(profile.total_visits);
 
     // Calculate next tier info
     const currentTierIndex = LOYALTY_TIERS.findIndex(
@@ -118,17 +141,17 @@ export async function GET(req: NextRequest) {
         ? LOYALTY_TIERS[currentTierIndex + 1]
         : null;
     const visitsToNextTier = nextTier
-      ? nextTier.minVisits - profile.totalVisits
+      ? nextTier.minVisits - profile.total_visits
       : 0;
 
     return NextResponse.json({
       profile: {
         name: profile.name,
-        totalVisits: profile.totalVisits,
-        totalTickets: profile.totalTickets,
-        completedTickets: profile.completedTickets,
-        avgServiceTime: profile.avgServiceTime,
-        lastVisitAt: profile.lastVisitAt?.toISOString() ?? null,
+        totalVisits: profile.total_visits,
+        totalTickets: profile.total_tickets,
+        completedTickets: profile.completed_tickets,
+        avgServiceTime: profile.avg_service_time,
+        lastVisitAt: profile.last_visit_at ?? null,
         loyaltyTier: tier.name,
       },
       loyalty: {
@@ -178,39 +201,69 @@ export const POST = withAuth(
         );
       }
 
-      // Upsert: create or update name only — counters are managed by join/complete routes
-      const profile = await db.customerProfile.upsert({
-        where: {
-          tenantId_phone: {
-            tenantId: effectiveTenantId,
-            phone,
-          },
-        },
-        create: {
-          tenantId: effectiveTenantId,
-          phone,
-          name: name || null,
-          totalVisits: 0,
-          totalTickets: 0,
-          completedTickets: 0,
-          lastVisitAt: new Date(),
-        },
-        update: {
-          name: name || undefined, // only update name if provided
-        },
-      });
+      const d1 = getD1FromEnv();
 
-      const tier = getLoyaltyTier(profile.totalVisits);
+      // Check if profile already exists
+      const existing = await d1
+        .prepare(
+          'SELECT * FROM customer_profiles WHERE tenant_id = ? AND phone = ?'
+        )
+        .bind(effectiveTenantId, phone)
+        .first<CustomerProfileRow>();
+
+      const now = new Date().toISOString();
+
+      if (existing) {
+        // Update: only update name if provided
+        if (name !== undefined && name !== null) {
+          await d1
+            .prepare(
+              'UPDATE customer_profiles SET name = ?, updated_at = ? WHERE id = ?'
+            )
+            .bind(name, now, existing.id)
+            .run();
+        }
+
+        // Return the profile
+        const tier = getLoyaltyTier(existing.total_visits);
+
+        return NextResponse.json(
+          {
+            profile: {
+              id: existing.id,
+              phone: existing.phone,
+              name: name !== undefined ? name : existing.name,
+              totalVisits: existing.total_visits,
+              totalTickets: existing.total_tickets,
+              completedTickets: existing.completed_tickets,
+              loyaltyTier: tier.name,
+            },
+          },
+          { status: 201 }
+        );
+      }
+
+      // Insert new profile
+      const id = crypto.randomUUID();
+      await d1
+        .prepare(
+          `INSERT INTO customer_profiles (id, tenant_id, phone, name, total_visits, total_tickets, completed_tickets, last_visit_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?, ?)`
+        )
+        .bind(id, effectiveTenantId, phone, name ?? null, now, now, now)
+        .run();
+
+      const tier = getLoyaltyTier(0);
 
       return NextResponse.json(
         {
           profile: {
-            id: profile.id,
-            phone: profile.phone,
-            name: profile.name,
-            totalVisits: profile.totalVisits,
-            totalTickets: profile.totalTickets,
-            completedTickets: profile.completedTickets,
+            id,
+            phone,
+            name: name ?? null,
+            totalVisits: 0,
+            totalTickets: 0,
+            completedTickets: 0,
             loyaltyTier: tier.name,
           },
         },

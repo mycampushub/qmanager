@@ -1,0 +1,105 @@
+#:schemaPath = "schema.sql"
+
+name = "queueflow"
+main = ".open-next/worker.js"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ─── Environment Variables ────────────────────────────────────────────────────
+[vars]
+NODE_ENV = "production"
+JWT_SECRET = "CHANGE_ME_TO_A_SECURE_RANDOM_SECRET_IN_PRODUCTION"
+
+# ─── D1 Database Binding ─────────────────────────────────────────────────────
+[[d1_databases]]
+binding = "DB"
+database_name = "queueflow-db"
+database_id = "CHANGE_ME_AFTER_CREATING_D1_DATABASE"
+# Create with: wrangler d1 create queueflow-db
+
+# ─── R2 Storage Binding (logos, branding assets, exports) ────────────────────
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "queueflow-storage"
+# Create with: wrangler r2 bucket create queueflow-storage
+
+# ─── Durable Objects (WebSocket real-time) ───────────────────────────────────
+[[durable_objects.bindings]]
+name = "QUEUE_WS"
+class_name = "QueueWebSocket"
+
+# Durable Object migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["QueueWebSocket"]
+
+# ─── KV Namespace (rate limiting, session cache) ─────────────────────────────
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "CHANGE_ME_AFTER_CREATING_KV_NAMESPACE"
+# Create with: wrangler kv namespace create "queueflow-rate-limit"
+
+# ─── Hyperdrive (optional, for external DB connections) ──────────────────────
+# [[hyperdrive]]
+# binding = "HYPERDRIVE"
+# id = "CHANGE_ME"
+
+# ─── Build ───────────────────────────────────────────────────────────────────
+[build]
+command = "npm run build:cf"
+
+# ─── Static Assets ───────────────────────────────────────────────────────────
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+# ─── Development (wrangler dev) ─────────────────────────────────────────────
+[dev]
+port = 8787
+local_protocol = "http"
+
+# ─── Staging ─────────────────────────────────────────────────────────────────
+[env.staging]
+name = "queueflow-staging"
+[env.staging.vars]
+NODE_ENV = "staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "queueflow-db-staging"
+database_id = "CHANGE_ME_STAGING_D1_ID"
+
+[[env.staging.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "queueflow-storage-staging"
+
+[[env.staging.durable_objects.bindings]]
+name = "QUEUE_WS"
+class_name = "QueueWebSocket"
+
+[[env.staging.kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "CHANGE_ME_STAGING_KV_ID"
+
+# ─── Production ──────────────────────────────────────────────────────────────
+[env.production]
+name = "queueflow"
+[env.production.vars]
+NODE_ENV = "production"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "queueflow-db"
+database_id = "CHANGE_ME_PRODUCTION_D1_ID"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "queueflow-storage"
+
+[[env.production.durable_objects.bindings]]
+name = "QUEUE_WS"
+class_name = "QueueWebSocket"
+
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "CHANGE_ME_PRODUCTION_KV_ID"

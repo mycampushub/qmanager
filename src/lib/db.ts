@@ -1,23 +1,31 @@
-import { PrismaClient } from '@prisma/client'
-import { getPlatformDb, getTenantDb } from './tenant-db'
-import { AsyncLocalStorage } from 'async_hooks'
+// =============================================================================
+// QueueFlow — D1 Database Client
+//
+// Architecture: Single D1 database. Tenant isolation via WHERE tenant_id = ?.
+// In local dev: falls back to better-sqlite3 (LocalD1 shim).
+// In production (CF Workers): uses the real D1 binding from wrangler.toml.
+//
+// Usage in API routes:
+//   import { getD1FromEnv } from '@/lib/db';
+//   const d1 = getD1FromEnv();
+//   const row = d1.prepare('SELECT ...').bind(...).first<RowType>();
+// =============================================================================
 
-export const tenantStorage = new AsyncLocalStorage<string | null>()
+import { getLocalD1 } from './local-d1';
 
-export function withTenantCtx<T>(tenantId: string | null, fn: () => T): T {
-  return tenantStorage.run(tenantId, fn)
+// =============================================================================
+// Helper: Get D1 from environment (with local fallback)
+// =============================================================================
+
+/**
+ * Get a D1-compatible database instance.
+ * - On CF Workers: uses the real D1 binding from wrangler.toml
+ * - On local dev: uses better-sqlite3 wrapped as D1-compatible API
+ */
+export function getD1FromEnv(env?: Record<string, unknown>): unknown {
+  const d1 = (env ?? globalThis as unknown as Record<string, unknown>)?.DB;
+  if (d1) return d1;
+
+  // Fallback to local SQLite
+  return getLocalD1();
 }
-
-function resolveClient(): PrismaClient {
-  const tenantId = tenantStorage.getStore()
-  if (tenantId) {
-    return getTenantDb(tenantId)
-  }
-  return getPlatformDb()
-}
-
-export const db = new Proxy({} as PrismaClient, {
-  get(_target, prop: keyof PrismaClient) {
-    return resolveClient()[prop]
-  },
-})

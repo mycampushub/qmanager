@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import {
-  upgradePasswordHash,
+  verifyPassword,
   signToken,
   generateCsrfToken,
   rateLimit,
+  ensureDemoData,
 } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
+    const d1 = getD1FromEnv();
+
+    // Auto-seed demo data on first login attempt
+    await ensureDemoData(d1);
+
     const body = await req.json();
     const { email, password } = body;
 
@@ -28,8 +34,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Rate limit per email
-    const { allowed, retryAfterMs } = rateLimit('login:' + email, 5, 60_000);
+    // Rate limit per email (5/min)
+    const { allowed, retryAfterMs } = await rateLimit('login:' + email, 5, 60_000);
     if (!allowed) {
       return NextResponse.json(
         { error: 'Too many login attempts. Please try again later.' },
@@ -40,13 +46,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // A8 + A13: IP-based rate limit (20/min) with fallback to connection.remoteAddress
-    const ipForwarded = req.headers.get('x-forwarded-for');
-    const ip = ipForwarded || req.headers.get('x-real-ip') ||
-      // @ts-expect-error NextRequest extends Request, connection may not be typed
-      (req.connection?.remoteAddress as string) || 'unknown';
+    // A8 + A13: IP-based rate limit (20/min) using cf-connecting-ip
+    const ip =
+      req.headers.get('cf-connecting-ip') ||
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      'unknown';
 
-    const { allowed: ipAllowed, retryAfterMs: ipRetryAfterMs } = rateLimit('login-ip:' + ip, 20, 60_000);
+    const { allowed: ipAllowed, retryAfterMs: ipRetryAfterMs } = await rateLimit('login-ip:' + ip, 20, 60_000);
     if (!ipAllowed) {
       return NextResponse.json(
         { error: 'Too many login attempts from your IP. Please try again later.' },
@@ -58,17 +65,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Try platform admin first
-    const platformAdmin = await db.platformAdmin.findUnique({
-      where: { email },
-    });
+    const adminRow = await d1
+      .prepare('SELECT id, email, name, password_hash, created_at FROM platform_admins WHERE email = ?')
+      .bind(email)
+      .first<{ id: string; email: string; name: string; password_hash: string; created_at: string }>();
 
-    if (platformAdmin) {
-      const valid = await upgradePasswordHash(
-        email,
-        password,
-        platformAdmin.passwordHash,
-        'platform_admin'
-      );
+    if (adminRow) {
+      const valid = await verifyPassword(password, adminRow.password_hash);
       if (!valid) {
         return NextResponse.json(
           { error: 'Invalid email or password' },
@@ -76,8 +79,8 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const token = signToken({
-        userId: platformAdmin.id,
+      const token = await signToken({
+        userId: adminRow.id,
         role: 'PLATFORM_ADMIN',
         type: 'platform_admin',
       });
@@ -85,21 +88,19 @@ export async function POST(req: NextRequest) {
       const csrfToken = generateCsrfToken();
 
       // Audit log
-      await db.auditLog.create({
-        data: {
-          userId: platformAdmin.id,
-          userType: 'platform_admin',
-          action: 'LOGIN',
-          details: JSON.stringify({ email }),
-          ipAddress: ip,
-        },
-      });
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, 'platform_admin', 'LOGIN', ?, ?, datetime('now'))`
+        )
+        .bind(crypto.randomUUID(), adminRow.id, JSON.stringify({ email }), ip)
+        .run();
 
       return NextResponse.json({
         user: {
-          id: platformAdmin.id,
-          email: platformAdmin.email,
-          name: platformAdmin.name,
+          id: adminRow.id,
+          email: adminRow.email,
+          name: adminRow.name,
           role: 'PLATFORM_ADMIN',
           type: 'platform_admin',
         },
@@ -109,30 +110,43 @@ export async function POST(req: NextRequest) {
     }
 
     // Try staff user
-    const staffUser = await db.staffUser.findUnique({
-      where: { email },
-      include: { tenant: true },
-    });
+    const staffRow = await d1
+      .prepare(
+        `SELECT u.id, u.email, u.name, u.password_hash, u.role, u.is_active, u.tenant_id,
+                t.id AS tenant_id_col, t.name AS tenant_name, t.plan_tier AS tenant_plan_tier
+         FROM users u
+         LEFT JOIN tenants t ON t.id = u.tenant_id
+         WHERE u.email = ?`
+      )
+      .bind(email)
+      .first<{
+        id: string;
+        email: string;
+        name: string;
+        password_hash: string;
+        role: string;
+        is_active: number;
+        tenant_id: string;
+        tenant_id_col: string | null;
+        tenant_name: string | null;
+        tenant_plan_tier: string | null;
+      }>();
 
-    if (!staffUser) {
+    if (!staffRow) {
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    if (!staffUser.isActive) {
+    if (!staffRow.is_active) {
       return NextResponse.json(
         { error: 'Account is deactivated. Contact your manager.' },
         { status: 403 }
       );
     }
 
-    const valid = await upgradePasswordHash(
-      email,
-      password,
-      staffUser.passwordHash
-    );
+    const valid = await verifyPassword(password, staffRow.password_hash);
     if (!valid) {
       return NextResponse.json(
         { error: 'Invalid email or password' },
@@ -140,39 +154,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const token = signToken({
-      userId: staffUser.id,
-      tenantId: staffUser.tenantId,
-      role: staffUser.role as 'MANAGER' | 'AGENT',
+    const token = await signToken({
+      userId: staffRow.id,
+      tenantId: staffRow.tenant_id,
+      role: staffRow.role as 'MANAGER' | 'AGENT',
       type: 'staff',
     });
 
     const csrfToken = generateCsrfToken();
 
     // Audit log
-    await db.auditLog.create({
-      data: {
-        userId: staffUser.id,
-        userType: 'staff',
-        action: 'LOGIN',
-        details: JSON.stringify({ email, tenantId: staffUser.tenantId }),
-        ipAddress: ip,
-      },
-    });
+    await d1
+      .prepare(
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+         VALUES (?, ?, 'staff', 'LOGIN', ?, ?, datetime('now'))`
+      )
+      .bind(crypto.randomUUID(), staffRow.id, JSON.stringify({ email, tenantId: staffRow.tenant_id }), ip)
+      .run();
 
     return NextResponse.json({
       user: {
-        id: staffUser.id,
-        email: staffUser.email,
-        name: staffUser.name,
-        role: staffUser.role,
+        id: staffRow.id,
+        email: staffRow.email,
+        name: staffRow.name,
+        role: staffRow.role,
         type: 'staff',
-        tenantId: staffUser.tenantId,
-        tenant: staffUser.tenant
+        tenantId: staffRow.tenant_id,
+        tenant: staffRow.tenant_id_col
           ? {
-              id: staffUser.tenant.id,
-              name: staffUser.tenant.name,
-              planTier: staffUser.tenant.planTier,
+              id: staffRow.tenant_id_col,
+              name: staffRow.tenant_name!,
+              planTier: staffRow.tenant_plan_tier!,
             }
           : null,
       },

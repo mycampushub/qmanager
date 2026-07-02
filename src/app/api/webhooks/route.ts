@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { db } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
-import crypto from 'crypto';
 
 const MAX_WEBHOOKS_PER_TENANT = 10;
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-// H-09: SSRF protection — block private IPs, link-local, loopback, and metadata endpoints
 function isValidUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -16,22 +14,17 @@ function isValidUrl(url: string): boolean {
 
     const hostname = parsed.hostname.toLowerCase();
 
-    // Block loopback
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return false;
-
-    // Block link-local / private ranges
     if (hostname.startsWith('10.') || hostname.startsWith('192.168.')) return false;
     if (hostname.startsWith('172.') && /^\d+$/.test(hostname.split('.')[1])) {
       const second = parseInt(hostname.split('.')[1], 10);
       if (second >= 16 && second <= 31) return false;
     }
-    if (hostname.startsWith('169.254.')) return false; // AWS/GCP metadata
+    if (hostname.startsWith('169.254.')) return false;
     if (hostname === 'metadata.google.internal') return false;
     if (hostname.endsWith('.local') || hostname.endsWith('.internal')) return false;
 
-    // Block raw IPs that aren't public
     if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
-      // Allow only public IPs (simplified: block 0.x, 127.x, 10.x, 172.16-31.x, 192.168.x)
       const octets = hostname.split('.').map(Number);
       if (octets[0] === 0 || octets[0] === 127) return false;
       if (octets[0] === 10) return false;
@@ -46,13 +39,44 @@ function isValidUrl(url: string): boolean {
 }
 
 function generateSecret(): string {
-  return crypto.randomBytes(32).toString('hex');
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Mask secret: show only last 4 characters */
 function maskSecret(secret: string): string {
   if (secret.length <= 4) return '****';
   return '*'.repeat(secret.length - 4) + secret.slice(-4);
+}
+
+interface WebhookRow {
+  id: string;
+  tenant_id: string;
+  url: string;
+  events: string;
+  secret: string;
+  is_active: number;
+  success_count: number;
+  failure_count: number;
+  last_triggered_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapWebhook(r: WebhookRow, mask: boolean) {
+  return {
+    id: r.id,
+    tenantId: r.tenant_id,
+    url: r.url,
+    events: JSON.parse(r.events),
+    secret: mask ? maskSecret(r.secret) : r.secret,
+    isActive: r.is_active === 1,
+    successCount: r.success_count,
+    failureCount: r.failure_count,
+    lastTriggeredAt: r.last_triggered_at ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
 }
 
 // ─── GET: List webhooks ─────────────────────────────────────────
@@ -62,12 +86,10 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       if (!tenantId) {
-        return NextResponse.json(
-          { error: 'tenantId is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
       if (user.role === 'MANAGER' && user.tenantId !== tenantId) {
@@ -77,27 +99,15 @@ export const GET = withAuth(
         );
       }
 
-      const webhooks = await db.webhook.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'desc' },
-      });
+      const result = await d1
+        .prepare('SELECT * FROM webhooks WHERE tenant_id = ? ORDER BY created_at DESC')
+        .bind(tenantId)
+        .all<WebhookRow>();
 
-      // Mask secrets before sending to client
-      const masked = webhooks.map((w) => ({
-        ...w,
-        secret: maskSecret(w.secret),
-        lastTriggeredAt: w.lastTriggeredAt?.toISOString() ?? null,
-        createdAt: w.createdAt.toISOString(),
-        updatedAt: w.updatedAt.toISOString(),
-      }));
-
-      return NextResponse.json({ webhooks: masked });
+      return NextResponse.json({ webhooks: result.results.map((w) => mapWebhook(w, true)) });
     } catch (error) {
       console.error('List webhooks error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER'] }
@@ -110,6 +120,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { url, events, secret } = body as {
         url?: string;
@@ -119,10 +130,7 @@ export const POST = withAuth(
 
       const tenantId = user.tenantId;
       if (!tenantId) {
-        return NextResponse.json(
-          { error: 'Tenant context required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Tenant context required' }, { status: 400 });
       }
 
       if (!url || !events || !Array.isArray(events) || events.length === 0) {
@@ -139,7 +147,6 @@ export const POST = withAuth(
         );
       }
 
-      // Validate event names are strings
       if (!events.every((e) => typeof e === 'string' && e.length > 0)) {
         return NextResponse.json(
           { error: 'All event names must be non-empty strings' },
@@ -148,8 +155,12 @@ export const POST = withAuth(
       }
 
       // Check max webhooks per tenant
-      const count = await db.webhook.count({ where: { tenantId } });
-      if (count >= MAX_WEBHOOKS_PER_TENANT) {
+      const countResult = await d1
+        .prepare('SELECT count(*) as cnt FROM webhooks WHERE tenant_id = ?')
+        .bind(tenantId)
+        .first<{ cnt: number }>();
+
+      if ((countResult?.cnt ?? 0) >= MAX_WEBHOOKS_PER_TENANT) {
         return NextResponse.json(
           { error: `Maximum ${MAX_WEBHOOKS_PER_TENANT} webhooks allowed per tenant` },
           { status: 400 }
@@ -157,34 +168,36 @@ export const POST = withAuth(
       }
 
       const webhookSecret = secret || generateSecret();
+      const newId = crypto.randomUUID();
+      const now = new Date().toISOString();
 
-      const webhook = await db.webhook.create({
-        data: {
-          tenantId,
-          url,
-          events: JSON.stringify(events),
-          secret: webhookSecret,
-        },
-      });
+      await d1.prepare(
+        `INSERT INTO webhooks (id, tenant_id, url, events, secret, is_active, success_count, failure_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, 0, 0, ?, ?)`
+      ).bind(newId, tenantId, url, JSON.stringify(events), webhookSecret, now, now).run();
 
-      // Return full secret only on creation (never again)
+      // Return full secret only on creation
       return NextResponse.json(
         {
           webhook: {
-            ...webhook,
-            secret: webhookSecret, // show full secret once
-            createdAt: webhook.createdAt.toISOString(),
-            updatedAt: webhook.updatedAt.toISOString(),
+            id: newId,
+            tenantId,
+            url,
+            events,
+            secret: webhookSecret,
+            isActive: true,
+            successCount: 0,
+            failureCount: 0,
+            lastTriggeredAt: null,
+            createdAt: now,
+            updatedAt: now,
           },
         },
         { status: 201 }
       );
     } catch (error) {
       console.error('Create webhook error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER'] }
@@ -197,6 +210,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { id, isActive, url, events } = body as {
         id: string;
@@ -209,22 +223,29 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'id is required' }, { status: 400 });
       }
 
-      const existing = await db.webhook.findUnique({ where: { id } });
+      const existing = await d1
+        .prepare('SELECT id, tenant_id FROM webhooks WHERE id = ?')
+        .bind(id)
+        .first<{ id: string; tenant_id: string }>();
+
       if (!existing) {
         return NextResponse.json({ error: 'Webhook not found' }, { status: 404 });
       }
 
-      if (user.tenantId !== existing.tenantId) {
+      if (user.tenantId !== existing.tenant_id) {
         return NextResponse.json(
           { error: 'You can only manage your own webhooks' },
           { status: 403 }
         );
       }
 
-      const updateData: Record<string, unknown> = {};
+      const setClauses: string[] = [];
+      const values: unknown[] = [];
+      const now = new Date().toISOString();
 
       if (isActive !== undefined) {
-        updateData.isActive = Boolean(isActive);
+        setClauses.push('is_active = ?');
+        values.push(isActive ? 1 : 0);
       }
 
       if (url !== undefined) {
@@ -234,7 +255,8 @@ export const PUT = withAuth(
             { status: 400 }
           );
         }
-        updateData.url = url;
+        setClauses.push('url = ?');
+        values.push(url);
       }
 
       if (events !== undefined) {
@@ -250,29 +272,33 @@ export const PUT = withAuth(
             { status: 400 }
           );
         }
-        updateData.events = JSON.stringify(events);
+        setClauses.push('events = ?');
+        values.push(JSON.stringify(events));
       }
 
-      const webhook = await db.webhook.update({
-        where: { id },
-        data: updateData,
-      });
+      if (setClauses.length === 0) {
+        return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+      }
 
-      return NextResponse.json({
-        webhook: {
-          ...webhook,
-          secret: maskSecret(webhook.secret),
-          lastTriggeredAt: webhook.lastTriggeredAt?.toISOString() ?? null,
-          createdAt: webhook.createdAt.toISOString(),
-          updatedAt: webhook.updatedAt.toISOString(),
-        },
-      });
+      setClauses.push('updated_at = ?');
+      values.push(now);
+      values.push(id);
+
+      await d1
+        .prepare(`UPDATE webhooks SET ${setClauses.join(', ')} WHERE id = ?`)
+        .bind(...values)
+        .run();
+
+      // Fetch updated
+      const updated = await d1
+        .prepare('SELECT * FROM webhooks WHERE id = ?')
+        .bind(id)
+        .first<WebhookRow>();
+
+      return NextResponse.json({ webhook: mapWebhook(updated!, true) });
     } catch (error) {
       console.error('Update webhook error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER'] }
@@ -285,14 +311,12 @@ export const DELETE = withAuth(
     const { user } = ctx;
 
     try {
+      const d1 = getD1FromEnv();
       const id = req.nextUrl.searchParams.get('id');
       const confirm = req.nextUrl.searchParams.get('confirm');
 
       if (!id) {
-        return NextResponse.json(
-          { error: 'id query param is required' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'id query param is required' }, { status: 400 });
       }
 
       if (confirm !== 'true') {
@@ -302,31 +326,32 @@ export const DELETE = withAuth(
         );
       }
 
-      const existing = await db.webhook.findUnique({ where: { id } });
+      const existing = await d1
+        .prepare('SELECT id, tenant_id FROM webhooks WHERE id = ?')
+        .bind(id)
+        .first<{ id: string; tenant_id: string }>();
+
       if (!existing) {
         return NextResponse.json({ error: 'Webhook not found' }, { status: 404 });
       }
 
-      if (user.tenantId !== existing.tenantId) {
+      if (user.tenantId !== existing.tenant_id) {
         return NextResponse.json(
           { error: 'You can only manage your own webhooks' },
           { status: 403 }
         );
       }
 
-      // H-10: Soft delete — deactivate instead of hard deleting to preserve audit trail
-      await db.webhook.update({
-        where: { id },
-        data: { isActive: false },
-      });
+      // H-10: Soft delete — deactivate instead of hard deleting
+      await d1
+        .prepare('UPDATE webhooks SET is_active = 0, updated_at = ? WHERE id = ?')
+        .bind(new Date().toISOString(), id)
+        .run();
 
       return NextResponse.json({ success: true });
     } catch (error) {
       console.error('Delete webhook error:', error);
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
   { roles: ['MANAGER'] }
