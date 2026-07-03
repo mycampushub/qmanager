@@ -40,7 +40,7 @@ function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { setAuth, setCurrentView, setAdminAuth } = useAppStore();
+  const { setAuth, setAdminAuth } = useAppStore();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,7 +103,7 @@ function LoginScreen() {
               </Button>
             </form>
             <div className="mt-4 flex gap-2">
-              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setCurrentView('marketing')}>
+              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => window.location.href = '/'}>
                 ← Back to Home
               </Button>
             </div>
@@ -1961,7 +1961,7 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
 
 // ─── MAIN DASHBOARD ─────────────────────────────────────────
 export default function DashboardView() {
-  const { authUser, authToken, logout, dashboardTab, setDashboardTab, setCurrentView } = useAppStore();
+  const { authUser, authToken, logout, dashboardTab, setDashboardTab } = useAppStore();
   const [tenantData, setTenantData] = useState<{ queues: Queue[] } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const tenantIdRef = useRef(authUser?.tenantId);

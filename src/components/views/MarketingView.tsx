@@ -243,7 +243,7 @@ export default function MarketingView() {
             <Button
               variant="ghost"
               className="text-gray-600 hover:text-emerald-600"
-              onClick={() => setCurrentView('dashboard')}
+              onClick={() => window.location.href = '/dashboard'}
             >
               Staff Login
             </Button>
@@ -288,7 +288,7 @@ export default function MarketingView() {
               <Button
                 variant="ghost"
                 className="justify-start text-gray-600 hover:text-emerald-600"
-                onClick={() => { setMobileOpen(false); setCurrentView('dashboard'); }}
+                onClick={() => { setMobileOpen(false); window.location.href = '/dashboard'; }}
               >
                 Staff Login
               </Button>
@@ -849,7 +849,7 @@ export default function MarketingView() {
             <motion.div variants={fadeUp}>
               <Card
                 className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
-                onClick={() => setCurrentView('dashboard')}
+                onClick={() => window.location.href = '/dashboard'}
               >
                 <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
                   <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
@@ -935,7 +935,7 @@ export default function MarketingView() {
             {/* Navigation links */}
             <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2" aria-label="Footer navigation">
               <button
-                onClick={() => setCurrentView('dashboard')}
+                onClick={() => window.location.href = '/dashboard'}
                 className="text-sm text-gray-500 transition-colors hover:text-emerald-600"
               >
                 Staff Dashboard

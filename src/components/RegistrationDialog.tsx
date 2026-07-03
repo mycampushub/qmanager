@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 
 export function RegistrationDialog() {
-  const { registrationOpen, setRegistrationOpen, setAuth, setCurrentView } = useAppStore();
+  const { registrationOpen, setRegistrationOpen, setAuth } = useAppStore();
   const [businessName, setBusinessName] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -69,7 +69,7 @@ export function RegistrationDialog() {
       resetForm();
       if (data.user && data.token) {
         setAuth(data.user, data.token);
-        setCurrentView('dashboard');
+        window.location.href = '/dashboard';
       }
     } catch {
       toast.error('Network error. Please try again.');

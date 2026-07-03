@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
     if (customerPhone) {
       const existingTicket = await d1
         .prepare(
-          `SELECT t.*, q.name as queue_name, q.prefix as queue_prefix
+          `SELECT t.id, t.serial_number, q.name as queue_name, q.prefix as queue_prefix
            FROM tickets t
            JOIN queues q ON t.queue_id = q.id
            WHERE t.tenant_id = ? AND t.customer_phone = ? AND t.status IN (?, ?)
@@ -209,6 +209,7 @@ export async function POST(req: NextRequest) {
         )
         .bind(tenantId, customerPhone, 'WAITING', 'SERVING')
         .first<{
+          id: string;
           serial_number: number;
           queue_name: string;
           queue_prefix: string;
@@ -218,7 +219,10 @@ export async function POST(req: NextRequest) {
         const serial = `${existingTicket.queue_prefix}${String(existingTicket.serial_number).padStart(3, '0')}`;
         return NextResponse.json(
           {
+            code: 'DUPLICATE_TICKET',
             error: `You already have an active ticket (${serial}) in queue "${existingTicket.queue_name}"`,
+            existingTicketId: existingTicket.id,
+            existingTenantId: tenantId,
           },
           { status: 400 }
         );

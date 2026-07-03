@@ -626,11 +626,6 @@ function StepTicketConfirmation({
           </Button>
         )}
 
-        <Button variant="outline" className="h-11 w-full" onClick={onNewTicket}>
-          <TicketIcon className="size-4" />
-          Join Another Queue
-        </Button>
-
         <Button variant="ghost" className="h-11 w-full" onClick={onHome}>
           <ArrowLeft className="size-4" />
           Back to Home
@@ -1036,10 +1031,11 @@ export default function JoinView() {
             toast.error(data.error);
             // Load the existing ticket
             if (data.existingTicketId) {
-              const statusRes = await fetch(`/api/tickets/status?ticketId=${data.existingTicketId}`);
+              const tenantQuery = data.existingTenantId ? `&tenantId=${encodeURIComponent(data.existingTenantId)}` : '';
+              const statusRes = await fetch(`/api/tickets/status?ticketId=${data.existingTicketId}${tenantQuery}`);
               if (statusRes.ok) {
                 const statusData = await statusRes.json();
-                const existingTicket = statusData.tickets?.[0];
+                const existingTicket = statusData.ticket;
                 if (existingTicket) {
                   setTicket(existingTicket);
                   setActiveTicket(existingTicket);
@@ -1071,10 +1067,12 @@ export default function JoinView() {
     if (!ticket) return;
     setTracking(true);
     try {
-      const res = await fetch(`/api/tickets/status?ticketId=${ticket.id}`);
+      const params = new URLSearchParams({ ticketId: ticket.id });
+      if (ticket.tenantId) params.set('tenantId', ticket.tenantId);
+      const res = await fetch(`/api/tickets/status?${params}`);
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
-      const updated = data.tickets?.[0];
+      const updated = data.ticket;
       if (updated) {
         const prevStatus = prevStatusRef.current;
         setTicket(updated);
@@ -1173,7 +1171,7 @@ export default function JoinView() {
       const res = await fetch('/api/tickets/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId: ticket.id }),
+        body: JSON.stringify({ ticketId: ticket.id, tenantId: ticket.tenantId }),
       });
       if (!res.ok) throw new Error('Failed to leave queue');
       toast.success('You have left the queue');
