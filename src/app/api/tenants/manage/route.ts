@@ -49,7 +49,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const url = req.nextUrl;
 
       // Pagination
@@ -182,7 +182,7 @@ export const POST = withAuth(
         }
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const tenantId = crypto.randomUUID();
 
       // Validate master tenant if provided
@@ -321,7 +321,7 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // MANAGER can only update own tenant
       if (user.role === 'MANAGER') {
@@ -433,7 +433,7 @@ export const DELETE = withAuth(
         return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       const tenant = await d1
         .prepare(`SELECT id, name FROM tenants WHERE id = ?`)

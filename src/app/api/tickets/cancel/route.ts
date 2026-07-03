@@ -55,7 +55,7 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // Find ticket with queue
       const ticket = await d1

@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     const tenant = await d1
       .prepare(`SELECT id, name, branding_config, welcome_message FROM tenants WHERE id = ?`)
@@ -85,7 +85,7 @@ export const PUT = withAuth(
         );
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       const tenant = await d1
         .prepare(`SELECT id, welcome_message FROM tenants WHERE id = ?`)

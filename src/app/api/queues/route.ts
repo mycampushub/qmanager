@@ -44,7 +44,7 @@ export const GET = withAuth(
         );
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       const queueResult = await d1
         .prepare(
@@ -156,7 +156,7 @@ export const POST = withAuth(
         );
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // A18: Wrap count-check + create in a single batch to prevent race condition
       // Pre-reads for validation
@@ -279,7 +279,7 @@ export const PUT = withAuth(
         );
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // Verify queue belongs to user's tenant
       const existing = await d1
@@ -415,7 +415,7 @@ export const DELETE = withAuth(
         );
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // Verify queue belongs to user's tenant
       const queue = await d1

@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     const profile = await d1
       .prepare(
@@ -201,7 +201,7 @@ export const POST = withAuth(
         );
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // Check if profile already exists
       const existing = await d1

@@ -25,7 +25,7 @@ export const POST = withAuth(
     }
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { currentPassword, newPassword } = body as {
         currentPassword: string;

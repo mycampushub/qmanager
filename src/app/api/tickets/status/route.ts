@@ -111,7 +111,7 @@ export const POST = withAuth(
 
       sql += ' ORDER BY t.created_at DESC LIMIT 1';
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const ticket = await d1
         .prepare(sql)
         .bind(...bindValues)
@@ -221,7 +221,7 @@ export async function GET(req: NextRequest) {
     }
 
     const tenantId = tenantIdParam!;
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     // Rate limit
     const ip =

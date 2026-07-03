@@ -71,7 +71,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       const queueId = req.nextUrl.searchParams.get('queueId');
 
@@ -121,7 +121,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { tenantId, queueId, dayOfWeek, openTime, closeTime, isClosed } = body as {
         tenantId?: string;
@@ -215,7 +215,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { id, dayOfWeek, openTime, closeTime, isClosed, queueId } = body as {
         id: string;
@@ -364,7 +364,7 @@ export const DELETE = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const id = req.nextUrl.searchParams.get('id');
       if (!id) {
         return NextResponse.json({ error: 'id query param is required' }, { status: 400 });

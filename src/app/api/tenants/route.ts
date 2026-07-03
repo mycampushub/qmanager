@@ -31,7 +31,7 @@ interface TenantRow {
 // GET: List all active tenants (PUBLIC — needed for join page, TV display, kiosk)
 export async function GET() {
   try {
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     const result = await d1.prepare(`
       SELECT
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
     const passwordHash = await hashPassword(password);
     const tenantId = crypto.randomUUID();
     const staffId = crypto.randomUUID();
@@ -243,7 +243,7 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'You can only access your own tenant' }, { status: 403 });
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // Fetch tenant with master tenant
       const tenantRow = await d1.prepare(`

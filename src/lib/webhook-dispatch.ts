@@ -47,7 +47,7 @@ export function dispatchWebhooks(
 ): void {
   const work = async () => {
     try {
-      const d1 = getD1FromEnv() as {
+      const d1 = await getD1FromEnv() as {
         prepare(sql: string): { bind(...args: unknown[]): { all<T>(): { results: T[] }; run(): unknown } };
       };
 

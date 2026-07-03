@@ -86,7 +86,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       if (!tenantId) {
         return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
@@ -120,7 +120,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { url, events, secret } = body as {
         url?: string;
@@ -210,7 +210,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { id, isActive, url, events } = body as {
         id: string;
@@ -311,7 +311,7 @@ export const DELETE = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const id = req.nextUrl.searchParams.get('id');
       const confirm = req.nextUrl.searchParams.get('confirm');
 

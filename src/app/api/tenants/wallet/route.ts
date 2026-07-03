@@ -18,7 +18,7 @@ export const GET = withAuth(
         );
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // Read tenant metadata
       const tenant = await d1
@@ -128,7 +128,7 @@ export const POST = withAuth(
         );
       }
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const transactionId = crypto.randomUUID();
       const ip =
         req.headers.get('cf-connecting-ip') ||

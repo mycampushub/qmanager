@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     // Platform-level checks (tenant existence, plan limit)
     const platformTenant = await d1

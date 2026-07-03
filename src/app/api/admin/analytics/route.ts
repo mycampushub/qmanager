@@ -6,7 +6,7 @@ import { aggregateAcrossTenants } from '@/lib/aggregate-tenants';
 // C4: Accept (req, ctx) parameters for future extensibility
 export const GET = withAuth(async (_req: NextRequest, _ctx: { user: unknown }) => {
   try {
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthStartISO = monthStart.toISOString();

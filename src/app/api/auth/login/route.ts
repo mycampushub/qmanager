@@ -10,7 +10,7 @@ import {
 
 export async function POST(req: NextRequest) {
   try {
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     // Auto-seed demo data on first login attempt
     await ensureDemoData(d1);

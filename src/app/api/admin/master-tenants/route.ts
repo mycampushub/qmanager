@@ -7,7 +7,7 @@ import type { JwtPayload } from '@/lib/auth';
 export const GET = withAuth(
   async (_req: NextRequest, _ctx: { user: JwtPayload }) => {
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       const masterTenantsResult = await d1
         .prepare(
@@ -76,7 +76,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { corporateName } = body as { corporateName: string };
 

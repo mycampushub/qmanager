@@ -8,7 +8,7 @@ import type { JwtPayload } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
     const body = await req.json();
     const { ticketId, tenantId, rating, comment } = body as {
       ticketId: string;
@@ -109,7 +109,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       const page = parseInt(req.nextUrl.searchParams.get('page') || '1', 10);
       const limit = Math.min(

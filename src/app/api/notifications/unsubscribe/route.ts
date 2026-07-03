@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
     const body = await req.json();
     const { endpoint, tenantId } = body as { endpoint: string; tenantId?: string };
 

@@ -15,7 +15,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { tenantId, amountCents } = body as {
         tenantId?: string;
@@ -77,7 +77,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { paymentId, method } = body as {
         paymentId: string;

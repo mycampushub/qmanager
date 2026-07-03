@@ -10,7 +10,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       if (user.role === 'MANAGER') {
         const result = await d1
@@ -101,7 +101,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { tenantId, email, name, password, role } = body as {
         tenantId: string;
@@ -252,7 +252,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { userId, name, role, isActive } = body as {
         userId: string;
@@ -367,7 +367,7 @@ export const DELETE = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { userId } = body as { userId: string };
 

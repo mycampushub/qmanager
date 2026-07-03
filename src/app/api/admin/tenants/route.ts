@@ -6,7 +6,7 @@ import type { JwtPayload } from '@/lib/auth';
 export const GET = withAuth(
   async (req: NextRequest, _ctx: { user: JwtPayload }) => {
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const page = parseInt(req.nextUrl.searchParams.get('page') || '1', 10);
       const limit = Math.min(
         parseInt(req.nextUrl.searchParams.get('limit') || '20', 10),

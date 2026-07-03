@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
     const body = await req.json();
     const { tenantId, ticketId, endpoint, keys } = body as {
       tenantId: string;

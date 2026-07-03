@@ -1,6 +1,7 @@
 #:schemaPath = "schema.sql"
 
-name = "queueflow"
+# wrangler.toml
+name = "qmanager"
 main = ".open-next/worker.js"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]

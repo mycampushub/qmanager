@@ -61,7 +61,7 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // A10: If agentId is provided, verify it belongs to same tenant
       let validatedAgentId = user.userId;

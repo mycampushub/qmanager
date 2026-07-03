@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     // H-02: Create tenant + manager in a single transaction to prevent email race condition
     const passwordHash = await hashPassword(password);
