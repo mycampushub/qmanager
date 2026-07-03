@@ -8,13 +8,13 @@ compatibility_flags = ["nodejs_compat"]
 # ─── Environment Variables ────────────────────────────────────────────────────
 [vars]
 NODE_ENV = "production"
-JWT_SECRET = "CHANGE_ME_TO_A_SECURE_RANDOM_SECRET_IN_PRODUCTION"
+JWT_SECRET = "EzUybgmeD50ymbGacbN5rWVZzWg8ADllp78w7OaWiDg"
 
 # ─── D1 Database Binding ─────────────────────────────────────────────────────
 [[d1_databases]]
 binding = "DB"
 database_name = "queueflow-db"
-database_id = "CHANGE_ME_AFTER_CREATING_D1_DATABASE"
+database_id = "e5dfee80-f56a-4179-aa6b-0112eb032a83"
 # Create with: wrangler d1 create queueflow-db
 
 # ─── R2 Storage Binding (logos, branding assets, exports) ────────────────────
@@ -36,13 +36,8 @@ new_classes = ["QueueWebSocket"]
 # ─── KV Namespace (rate limiting, session cache) ─────────────────────────────
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-id = "CHANGE_ME_AFTER_CREATING_KV_NAMESPACE"
+id = "54a197d9999441f28eac28b24ca2219e"
 # Create with: wrangler kv namespace create "queueflow-rate-limit"
-
-# ─── Hyperdrive (optional, for external DB connections) ──────────────────────
-# [[hyperdrive]]
-# binding = "HYPERDRIVE"
-# id = "CHANGE_ME"
 
 # ─── Build ───────────────────────────────────────────────────────────────────
 [build]
@@ -57,49 +52,3 @@ binding = "ASSETS"
 [dev]
 port = 8787
 local_protocol = "http"
-
-# ─── Staging ─────────────────────────────────────────────────────────────────
-[env.staging]
-name = "queueflow-staging"
-[env.staging.vars]
-NODE_ENV = "staging"
-
-[[env.staging.d1_databases]]
-binding = "DB"
-database_name = "queueflow-db-staging"
-database_id = "CHANGE_ME_STAGING_D1_ID"
-
-[[env.staging.r2_buckets]]
-binding = "STORAGE"
-bucket_name = "queueflow-storage-staging"
-
-[[env.staging.durable_objects.bindings]]
-name = "QUEUE_WS"
-class_name = "QueueWebSocket"
-
-[[env.staging.kv_namespaces]]
-binding = "RATE_LIMIT_KV"
-id = "CHANGE_ME_STAGING_KV_ID"
-
-# ─── Production ──────────────────────────────────────────────────────────────
-[env.production]
-name = "queueflow"
-[env.production.vars]
-NODE_ENV = "production"
-
-[[env.production.d1_databases]]
-binding = "DB"
-database_name = "queueflow-db"
-database_id = "CHANGE_ME_PRODUCTION_D1_ID"
-
-[[env.production.r2_buckets]]
-binding = "STORAGE"
-bucket_name = "queueflow-storage"
-
-[[env.production.durable_objects.bindings]]
-name = "QUEUE_WS"
-class_name = "QueueWebSocket"
-
-[[env.production.kv_namespaces]]
-binding = "RATE_LIMIT_KV"
-id = "CHANGE_ME_PRODUCTION_KV_ID"
