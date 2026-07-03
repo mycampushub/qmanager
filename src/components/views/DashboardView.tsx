@@ -129,6 +129,9 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
   const [walkInPhone, setWalkInPhone] = useState('');
   const [showWalkIn, setShowWalkIn] = useState(false);
   const [recentlyCalled, setRecentlyCalled] = useState<Ticket | null>(null);
+  const [ticketListTab, setTicketListTab] = useState<'waiting' | 'served'>('waiting');
+  const [ticketList, setTicketList] = useState<Ticket[]>([]);
+  const [ticketListLoading, setTicketListLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const authToken = useAppStore((s) => s.authToken);
 
@@ -151,40 +154,70 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
     }
   }, [currentTicket]);
 
-  // F1: Auto-detect currently serving ticket on login
+  // F1: Auto-detect currently serving ticket on queue switch / login
   useEffect(() => {
-    if (!selectedQueueId || !tenantData?.queues) return;
-    const queue = tenantData.queues.find((q: Queue) => q.id === selectedQueueId);
-    if (queue && queue._activeTickets && queue._activeTickets > 0) {
-      // Fetch the serving ticket for this queue
-      (async () => {
-        try {
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-          if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-          const res = await fetch('/api/tickets/status', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ queueId: selectedQueueId, status: 'SERVING' }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const servingTicket = data.tickets?.[0];
-            if (servingTicket) {
-              setCurrentTicket(servingTicket);
-            }
+    if (!selectedQueueId || !authToken) return;
+    (async () => {
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` };
+        const res = await fetch('/api/tickets/status', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ queueId: selectedQueueId, status: 'SERVING' }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ticket) {
+            setCurrentTicket(data.ticket as Ticket);
           }
-        } catch { /* silent */ }
-      })();
+        }
+      } catch { /* silent */ }
+    })();
+  }, [selectedQueueId, authToken]);
+
+  // Fetch ticket list (waiting or served) for selected queue
+  const fetchTicketList = useCallback(async (tab: 'waiting' | 'served') => {
+    if (!selectedQueueId || !authToken) return;
+    setTicketListLoading(true);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` };
+      const status = tab === 'waiting' ? 'WAITING' : 'COMPLETED';
+      const res = await fetch('/api/tickets/list', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ queueId: selectedQueueId, status }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTicketList((data.tickets ?? []) as Ticket[]);
+      }
+    } catch { /* silent */ }
+    finally { setTicketListLoading(false); }
+  }, [selectedQueueId, authToken]);
+
+  useEffect(() => {
+    fetchTicketList(ticketListTab);
+  }, [ticketListTab, fetchTicketList, selectedQueueId]);
+
+  // Re-fetch ticket list when a ticket action happens
+  const lastRefreshRef = useRef(0);
+  const originalOnRefresh = onRefresh;
+  const enhancedRefresh = useCallback(() => {
+    originalOnRefresh();
+    const now = Date.now();
+    if (now - lastRefreshRef.current > 500) {
+      lastRefreshRef.current = now;
+      fetchTicketList(ticketListTab);
     }
-  }, [selectedQueueId, tenantData, authToken]);
+  }, [originalOnRefresh, fetchTicketList, ticketListTab]);
 
   const { lastEvent, clearLastEvent } = useQueueWebSocket(user.tenantId, authToken);
   useEffect(() => {
     if (lastEvent?.event === 'TICKET_CALLED' || lastEvent?.event === 'TICKET_COMPLETED') {
-      onRefresh();
+      enhancedRefresh();
       clearLastEvent();
     }
-  }, [lastEvent, onRefresh, clearLastEvent]);
+  }, [lastEvent, enhancedRefresh, clearLastEvent]);
 
   const handleCallNext = async () => {
     if (!selectedQueueId) return;
@@ -204,7 +237,7 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
         setRecentlyCalled(data.calledTicket);
         setTimeout(() => setRecentlyCalled(null), 3000);
         toast.success(`Now serving ${data.calledTicket._formattedSerial}`);
-        onRefresh();
+        enhancedRefresh();
       } else {
         toast.info('No waiting tickets in this queue');
       }
@@ -231,7 +264,7 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
       toast.success(`Ticket ${currentTicket._formattedSerial} completed`);
       setCurrentTicket(null);
       setServingTime(0);
-      onRefresh();
+      enhancedRefresh();
     } catch {
       toast.error('Failed to complete ticket');
     } finally {
@@ -255,7 +288,7 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
       toast.info(`Ticket ${currentTicket._formattedSerial} moved to end of queue`);
       setCurrentTicket(null);
       setServingTime(0);
-      onRefresh();
+      enhancedRefresh();
     } catch {
       toast.error('Failed to skip ticket');
     } finally {
@@ -280,7 +313,7 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
       toast.info(`Ticket ${currentTicket._formattedSerial} cancelled`);
       setCurrentTicket(null);
       setServingTime(0);
-      onRefresh();
+      enhancedRefresh();
     } catch {
       toast.error('Failed to cancel ticket');
     } finally {
@@ -315,7 +348,7 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
         setWalkInName('');
         setWalkInPhone('');
         setShowWalkIn(false);
-        onRefresh();
+        enhancedRefresh();
       } else {
         toast.error(data.error || 'Failed to create ticket');
       }
@@ -334,30 +367,56 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
 
   return (
     <div className="space-y-6">
-      {/* Queue Selector */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Label className="text-sm font-medium whitespace-nowrap">Queue:</Label>
-          <Select value={selectedQueueId} onValueChange={(v) => { setSelectedQueueId(v); setCurrentTicket(null); setServingTime(0); }}>
-            <SelectTrigger className="w-64">
-              <SelectValue placeholder="Select queue" />
-            </SelectTrigger>
-            <SelectContent>
-              {queues.map((q) => (
-                <SelectItem key={q.id} value={q.id}>
-                  {q.prefix} - {q.name} ({q._waitingCount || 0} waiting)
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {/* Queue Selector – List View */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">Select Queue</Label>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowWalkIn(!showWalkIn)}>
+              <UserPlus className="w-4 h-4 mr-1" /> Walk-in
+            </Button>
+            <Button variant="outline" size="sm" onClick={onRefresh}>
+              <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowWalkIn(!showWalkIn)}>
-            <UserPlus className="w-4 h-4 mr-1" /> Walk-in
-          </Button>
-          <Button variant="outline" size="sm" onClick={onRefresh}>
-            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
-          </Button>
+        <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+          {queues.map((q) => {
+            const isSelected = selectedQueueId === q.id;
+            return (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => { setSelectedQueueId(q.id); setCurrentTicket(null); setServingTime(0); }}
+                className={`flex-shrink-0 w-44 rounded-xl border-2 p-3 text-left transition-all ${
+                  isSelected
+                    ? 'border-emerald-500 bg-emerald-50 shadow-sm'
+                    : 'border-transparent bg-muted/40 hover:bg-muted/70'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`flex size-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${
+                      isSelected ? 'bg-emerald-600' : 'bg-muted-foreground/20'
+                    }`}
+                  >
+                    {q.prefix}
+                  </div>
+                  <div className="min-w-0">
+                    <p className={`text-sm font-medium truncate ${isSelected ? 'text-emerald-900' : 'text-foreground'}`}>
+                      {q.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {q._waitingCount || 0} waiting
+                    </p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          {queues.length === 0 && (
+            <p className="text-sm text-muted-foreground py-4">No active queues</p>
+          )}
         </div>
       </div>
 
@@ -529,6 +588,104 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
           )}
         </div>
       </div>
+
+      {/* Ticket List – Waiting / Served */}
+      {selectedQueueId && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Tickets</CardTitle>
+              <div className="flex bg-muted rounded-lg p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setTicketListTab('waiting')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    ticketListTab === 'waiting'
+                      ? 'bg-white text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Waiting ({ticketListTab === 'waiting' ? ticketList.length : '—'})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTicketListTab('served')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    ticketListTab === 'served'
+                      ? 'bg-white text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Served ({ticketListTab === 'served' ? ticketList.length : '—'})
+                </button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {ticketListLoading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-14 bg-muted/40 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : ticketList.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                <ListOrdered className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                {ticketListTab === 'waiting' ? 'No tickets waiting' : 'No served tickets yet'}
+              </div>
+            ) : (
+              <div className="max-h-72 overflow-y-auto space-y-1.5">
+                {ticketList.map((t) => (
+                  <div
+                    key={t.id}
+                    className={`flex items-center justify-between py-2.5 px-3 rounded-lg border ${
+                      ticketListTab === 'served'
+                        ? 'border-green-100 bg-green-50/50'
+                        : 'border-transparent hover:bg-muted/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-bold ${
+                        ticketListTab === 'served'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {t._formattedSerial || `${selectedQueue?.prefix || ''}${String(t.serialNumber).padStart(3, '0')}`}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{t.customerName}</p>
+                        {t.customerPhone && (
+                          <p className="text-xs text-muted-foreground">{t.customerPhone}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {ticketListTab === 'served' && t.completedAt ? (
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(t.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      ) : t.createdAt ? (
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      ) : null}
+                      {ticketListTab === 'served' ? (
+                        <Badge variant="outline" className="mt-1 text-green-600 border-green-200 bg-green-50 text-[10px]">
+                          <CheckCircle2 className="w-3 h-3 mr-0.5" /> Served
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="mt-1 text-amber-600 border-amber-200 bg-amber-50 text-[10px]">
+                          <Clock className="w-3 h-3 mr-0.5" /> Waiting
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

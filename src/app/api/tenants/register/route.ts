@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
       req.headers.get('x-real-ip') || 'unknown';
 
-    const { allowed, retryAfterMs } = rateLimit('register:' + ip, 3, 3_600_000);
+    const { allowed, retryAfterMs } = await rateLimit('register:' + ip, 3, 3_600_000);
     if (!allowed) {
       return NextResponse.json(
         { error: 'Too many registration attempts. Please try again later.' },
