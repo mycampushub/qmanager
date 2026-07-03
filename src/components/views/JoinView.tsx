@@ -8,28 +8,23 @@ import type { Tenant, Queue, Ticket, TicketStatus, BrandingConfig } from '@/lib/
 
 import { QRCodeDisplay } from '@/components/QRCode';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import {
   ArrowLeft,
-  MapPin,
   Users,
   Clock,
   TicketIcon,
-  ChevronRight,
   Loader2,
   Phone,
   User,
   Wallet,
-  ListChecks,
   RefreshCw,
   QrCode,
-  Building2,
   Timer,
   Hash,
   CircleDot,
@@ -38,7 +33,6 @@ import {
   MinusCircle,
   AlertTriangle,
   LogOut,
-  Search,
   Star,
   History,
 } from 'lucide-react';
@@ -163,139 +157,38 @@ const fadeInUp = {
 };
 
 // ---------------------------------------------------------------------------
-// Step 1 – Location Selection
+// No Tenant Landing – shown when no ?tenant=xxx param is provided
 // ---------------------------------------------------------------------------
 
-function StepSelectLocation({
-  tenants,
-  loading,
-  onSelect,
-  onFindTicket,
-}: {
-  tenants: Tenant[];
-  loading: boolean;
-  onSelect: (t: Tenant) => void;
-  onFindTicket: (phone: string) => void;
-}) {
-  const [phone, setPhone] = useState('');
-  const [searching, setSearching] = useState(false);
-
-  const handleSearch = () => {
-    const cleaned = phone.trim().replace(/\D/g, '');
-    if (cleaned.length < 5) {
-      toast.error('Please enter a valid phone number');
-      return;
-    }
-    setSearching(true);
-    onFindTicket(`+880${cleaned.replace(/^\\+?880/, '')}`);
-    setSearching(false);
-  };
+function NoTenantLanding() {
+  const { setCurrentView } = useAppStore();
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="text-center mb-2">
-        <h2 className="text-xl font-bold text-foreground">Select Your Location</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Choose the business location you want to visit
-        </p>
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      className="flex flex-col items-center justify-center py-24 px-4 text-center"
+    >
+      <div className="flex size-20 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 mb-6">
+        <QrCode className="size-10" />
       </div>
-
-      {loading ? (
-        <div className="flex flex-col gap-3">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : tenants.length === 0 ? (
-        <div className="text-center py-12">
-          <Building2 className="size-12 mx-auto text-muted-foreground/40 mb-3" />
-          <p className="text-muted-foreground text-sm">No active locations found</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {tenants.map((tenant, i) => (
-            <motion.button
-              key={tenant.id}
-              custom={i}
-              variants={fadeInUp}
-              initial="hidden"
-              animate="visible"
-              whileTap={{ scale: 0.97 }}
-              className="w-full text-left"
-              onClick={() => onSelect(tenant)}
-            >
-              <Card className="py-4 px-5 active:ring-2 active:ring-emerald-500/40 transition-all hover:shadow-md cursor-pointer border-border/60">
-                <CardContent className="p-0 flex items-center justify-between">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                      <MapPin className="size-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-foreground truncate">{tenant.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {tenant.masterTenant?.corporateName
-                          ? tenant.masterTenant.corporateName
-                          : 'Independent business'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Badge variant="secondary" className="text-xs gap-1">
-                      <ListChecks className="size-3" />
-                      {tenant._queueCount ?? 0} queues
-                    </Badge>
-                    <ChevronRight className="size-4 text-muted-foreground" />
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.button>
-          ))}
-        </div>
-      )}
-
-      {/* Find My Ticket by Phone */}
-      <Separator className="my-2" />
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <Phone className="size-4 text-emerald-600" />
-          <span className="text-sm font-semibold text-foreground">Find My Ticket</span>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Enter your phone number to look up all your active tickets
-        </p>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <div className="absolute left-10 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium pointer-events-none">
-              +880
-            </div>
-            <Input
-              placeholder="1XXX XXXXXX"
-              className="pl-[4.5rem] h-11 text-base"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-              type="tel"
-              inputMode="numeric"
-              maxLength={10}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-            />
-          </div>
-          <Button
-            className="h-11 px-5 shrink-0"
-            onClick={handleSearch}
-            disabled={searching || phone.trim().replace(/\D/g, '').length < 5}
-          >
-            {searching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
-            <span className="ml-2 hidden sm:inline">Search</span>
-          </Button>
-        </div>
-      </div>
-    </div>
+      <h2 className="text-2xl font-bold text-foreground mb-2">Join a Queue</h2>
+      <p className="text-sm text-muted-foreground max-w-xs leading-relaxed mb-8">
+        Please scan the QR code at the business location or use the direct link shared by the business to join a queue.
+      </p>
+      <Button
+        className="h-12 px-8 text-base font-semibold"
+        onClick={() => setCurrentView('marketing')}
+      >
+        Go to Homepage
+      </Button>
+    </motion.div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Step 2 – Queue Selection & Check-in Form
+// Step 1 – Queue Selection & Check-in Form
 // ---------------------------------------------------------------------------
 
 function StepSelectQueue({
@@ -475,7 +368,7 @@ function StepSelectQueue({
         </Button>
         <Button variant="ghost" className="h-11 w-full" onClick={onBack}>
           <ArrowLeft className="size-4" />
-          Back to Locations
+          Go Back
         </Button>
       </div>
     </div>
@@ -483,7 +376,7 @@ function StepSelectQueue({
 }
 
 // ---------------------------------------------------------------------------
-// Step 3 – Ticket Confirmation
+// Step 2 – Ticket Confirmation
 // ---------------------------------------------------------------------------
 
 function StepTicketConfirmation({
@@ -772,7 +665,7 @@ function StepTicketConfirmation({
 }
 
 // ---------------------------------------------------------------------------
-// Step 4 – My Tickets (Queue Wallet)
+// Step 3 – My Tickets (Queue Wallet)
 // ---------------------------------------------------------------------------
 
 // Feedback Form Component
@@ -1053,143 +946,10 @@ function StepMyTickets({
 }
 
 // ---------------------------------------------------------------------------
-// Step 5 – Find Ticket Results
-// ---------------------------------------------------------------------------
-
-function StepFindTicketResults({
-  phone,
-  tickets,
-  loading,
-  onTrackTicket,
-  onBack,
-}: {
-  phone: string;
-  tickets: Ticket[];
-  loading: boolean;
-  onTrackTicket: (ticket: Ticket) => void;
-  onBack: () => void;
-}) {
-  const active = tickets.filter((t) => t.status === 'WAITING' || t.status === 'SERVING');
-  const past = tickets.filter((t) => t.status !== 'WAITING' && t.status !== 'SERVING');
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="text-center">
-        <h2 className="text-xl font-bold text-foreground">Search Results</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Tickets found for {phone}
-        </p>
-      </div>
-
-      {loading ? (
-        <div className="flex flex-col gap-3">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : tickets.length === 0 ? (
-        <div className="text-center py-12 border border-dashed rounded-xl">
-          <Phone className="size-10 mx-auto text-muted-foreground/40 mb-3" />
-          <p className="text-sm text-muted-foreground">No tickets found for this phone number</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto">
-          {active.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
-                Active ({active.length})
-              </p>
-              {active.map((t, i) => {
-                const serial = t._formattedSerial || `${t.queue?.prefix ?? '?'}-${String(t.serialNumber).padStart(3, '0')}`;
-                return (
-                  <motion.div
-                    key={t.id}
-                    custom={i}
-                    variants={fadeInUp}
-                    initial="hidden"
-                    animate="visible"
-                  >
-                    <Card className="py-3.5 px-4 border-l-4 border-l-emerald-500">
-                      <CardContent className="p-0">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <p className="text-lg font-bold text-foreground leading-tight">
-                              {serial}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">{t.queue?.name}</p>
-                          </div>
-                          <StatusBadge status={t.status} />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Users className="size-3" />
-                              {t._peopleAhead ?? 0} ahead
-                            </span>
-                            <span>Position #{t._position ?? (t._peopleAhead ?? 0) + 1}</span>
-                          </div>
-                          <Button
-                            size="sm"
-                            className="h-8 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700"
-                            onClick={() => onTrackTicket(t)}
-                          >
-                            <RefreshCw className="size-3 mr-1" />
-                            Track
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                );
-              })}
-            </div>
-          )}
-
-          {past.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
-                Past ({past.length})
-              </p>
-              {past.map((t, i) => {
-                const serial = t._formattedSerial || `${t.queue?.prefix ?? '?'}-${String(t.serialNumber).padStart(3, '0')}`;
-                return (
-                  <motion.div
-                    key={t.id}
-                    custom={i}
-                    variants={fadeInUp}
-                    initial="hidden"
-                    animate="visible"
-                  >
-                    <Card className="py-3 px-4 opacity-70">
-                      <CardContent className="p-0 flex items-center justify-between">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <p className="text-sm font-semibold text-foreground">{serial}</p>
-                          <p className="text-xs text-muted-foreground truncate">{t.queue?.name}</p>
-                        </div>
-                        <StatusBadge status={t.status} />
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      <Button variant="ghost" className="h-11 w-full" onClick={onBack}>
-        <ArrowLeft className="size-4" />
-        Back to Locations
-      </Button>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main JoinView
 // ---------------------------------------------------------------------------
 
-type Step = 'location' | 'queue' | 'confirmation' | 'myTickets' | 'findTicket';
+type Step = 'queue' | 'confirmation' | 'myTickets';
 
 export default function JoinView() {
   const {
@@ -1200,12 +960,10 @@ export default function JoinView() {
     myTickets,
     setMyTickets,
     setCurrentView,
-    tenants,
-    setTenants,
   } = useAppStore();
 
   // Step management
-  const [step, setStep] = useState<Step>('location');
+  const [step, setStep] = useState<Step>('queue');
   const [direction, setDirection] = useState(1);
 
   // Data
@@ -1213,14 +971,10 @@ export default function JoinView() {
   const [queues, setQueues] = useState<Queue[]>([]);
 
   // Loading states
-  const [loadingTenants, setLoadingTenants] = useState(false);
   const [loadingTenantDetail, setLoadingTenantDetail] = useState(false);
   const [joining, setJoining] = useState(false);
   const [tracking, setTracking] = useState(false);
   const [loadingMyTickets, setLoadingMyTickets] = useState(false);
-  const [loadingFindTickets, setLoadingFindTickets] = useState(false);
-  const [findTicketPhone, setFindTicketPhone] = useState('');
-  const [findTicketResults, setFindTicketResults] = useState<Ticket[]>([]);
   const [isPolling, setIsPolling] = useState(false);
   const prevStatusRef = useRef<TicketStatus | null>(null);
 
@@ -1228,109 +982,28 @@ export default function JoinView() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [ticket, setTicket] = useState<Ticket | null>(activeTicket);
 
-  // Fetch tenants on mount
-  useEffect(() => {
-    if (tenants.length > 0) return;
-    let cancelled = false;
-    (async () => {
-      setLoadingTenants(true);
-      try {
-        const res = await fetch('/api/tenants');
-        if (!res.ok) throw new Error('Failed to fetch');
-        const data = await res.json();
-        if (!cancelled) {
-          setTenants(data.tenants ?? []);
-        }
-      } catch {
-        toast.error('Failed to load locations');
-      } finally {
-        if (!cancelled) setLoadingTenants(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [tenants.length, setTenants]);
+  // --- Callbacks (declared before effects that use them) ---
 
-  // If joinTenantId is already set, skip to queue step
-  useEffect(() => {
-    if (joinTenantId && step === 'location') {
-      handleSelectTenant(joinTenantId);
-    }
-  }, [joinTenantId]);
-
-  // If activeTicket is set externally, go to confirmation
-  useEffect(() => {
-    if (activeTicket) {
-      setTicket(activeTicket);
-      setStep('confirmation');
-    }
-  }, [activeTicket]);
-
-  // Navigate steps (defined before callbacks that depend on it)
+  // Navigate steps
   const goTo = useCallback(
     (next: Step, dir?: number) => {
-      setDirection(dir ?? (['location', 'queue', 'confirmation', 'myTickets', 'findTicket'].indexOf(next) > ['location', 'queue', 'confirmation', 'myTickets', 'findTicket'].indexOf(step) ? 1 : -1));
+      setDirection(dir ?? (['queue', 'confirmation', 'myTickets'].indexOf(next) > ['queue', 'confirmation', 'myTickets'].indexOf(step) ? 1 : -1));
       setStep(next);
     },
     [step]
   );
 
-  // Find ticket by phone handler
-  const handleFindTicket = useCallback(
-    async (phone: string) => {
-      setFindTicketPhone(phone);
-      setLoadingFindTickets(true);
-      goTo('findTicket', 1);
-      try {
-        const res = await fetch(
-          `/api/tickets/status?phone=${encodeURIComponent(phone)}`
-        );
-        if (!res.ok) throw new Error('Failed to search');
-        const data = await res.json();
-        setFindTicketResults(data.tickets ?? []);
-      } catch {
-        toast.error('Failed to search for tickets');
-        setFindTicketResults([]);
-      } finally {
-        setLoadingFindTickets(false);
-      }
-    },
-    [goTo]
-  );
-
-  const handleTrackFromFind = useCallback(
-    (t: Ticket) => {
-      setTicket(t);
-      setActiveTicket(t);
-      prevStatusRef.current = null;
-      goTo('confirmation', 1);
-    },
-    [setActiveTicket, goTo]
-  );
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
-
-
-  // Handlers
   const handleSelectTenant = useCallback(
     async (tenantId: string) => {
       setLoadingTenantDetail(true);
       setJoinTenantId(tenantId);
       try {
-        const res = await fetch('/api/tenants', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId }),
-        });
+        const res = await fetch(`/api/tenants/${tenantId}/display`);
         if (!res.ok) throw new Error('Failed to load tenant');
         const data = await res.json();
         const t = data.tenant;
         setTenantWithQueues(t);
-        setQueues(t.queues ?? []);
+        setQueues(t._queues ?? []);
         goTo('queue', 1);
       } catch {
         toast.error('Failed to load location details');
@@ -1340,13 +1013,6 @@ export default function JoinView() {
       }
     },
     [setJoinTenantId, goTo]
-  );
-
-  const handleSelectTenantFromList = useCallback(
-    (t: Tenant) => {
-      handleSelectTenant(t.id);
-    },
-    [handleSelectTenant]
   );
 
   const handleJoin = useCallback(
@@ -1457,13 +1123,6 @@ export default function JoinView() {
     };
   }, [handleTrack, ticket?.status]);
 
-  // Stop polling when ticket reaches a terminal or serving state
-  useEffect(() => {
-    if (ticket && (ticket.status === 'SERVING' || ticket.status === 'COMPLETED' || ticket.status === 'SKIPPED' || ticket.status === 'CANCELLED')) {
-      stopPolling();
-    }
-  }, [ticket?.status, stopPolling]);
-
   const handleShowMyTickets = useCallback(async () => {
     if (!ticket?.customerPhone || !ticket?.tenantId) return;
     setLoadingMyTickets(true);
@@ -1491,23 +1150,22 @@ export default function JoinView() {
     [setActiveTicket, goTo]
   );
 
-  const handleBackToLocation = useCallback(() => {
+  const handleBackToHome = useCallback(() => {
+    stopPolling();
     setJoinTenantId(null);
     setTenantWithQueues(null);
     setQueues([]);
-    goTo('location', -1);
-  }, [setJoinTenantId, goTo]);
+    setTicket(null);
+    setActiveTicket(null);
+    setCurrentView('marketing');
+  }, [setJoinTenantId, setActiveTicket, setCurrentView, stopPolling]);
 
   const handleNewTicket = useCallback(() => {
     stopPolling();
     setTicket(null);
     setActiveTicket(null);
-    if (tenantWithQueues && queues.length > 0) {
-      goTo('queue', -1);
-    } else {
-      handleBackToLocation();
-    }
-  }, [tenantWithQueues, queues, setActiveTicket, goTo, handleBackToLocation, stopPolling]);
+    goTo('queue', -1);
+  }, [setActiveTicket, goTo, stopPolling]);
 
   const handleLeaveQueue = useCallback(async () => {
     if (!ticket) return;
@@ -1522,15 +1180,11 @@ export default function JoinView() {
       stopPolling();
       setTicket(null);
       setActiveTicket(null);
-      if (tenantWithQueues && queues.length > 0) {
-        goTo('queue', -1);
-      } else {
-        handleBackToLocation();
-      }
+      goTo('queue', -1);
     } catch {
       toast.error('Failed to leave the queue');
     }
-  }, [ticket, tenantWithQueues, queues, setActiveTicket, goTo, handleBackToLocation, stopPolling]);
+  }, [ticket, setActiveTicket, goTo, stopPolling]);
 
   const handleHome = useCallback(() => {
     stopPolling();
@@ -1542,13 +1196,36 @@ export default function JoinView() {
     setCurrentView('marketing');
   }, [setJoinTenantId, setActiveTicket, setCurrentView, stopPolling]);
 
-  // Determine the header subtitle
-  const headerSubtitle = (() => {
-    if (step === 'queue' || step === 'confirmation' || step === 'myTickets') {
-      return tenantWithQueues?.name || '';
+  // --- Effects ---
+
+  // Auto-load tenant data when joinTenantId is set
+  useEffect(() => {
+    if (!joinTenantId) return;
+    handleSelectTenant(joinTenantId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinTenantId]);
+
+  // If activeTicket is set externally, go to confirmation
+  useEffect(() => {
+    if (activeTicket) {
+      setTicket(activeTicket);
+      setStep('confirmation');
     }
-    return '';
-  })();
+  }, [activeTicket]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  // Stop polling when ticket reaches a terminal or serving state
+  useEffect(() => {
+    if (ticket && (ticket.status === 'SERVING' || ticket.status === 'COMPLETED' || ticket.status === 'SKIPPED' || ticket.status === 'CANCELLED')) {
+      stopPolling();
+    }
+  }, [ticket?.status, stopPolling]);
 
   // Auto-start polling when on confirmation step and ticket is WAITING
   useEffect(() => {
@@ -1561,6 +1238,43 @@ export default function JoinView() {
       setIsPolling(false);
     };
   }, [step, ticket, startPolling]);
+
+  // Determine the header subtitle
+  const headerSubtitle = (() => {
+    if (step === 'queue' || step === 'confirmation' || step === 'myTickets') {
+      return tenantWithQueues?.name || '';
+    }
+    return '';
+  })();
+
+  // If no tenant ID, show the landing page
+  if (!joinTenantId) {
+    return (
+      <div className="min-h-screen flex flex-col bg-white">
+        <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-border/50">
+          <div className="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
+            <button
+              onClick={() => setCurrentView('marketing')}
+              className="flex items-center gap-1.5 text-sm font-bold text-emerald-700 hover:text-emerald-800 transition-colors min-h-[44px] min-w-[44px] justify-center"
+              aria-label="Go to home"
+            >
+              <QrCode className="size-5" />
+              <span className="hidden sm:inline">QueueFlow</span>
+            </button>
+            <div className="w-[44px]" />
+          </div>
+        </header>
+        <main className="flex-1 max-w-lg mx-auto w-full px-4">
+          <NoTenantLanding />
+        </main>
+        <footer className="py-4 text-center border-t border-border/40 mt-auto">
+          <p className="text-xs text-muted-foreground">
+            Powered by <span className="font-semibold text-emerald-600">QueueFlow</span>
+          </p>
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -1587,10 +1301,9 @@ export default function JoinView() {
             size="sm"
             className="min-h-[44px] min-w-[44px] px-2"
             onClick={() => {
-              if (step === 'queue') handleBackToLocation();
+              if (step === 'queue') handleBackToHome();
               else if (step === 'confirmation') handleNewTicket();
               else if (step === 'myTickets') goTo('confirmation', -1);
-              else if (step === 'findTicket') goTo('location', -1);
               else handleHome();
             }}
             aria-label="Go back"
@@ -1603,25 +1316,6 @@ export default function JoinView() {
       {/* Main Content */}
       <main className="flex-1 max-w-lg mx-auto w-full px-4 py-6">
         <AnimatePresence mode="wait" custom={direction}>
-          {step === 'location' && (
-            <motion.div
-              key="location"
-              custom={direction}
-              variants={pageVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={pageTransition}
-            >
-              <StepSelectLocation
-                tenants={tenants}
-                loading={loadingTenants || loadingTenantDetail}
-                onSelect={handleSelectTenantFromList}
-                onFindTicket={handleFindTicket}
-              />
-            </motion.div>
-          )}
-
           {step === 'queue' && tenantWithQueues && (
             <motion.div
               key="queue"
@@ -1638,7 +1332,7 @@ export default function JoinView() {
                 loading={loadingTenantDetail}
                 joining={joining}
                 onJoin={handleJoin}
-                onBack={handleBackToLocation}
+                onBack={handleBackToHome}
               />
             </motion.div>
           )}
@@ -1681,28 +1375,8 @@ export default function JoinView() {
                 loading={loadingMyTickets}
                 onBack={() => goTo('confirmation', -1)}
                 onSelectTicket={handleSelectTicketFromWallet}
-                customerPhone={ticket?.customerPhone}
-                tenantId={ticket?.tenantId}
-              />
-            </motion.div>
-          )}
-
-          {step === 'findTicket' && (
-            <motion.div
-              key="findTicket"
-              custom={direction}
-              variants={pageVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={pageTransition}
-            >
-              <StepFindTicketResults
-                phone={findTicketPhone}
-                tickets={findTicketResults}
-                loading={loadingFindTickets}
-                onTrackTicket={handleTrackFromFind}
-                onBack={() => goTo('location', -1)}
+                customerPhone={ticket?.customerPhone ?? undefined}
+                tenantId={ticket?.tenantId ?? undefined}
               />
             </motion.div>
           )}
@@ -1710,7 +1384,7 @@ export default function JoinView() {
       </main>
 
       {/* Footer */}
-      <footer className="py-4 text-center border-t border-border/40">
+      <footer className="py-4 text-center border-t border-border/40 mt-auto">
         <p className="text-xs text-muted-foreground">
           Powered by <span className="font-semibold text-emerald-600">QueueFlow</span>
         </p>

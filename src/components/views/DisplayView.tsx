@@ -1,11 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, ArrowLeft, Clock, Users, Timer, CheckCircle2, Monitor, Tv, QrCode } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { ArrowLeft, Clock, Users, Timer, CheckCircle2, QrCode } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAppStore } from '@/stores/app-store';
 import { useQueueWebSocket } from '@/hooks/use-queue-ws';
@@ -53,104 +51,6 @@ function waitColor(count: number): string {
   return 'text-red-400';
 }
 
-
-/* ------------------------------------------------------------------ */
-/*  Tenant Selection Screen                                            */
-/* ------------------------------------------------------------------ */
-function TenantSelection() {
-  const { tenants, setTenants, setDisplayTenantId, setCurrentView } = useAppStore();
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchTenants() {
-      try {
-        const res = await fetch('/api/tenants');
-        const data = await res.json();
-        if (data.tenants) setTenants(data.tenants);
-      } catch {
-        // silently handle
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchTenants();
-  }, [setTenants]);
-
-  return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8">
-      {/* Background decoration */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl" />
-      </div>
-
-      <div className="relative z-10 w-full max-w-5xl">
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <Tv className="w-10 h-10 text-emerald-400" />
-            <h1 className="text-5xl font-bold text-white">TV Display</h1>
-          </div>
-          <p className="text-xl text-slate-400">Select a business location to display on this screen</p>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
-          </div>
-        ) : tenants.length === 0 ? (
-          <div className="text-center py-20">
-            <Building2 className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-            <p className="text-2xl text-slate-500">No business locations found</p>
-            <p className="text-slate-600 mt-2">Please create a tenant first from the dashboard.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tenants.map((tenant) => (
-              <motion.div
-                key={tenant.id}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <Card
-                  className="cursor-pointer border-slate-800 bg-slate-900 hover:border-emerald-500/50 hover:bg-slate-800/80 transition-all duration-300 py-0"
-                  onClick={() => setDisplayTenantId(tenant.id)}
-                >
-                  <CardContent className="p-8 flex flex-col items-center text-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
-                      <Building2 className="w-8 h-8 text-emerald-400" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-semibold text-white">{tenant.name}</h3>
-                      {tenant.masterTenant && (
-                        <p className="text-sm text-slate-500 mt-1">{tenant.masterTenant.corporateName}</p>
-                      )}
-                    </div>
-                    <Badge variant="outline" className="border-slate-700 text-slate-400">
-                      <Monitor className="w-3 h-3 mr-1" />
-                      {tenant._queueCount ?? 0} {tenant._queueCount === 1 ? 'Queue' : 'Queues'}
-                    </Badge>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-12 text-center">
-          <Button
-            variant="ghost"
-            size="lg"
-            className="text-slate-500 hover:text-white hover:bg-slate-800"
-            onClick={() => setCurrentView('marketing')}
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Home
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Flash overlay that fires on TICKET_CALLED                          */
@@ -251,15 +151,11 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
     return () => clearInterval(interval);
   }, []);
 
-  /* Fetch tenant + branding */
+  /* Fetch tenant + branding (both public, no auth needed) */
   const fetchTenantData = useCallback(async () => {
     try {
       const [tenantRes, brandingRes] = await Promise.all([
-        fetch('/api/tenants', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId }),
-        }),
+        fetch(`/api/tenants/${tenantId}/display`),
         fetch(`/api/tenants/branding?tenantId=${tenantId}`),
       ]);
 
@@ -603,13 +499,34 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  No Tenant ID — redirect to marketing                               */
+/* ------------------------------------------------------------------ */
+function NoTenantRedirect() {
+  const { setCurrentView } = useAppStore();
+
+  useEffect(() => {
+    // TV Display must be opened via direct link: /?display=<tenant-id>
+    setCurrentView('marketing');
+  }, [setCurrentView]);
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-slate-400">Redirecting...</p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  DisplayView – top-level export                                      */
 /* ------------------------------------------------------------------ */
 export default function DisplayView() {
   const displayTenantId = useAppStore((s) => s.displayTenantId);
 
   if (!displayTenantId) {
-    return <TenantSelection />;
+    return <NoTenantRedirect />;
   }
 
   return <MainDisplay tenantId={displayTenantId} />;

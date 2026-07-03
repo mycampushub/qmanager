@@ -34,8 +34,9 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 export interface JwtPayload {
   userId: string;
   tenantId?: string;
-  role: 'PLATFORM_ADMIN' | 'MANAGER' | 'AGENT';
-  type: 'staff' | 'platform_admin';
+  masterTenantId?: string;
+  role: 'PLATFORM_ADMIN' | 'MASTER_TENANT_ADMIN' | 'MANAGER' | 'AGENT';
+  type: 'staff' | 'platform_admin' | 'master_tenant_admin';
 }
 
 export async function signToken(payload: JwtPayload): Promise<string> {
@@ -151,6 +152,7 @@ export async function ensureDemoData(d1: D1Database): Promise<void> {
   await d1.batch([
     d1.prepare(`INSERT OR IGNORE INTO platform_admins (id, email, name, password_hash) VALUES ('admin-001', 'admin@yourqueueapp.com', 'System Admin', ?)`).bind(adminHash),
     d1.prepare(`INSERT OR IGNORE INTO master_tenants (id, corporate_name, billing_status) VALUES ('master-001', 'CityHealth Medical Group', 'ACTIVE')`),
+    d1.prepare(`INSERT OR IGNORE INTO master_tenant_admins (id, master_tenant_id, email, name, password_hash) VALUES ('mt-admin-001', 'master-001', 'hq@cityhealthgroup.com', 'CityHealth HQ Admin', ?)`).bind(managerHash),
     d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-quickbite', 'QuickBite Restaurant', NULL, 'PRO', 100000, '{"primaryColor":"#059669","secondaryColor":"#34d399","logoText":"QB"}', 'Welcome to QuickBite!')`),
     d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-greenbank', 'GreenBank Branch', NULL, 'PRO', 200000, '{"primaryColor":"#0d9488","secondaryColor":"#5eead4","logoText":"GB"}', 'Welcome to GreenBank Branch.')`),
     d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-ch-dt', 'CityHealth - Downtown Clinic', 'master-001', 'ENTERPRISE', 500000, '{"primaryColor":"#7c3aed","secondaryColor":"#a78bfa","logoText":"CH"}', 'CityHealth Downtown.')`),

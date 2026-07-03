@@ -311,7 +311,7 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
       });
       const data = await res.json();
       if (res.ok) {
-        toast.success(`Ticket ${data.ticket._formattedSerial} created for ${walkInName}`);
+        toast.success(`Ticket ${data.ticket.formattedSerial} created for ${walkInName}`);
         setWalkInName('');
         setWalkInPhone('');
         setShowWalkIn(false);
@@ -1549,7 +1549,8 @@ function StaffTab({ tenantId }: { tenantId: string }) {
               </div>
               <div className="space-y-2">
                 <Label>Password</Label>
-                <Input type="password" placeholder="Initial password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} />
+                <Input type="password" placeholder="Min 8 chars, 1 uppercase, 1 digit" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Min 8 characters, 1 uppercase letter, 1 digit</p>
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>
@@ -1753,7 +1754,7 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b">
+      <div className="p-4 border-b shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-sm">QF</div>
           <div>
@@ -1762,7 +1763,7 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
           </div>
         </div>
       </div>
-      <nav className="flex-1 p-3 space-y-1" aria-label="Dashboard navigation">
+      <nav className="flex-1 overflow-y-auto p-3 space-y-1" aria-label="Dashboard navigation">
         {navItems.map((item) => (
           <button
             key={item.id}
@@ -1779,7 +1780,7 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
           </button>
         ))}
       </nav>
-      <div className="p-3 border-t space-y-2">
+      <div className="p-3 border-t shrink-0 space-y-2">
         <div className="flex items-center gap-3 px-3 py-2">
           <Avatar className="w-8 h-8">
             <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs">{authUser.name.charAt(0)}</AvatarFallback>
@@ -1889,9 +1890,9 @@ export default function DashboardView() {
   const showMoreButton = moreNavItems.length > 0;
 
   return (
-    <div className="h-screen flex overflow-hidden bg-slate-50">
+    <div className="h-screen flex flex-row overflow-hidden bg-slate-50">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-64 border-r bg-white shrink-0 h-full">
+      <aside className="hidden md:flex flex-col w-64 border-r bg-white shrink-0 h-full">
         <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id); setSidebarOpen(false); }} authUser={authUser} logout={logout} />
       </aside>
 
@@ -1899,8 +1900,8 @@ export default function DashboardView() {
       <AnimatePresence>
         {sidebarOpen && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
-            <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed left-0 top-0 bottom-0 w-64 bg-white z-50 shadow-xl lg:hidden">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
+            <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed left-0 top-0 bottom-0 w-64 bg-white z-50 shadow-xl md:hidden">
               <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id); setSidebarOpen(false); }} authUser={authUser} logout={logout} />
             </motion.aside>
           </>
@@ -1911,7 +1912,7 @@ export default function DashboardView() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
         <header className="h-14 border-b bg-white flex items-center px-4 gap-3 shrink-0">
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)} aria-label="Open navigation menu">
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Open navigation menu">
             <Menu className="w-5 h-5" />
           </Button>
           <div className="flex-1 min-w-0">
@@ -1968,7 +1969,7 @@ export default function DashboardView() {
         </main>
 
         {/* E1: Mobile Bottom Nav — max 5 items with "More" sheet */}
-        <nav className="lg:hidden border-t bg-white flex shrink-0 safe-area-bottom" aria-label="Mobile navigation">
+        <nav className="md:hidden border-t bg-white flex shrink-0 safe-area-bottom" aria-label="Mobile navigation">
           {mobileNavItems.map((item) => (
             <button
               key={item.id}

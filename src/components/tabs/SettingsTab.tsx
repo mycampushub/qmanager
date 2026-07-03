@@ -24,6 +24,7 @@ export default function SettingsTab({ tenantId }: { tenantId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Tenant Contact Info ──
+  const [tenantName, setTenantName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [address, setAddress] = useState('');
@@ -44,10 +45,15 @@ export default function SettingsTab({ tenantId }: { tenantId: string }) {
   // ── Fetch Tenant Settings ──
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch(`/api/tenants?tenantId=${tenantId}`, { headers: authHeaders() });
+      const res = await fetch('/api/tenants', {
+        method: 'PUT',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      });
       const data = await res.json();
       if (data.tenant) {
         const t = data.tenant;
+        setTenantName(t.name || '');
         setLogoUrl(t.logoUrl || null);
         setContactEmail(t.contactEmail || '');
         setContactPhone(t.contactPhone || '');
@@ -91,15 +97,16 @@ export default function SettingsTab({ tenantId }: { tenantId: string }) {
 
   // ── Save Settings ──
   const handleSaveSettings = async () => {
+    if (!tenantName.trim()) { toast.error('Tenant name is required'); return; }
     setSavingSettings(true);
     try {
       const res = await fetch('/api/tenants/manage', {
         method: 'PUT',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, contactEmail, contactPhone, address, welcomeMessage }),
+        body: JSON.stringify({ tenantId, name: tenantName.trim(), contactEmail, contactPhone, address, welcomeMessage }),
       });
       const data = await res.json();
-      if (res.ok) { toast.success('Settings saved'); }
+      if (res.ok) { toast.success('Settings saved'); fetchSettings(); }
       else { toast.error(data.error || 'Failed to save'); }
     } catch { toast.error('Failed to save settings'); }
     finally { setSavingSettings(false); }
@@ -204,6 +211,24 @@ export default function SettingsTab({ tenantId }: { tenantId: string }) {
               )}
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Tenant Name ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Business Name</CardTitle>
+          <CardDescription>Your organization name displayed to customers and staff</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Tenant Name</Label>
+            <Input placeholder="e.g. QuickBite Restaurant" value={tenantName} onChange={(e) => setTenantName(e.target.value)} />
+          </div>
+          <Button onClick={handleSaveSettings} className="bg-emerald-600 hover:bg-emerald-700" disabled={savingSettings || !tenantName.trim()}>
+            {savingSettings && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+            Save Name
+          </Button>
         </CardContent>
       </Card>
 

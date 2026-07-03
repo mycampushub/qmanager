@@ -1,7 +1,8 @@
 export type TicketStatus = 'WAITING' | 'SERVING' | 'COMPLETED' | 'SKIPPED' | 'CANCELLED';
 type UserRole = 'MANAGER' | 'AGENT';
 type PlanTier = 'FREE' | 'PRO' | 'ENTERPRISE';
-export type AppView = 'marketing' | 'join' | 'dashboard' | 'display' | 'admin' | 'masterTenant' | 'kiosk';
+export type AppView = 'marketing' | 'join' | 'dashboard' | 'display' | 'admin' | 'masterTenant';
+// NOTE: 'kiosk' was removed — end users join only via QR code / direct link (?tenant=xxx)
 
 export interface BrandingConfig {
   primaryColor: string;

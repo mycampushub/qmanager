@@ -10,7 +10,6 @@ import DashboardView from '@/components/views/DashboardView';
 import DisplayView from '@/components/views/DisplayView';
 import PlatformAdminView from '@/components/views/PlatformAdminView';
 import MasterTenantView from '@/components/views/MasterTenantView';
-import KioskView from '@/components/views/KioskView';
 import { RegistrationDialog } from '@/components/RegistrationDialog';
 import { Toaster } from 'sonner';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -107,15 +106,26 @@ function HomeContent() {
       }
     }
 
-    // Fetch tenants for display/kiosk selection
-    fetch('/api/tenants')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.tenants) {
-          useAppStore.getState().setTenants(data.tenants);
+    // Restore master tenant admin auth
+    const mtToken = localStorage.getItem('qms_mt_token');
+    const mtUserStr = localStorage.getItem('qms_mt_user');
+    if (mtToken && mtUserStr) {
+      try {
+        const mtUser = JSON.parse(mtUserStr);
+        const payload = decodeJwtPayload(mtToken);
+        if (payload && payload.exp && (payload.exp as number) * 1000 > Date.now()) {
+          useAppStore.getState().setMtAuth(mtUser, mtToken);
+        } else {
+          localStorage.removeItem('qms_mt_token');
+          localStorage.removeItem('qms_mt_user');
         }
-      })
-      .catch(() => {});
+      } catch {
+        localStorage.removeItem('qms_mt_token');
+        localStorage.removeItem('qms_mt_user');
+      }
+    }
+
+
   }, []);
 
   const viewContent = (
@@ -126,7 +136,6 @@ function HomeContent() {
       {currentView === 'display' && <DisplayView />}
       {currentView === 'admin' && <PlatformAdminView />}
       {currentView === 'masterTenant' && <MasterTenantView />}
-      {currentView === 'kiosk' && <KioskView />}
     </div>
   );
 

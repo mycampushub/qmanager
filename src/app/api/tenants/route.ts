@@ -249,7 +249,7 @@ export const PUT = withAuth(
       const tenantRow = await d1.prepare(`
         SELECT
           t.id, t.name, t.plan_tier, t.master_tenant_id, t.welcome_message, t.logo_url,
-          t.is_active, t.created_at,
+          t.is_active, t.created_at, t.contact_email, t.contact_phone, t.address,
           mt.id AS master_id, mt.corporate_name
         FROM tenants t
         LEFT JOIN master_tenants mt ON t.master_tenant_id = mt.id
@@ -322,6 +322,9 @@ export const PUT = withAuth(
         masterTenantId: tenantRow.master_tenant_id,
         welcomeMessage: tenantRow.welcome_message,
         logoUrl: tenantRow.logo_url,
+        contactEmail: tenantRow.contact_email,
+        contactPhone: tenantRow.contact_phone,
+        address: tenantRow.address,
         isActive: tenantRow.is_active === 1,
         createdAt: tenantRow.created_at,
         masterTenant: tenantRow.master_id

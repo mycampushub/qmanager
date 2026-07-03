@@ -23,6 +23,19 @@ CREATE TABLE IF NOT EXISTS master_tenants (
   updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- ─── Master Tenant Admins (HQ Users who manage franchises) ───────────────────
+CREATE TABLE IF NOT EXISTS master_tenant_admins (
+  id                TEXT PRIMARY KEY,
+  master_tenant_id  TEXT NOT NULL,
+  email             TEXT NOT NULL UNIQUE,
+  name              TEXT NOT NULL,
+  password_hash     TEXT NOT NULL,
+  is_active         INTEGER NOT NULL DEFAULT 1,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (master_tenant_id) REFERENCES master_tenants(id) ON DELETE CASCADE
+);
+
 -- ─── All Serving Locations (Standard Tenants & Sub-Tenants) ───────────────────
 CREATE TABLE IF NOT EXISTS tenants (
   id               TEXT PRIMARY KEY,
@@ -262,6 +275,8 @@ CREATE INDEX IF NOT EXISTS idx_appointments_phone_tenant ON appointments(custome
 CREATE INDEX IF NOT EXISTS idx_customer_profiles_tenant_visits ON customer_profiles(tenant_id, total_visits);
 CREATE INDEX IF NOT EXISTS idx_tenants_master ON tenants(master_tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_active ON tenants(is_active);
+CREATE INDEX IF NOT EXISTS idx_mt_admins_master ON master_tenant_admins(master_tenant_id);
+CREATE INDEX IF NOT EXISTS idx_mt_admins_email ON master_tenant_admins(email);
 
 -- =============================================================================
 -- SEED DATA (Plan Limits)
@@ -288,6 +303,13 @@ CREATE TRIGGER IF NOT EXISTS trg_master_tenants_updated
   FOR EACH ROW
   BEGIN
     UPDATE master_tenants SET updated_at = datetime('now') WHERE id = OLD.id;
+  END;
+
+CREATE TRIGGER IF NOT EXISTS trg_mt_admins_updated
+  AFTER UPDATE ON master_tenant_admins
+  FOR EACH ROW
+  BEGIN
+    UPDATE master_tenant_admins SET updated_at = datetime('now') WHERE id = OLD.id;
   END;
 
 CREATE TRIGGER IF NOT EXISTS trg_tenants_updated

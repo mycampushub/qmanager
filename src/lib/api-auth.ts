@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { authenticateRequest, rateLimit, type JwtPayload } from '@/lib/auth';
 
-type RequireRole = 'PLATFORM_ADMIN' | 'MANAGER' | 'AGENT';
+type RequireRole = 'PLATFORM_ADMIN' | 'MASTER_TENANT_ADMIN' | 'MANAGER' | 'AGENT';
 
 interface AuthenticatedRequest {
   user: JwtPayload;
