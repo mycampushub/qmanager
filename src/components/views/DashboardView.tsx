@@ -7,7 +7,7 @@ import {
   Phone, Plus, ChevronRight, Clock, CheckCircle2, SkipForward, XCircle,
   TrendingUp, Timer, Hash, Activity, AlertCircle, Loader2, Menu, X,
   UserPlus, Eye, RefreshCw, UserCog, ShieldCheck, ShieldX, Pencil, Trash2, KeyRound,
-  CalendarClock, Star, Webhook, Settings, Download, MoreHorizontal
+  CalendarClock, Star, Webhook, Settings, Download, MoreHorizontal, Copy
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,7 @@ import AppointmentsTab from '@/components/tabs/AppointmentsTab';
 import FeedbackTab from '@/components/tabs/FeedbackTab';
 import WebhooksTab from '@/components/tabs/WebhooksTab';
 import SettingsTab from '@/components/tabs/SettingsTab';
+import { QRCodeDisplay } from '@/components/QRCode';
 
 // ─── LOGIN SCREEN ───────────────────────────────────────────
 function LoginScreen() {
@@ -414,113 +415,120 @@ function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantDat
         )}
       </AnimatePresence>
 
-      {currentTicket ? (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={currentTicket.id}>
-          <Card className="border-emerald-200 shadow-md" aria-live="polite">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Currently Serving</CardTitle>
-                <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50">
-                  {selectedQueue?.name}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-4">
-                <p className="text-5xl font-bold text-emerald-600">{currentTicket._formattedSerial}</p>
-                <p className="text-xl text-foreground mt-2">{currentTicket.customerName}</p>
-                {currentTicket.customerPhone && (
-                  <p className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1">
-                    <Phone className="w-3 h-3" /> {currentTicket.customerPhone}
-                  </p>
-                )}
-                <div className="flex items-center justify-center gap-2 mt-3 text-muted-foreground">
-                  <Clock className="w-4 h-4" />
-                  <span className="text-lg font-mono">{formatTime(servingTime)}</span>
+      <div className="grid lg:grid-cols-5 gap-4">
+        {/* Currently Serving / Empty State */}
+        <div className="lg:col-span-3">
+          {currentTicket ? (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={currentTicket.id}>
+              <Card className="border-emerald-200 shadow-md" aria-live="polite">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">Currently Serving</CardTitle>
+                    <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50">
+                      {selectedQueue?.name}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center py-4">
+                    <p className="text-5xl font-bold text-emerald-600">{currentTicket._formattedSerial}</p>
+                    <p className="text-xl text-foreground mt-2">{currentTicket.customerName}</p>
+                    {currentTicket.customerPhone && (
+                      <p className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1">
+                        <Phone className="w-3 h-3" /> {currentTicket.customerPhone}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-center gap-2 mt-3 text-muted-foreground">
+                      <Clock className="w-4 h-4" />
+                      <span className="text-lg font-mono">{formatTime(servingTime)}</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mt-4">
+                    <Button onClick={handleComplete} className="bg-emerald-600 hover:bg-emerald-700 h-14" disabled={loading}>
+                      <CheckCircle2 className="w-5 h-5 mr-1" /> Complete
+                    </Button>
+                    <Button onClick={() => setSkipConfirm(true)} variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50 h-14" disabled={loading}>
+                      <SkipForward className="w-5 h-5 mr-1" /> Skip
+                    </Button>
+                    <Button onClick={() => setCancelConfirm(true)} variant="outline" className="border-red-300 text-red-700 hover:bg-red-50 h-14" disabled={loading}>
+                      <XCircle className="w-5 h-5 mr-1" /> Cancel
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Skip Confirmation Dialog */}
+              <AlertDialog open={skipConfirm} onOpenChange={setSkipConfirm}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Skip Ticket</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to skip {currentTicket._formattedSerial}? The ticket will be moved to the end of the queue.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleSkip} disabled={loading} className="bg-amber-600 hover:bg-amber-700">Skip</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              {/* Cancel Confirmation Dialog */}
+              <AlertDialog open={cancelConfirm} onOpenChange={setCancelConfirm}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Cancel Ticket</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to cancel {currentTicket._formattedSerial}? This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={loading}>Go Back</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleCancel} disabled={loading} className="bg-red-600 hover:bg-red-700">Cancel Ticket</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </motion.div>
+          ) : (
+            <Card className="border-dashed border-slate-300 h-full">
+              <CardContent className="py-12 text-center">
+                <div className="text-muted-foreground">
+                  <ListOrdered className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-lg">No ticket currently being served</p>
+                  <p className="text-sm mt-1">Click &quot;CALL NEXT&quot; to serve the next customer</p>
                 </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3 mt-4">
-                <Button onClick={handleComplete} className="bg-emerald-600 hover:bg-emerald-700 h-14" disabled={loading}>
-                  <CheckCircle2 className="w-5 h-5 mr-1" /> Complete
-                </Button>
-                <Button onClick={() => setSkipConfirm(true)} variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50 h-14" disabled={loading}>
-                  <SkipForward className="w-5 h-5 mr-1" /> Skip
-                </Button>
-                <Button onClick={() => setCancelConfirm(true)} variant="outline" className="border-red-300 text-red-700 hover:bg-red-50 h-14" disabled={loading}>
-                  <XCircle className="w-5 h-5 mr-1" /> Cancel
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
+        </div>
 
-          {/* Skip Confirmation Dialog */}
-          <AlertDialog open={skipConfirm} onOpenChange={setSkipConfirm}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Skip Ticket</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to skip {currentTicket._formattedSerial}? The ticket will be moved to the end of the queue.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleSkip} disabled={loading} className="bg-amber-600 hover:bg-amber-700">Skip</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
-          {/* Cancel Confirmation Dialog */}
-          <AlertDialog open={cancelConfirm} onOpenChange={setCancelConfirm}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Cancel Ticket</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to cancel {currentTicket._formattedSerial}? This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={loading}>Go Back</AlertDialogCancel>
-                <AlertDialogAction onClick={handleCancel} disabled={loading} className="bg-red-600 hover:bg-red-700">Cancel Ticket</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </motion.div>
-      ) : (
-        <Card className="border-dashed border-slate-300">
-          <CardContent className="py-12 text-center">
-            <div className="text-muted-foreground">
-              <ListOrdered className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-lg">No ticket currently being served</p>
-              <p className="text-sm mt-1">Click &quot;CALL NEXT&quot; to serve the next customer</p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Queue Overview */}
-      {selectedQueue && (
-        <Card aria-live="polite">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Queue Overview</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-2xl font-bold text-emerald-600">{selectedQueue.nowServingSerial}</p>
-                <p className="text-xs text-muted-foreground">Now Serving</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-amber-600">{selectedQueue._waitingCount || 0}</p>
-                <p className="text-xs text-muted-foreground">Waiting</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{selectedQueue._ewt ? Math.ceil(selectedQueue._ewt / 60) : 0}<span className="text-sm font-normal"> min</span></p>
-                <p className="text-xs text-muted-foreground">Est. Wait</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        {/* Queue Overview */}
+        <div className="lg:col-span-2">
+          {selectedQueue && (
+            <Card aria-live="polite" className="h-full">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Queue Overview</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-6 text-center">
+                  <div>
+                    <p className="text-3xl font-bold text-emerald-600">{selectedQueue.nowServingSerial}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Now Serving</p>
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold text-amber-600">{selectedQueue._waitingCount || 0}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Waiting</p>
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold">{selectedQueue._ewt ? Math.ceil(selectedQueue._ewt / 60) : 0}<span className="text-sm font-normal"> min</span></p>
+                    <p className="text-xs text-muted-foreground mt-1">Est. Wait</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -913,79 +921,83 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
         ))}
       </div>
 
-      {/* Queue Performance */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Queue Performance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="pb-2 font-medium">Queue</th>
-                  <th className="pb-2 font-medium text-center">Waiting</th>
-                  <th className="pb-2 font-medium text-center">Serving</th>
-                  <th className="pb-2 font-medium text-center">Completed</th>
-                  <th className="pb-2 font-medium text-center">Avg Service</th>
-                  <th className="pb-2 font-medium text-center">EWT</th>
-                </tr>
-              </thead>
-              <tbody>
-                {analytics.queueStats.map((qs) => (
-                  <tr key={qs.queueId} className="border-b last:border-0">
-                    <td className="py-3">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="font-mono text-xs">{qs.prefix}</Badge>
-                        {qs.queueName}
+      {/* Queue Performance + Recent Activity */}
+      <div className="grid lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-3">
+          <Card className="h-full">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Queue Performance</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="pb-2 font-medium">Queue</th>
+                      <th className="pb-2 font-medium text-center">Waiting</th>
+                      <th className="pb-2 font-medium text-center">Serving</th>
+                      <th className="pb-2 font-medium text-center">Completed</th>
+                      <th className="pb-2 font-medium text-center">Avg Service</th>
+                      <th className="pb-2 font-medium text-center">EWT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analytics.queueStats.map((qs) => (
+                      <tr key={qs.queueId} className="border-b last:border-0">
+                        <td className="py-3">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="font-mono text-xs">{qs.prefix}</Badge>
+                            {qs.queueName}
+                          </div>
+                        </td>
+                        <td className="py-3 text-center"><span className={qs.waiting > 5 ? 'text-amber-600 font-semibold' : ''}>{qs.waiting}</span></td>
+                        <td className="py-3 text-center text-emerald-600 font-medium">{qs.serving}</td>
+                        <td className="py-3 text-center">{qs.completed}</td>
+                        <td className="py-3 text-center font-mono">{Math.floor(qs.avgServiceTime / 60)}m {qs.avgServiceTime % 60}s</td>
+                        <td className="py-3 text-center font-mono">{qs.ewt > 0 ? `${Math.ceil(qs.ewt / 60)}m` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        <div className="lg:col-span-2">
+          <Card className="h-full">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Recent Activity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-72">
+                <div className="space-y-3">
+                  {analytics.recentActivity.map((item) => {
+                    const typeColors: Record<string, string> = {
+                      JOINED: 'bg-blue-50 text-blue-700 border-blue-200',
+                      CALLED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                      COMPLETED: 'bg-green-50 text-green-700 border-green-200',
+                      SKIPPED: 'bg-amber-50 text-amber-700 border-amber-200',
+                      CANCELLED: 'bg-red-50 text-red-700 border-red-200',
+                    };
+                    return (
+                      <div key={item.id} className="flex items-center gap-3 py-2">
+                        <Badge variant="outline" className={`text-xs ${typeColors[item.type] || ''}`}>
+                          {item.type}
+                        </Badge>
+                        <span className="font-mono text-sm font-medium">{item.ticketSerial}</span>
+                        <span className="text-sm truncate">{item.customerName}</span>
+                        <span className="text-xs text-muted-foreground ml-auto whitespace-nowrap">
+                          {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </div>
-                    </td>
-                    <td className="py-3 text-center"><span className={qs.waiting > 5 ? 'text-amber-600 font-semibold' : ''}>{qs.waiting}</span></td>
-                    <td className="py-3 text-center text-emerald-600 font-medium">{qs.serving}</td>
-                    <td className="py-3 text-center">{qs.completed}</td>
-                    <td className="py-3 text-center font-mono">{Math.floor(qs.avgServiceTime / 60)}m {qs.avgServiceTime % 60}s</td>
-                    <td className="py-3 text-center font-mono">{qs.ewt > 0 ? `${Math.ceil(qs.ewt / 60)}m` : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ScrollArea className="h-72">
-            <div className="space-y-3">
-              {analytics.recentActivity.map((item) => {
-                const typeColors: Record<string, string> = {
-                  JOINED: 'bg-blue-50 text-blue-700 border-blue-200',
-                  CALLED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                  COMPLETED: 'bg-green-50 text-green-700 border-green-200',
-                  SKIPPED: 'bg-amber-50 text-amber-700 border-amber-200',
-                  CANCELLED: 'bg-red-50 text-red-700 border-red-200',
-                };
-                return (
-                  <div key={item.id} className="flex items-center gap-3 py-2">
-                    <Badge variant="outline" className={`text-xs ${typeColors[item.type] || ''}`}>
-                      {item.type}
-                    </Badge>
-                    <span className="font-mono text-sm font-medium">{item.ticketSerial}</span>
-                    <span className="text-sm truncate">{item.customerName}</span>
-                    <span className="text-xs text-muted-foreground ml-auto whitespace-nowrap">
-                      {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </ScrollArea>
-        </CardContent>
-      </Card>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1257,7 +1269,117 @@ function BrandingTab({ tenantId, tenantName }: { tenantId: string; tenantName: s
           </CardContent>
         </Card>
       </div>
+
+      {/* Queue QR Codes */}
+      <QueueQRCodes tenantId={tenantId} tenantName={tenantName} />
     </div>
+  );
+}
+
+// ─── QUEUE QR CODES SECTION ─────────────────────────────────
+function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: string }) {
+  const [queues, setQueues] = useState<Queue[]>([]);
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const tenantUrl = `${origin}/?tenant=${tenantId}`;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/tenants/${tenantId}/queues`);
+        const data = await res.json();
+        if (Array.isArray(data.queues)) setQueues(data.queues);
+      } catch { /* silent */ }
+    })();
+  }, [tenantId]);
+
+  const handleCopy = (url: string) => {
+    navigator.clipboard.writeText(url);
+    toast.success('Link copied to clipboard');
+  };
+
+  const handleDownload = (queueName: string, svgEl: HTMLElement | null) => {
+    if (!svgEl) return;
+    const svgData = new XMLSerializer().serializeToString(svgEl);
+    const blob = new Blob([svgData], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `qrcode-${tenantName.toLowerCase().replace(/\s+/g, '-')}-${queueName.toLowerCase().replace(/\s+/g, '-')}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base">Queue QR Codes</CardTitle>
+            <CardDescription className="text-xs mt-1">Print these QR codes so customers can scan to join your queue instantly</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {/* General tenant QR code */}
+        <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-lg border bg-slate-50/50 mb-6">
+          <div className="shrink-0 bg-white p-3 rounded-xl shadow-sm border">
+            <div ref={(el) => {}}>
+              <QRCodeDisplay value={tenantUrl} size={140} />
+            </div>
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">General Queue Join Link</p>
+            <p className="text-xs text-muted-foreground mt-1 break-all">{tenantUrl}</p>
+            <p className="text-xs text-muted-foreground mt-2">Customers scan this to see all your queues and pick one.</p>
+            <div className="flex gap-2 mt-3 justify-center sm:justify-start">
+              <Button variant="outline" size="sm" onClick={() => handleCopy(tenantUrl)}>
+                <Copy className="w-3.5 h-3.5 mr-1" /> Copy Link
+              </Button>
+              <Button variant="outline" size="sm" onClick={(e) => {
+                const svg = (e.currentTarget.closest('.flex.flex-col') as HTMLElement)?.querySelector('svg');
+                handleDownload('general', svg || null);
+              }}>
+                <Download className="w-3.5 h-3.5 mr-1" /> Download SVG
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Per-queue QR codes */}
+        {queues.length > 0 && (
+          <>
+            <p className="text-sm font-medium mb-3">Per-Queue QR Codes</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {queues.map((q) => {
+                const queueUrl = `${origin}/?tenant=${tenantId}`;
+                return (
+                  <div key={q.id} className="flex flex-col items-center gap-2 p-3 rounded-lg border bg-white">
+                    <div className="bg-white p-2 rounded-lg shadow-sm border">
+                      <QRCodeDisplay value={queueUrl} size={100} />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium">{q.prefix}</p>
+                      <p className="text-xs text-muted-foreground truncate max-w-[120px]">{q.name}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleCopy(queueUrl)}>
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={(e) => {
+                        const svg = (e.currentTarget.closest('.flex.flex-col') as HTMLElement)?.querySelector('svg');
+                        handleDownload(q.prefix, svg || null);
+                      }}>
+                        <Download className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1767,9 +1889,9 @@ export default function DashboardView() {
   const showMoreButton = moreNavItems.length > 0;
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="h-screen flex overflow-hidden bg-slate-50">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-64 border-r bg-white shrink-0">
+      <aside className="hidden lg:flex flex-col w-64 border-r bg-white shrink-0 h-full">
         <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id); setSidebarOpen(false); }} authUser={authUser} logout={logout} />
       </aside>
 

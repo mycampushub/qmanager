@@ -119,7 +119,8 @@ function MTLoginScreen() {
           </CardContent>
         </Card>
         <div className="mt-6 text-center">
-          <p className="text-xs text-muted-foreground">Demo: manager@cityhealthdowntown.com / manager123</p>
+          <p className="text-xs text-muted-foreground">Demo: manager@cityhealthdowntownclinic.com / manager123</p>
+          <p className="text-xs text-muted-foreground mt-1">Also: manager@cityhealthuptownclinic.com / manager123</p>
         </div>
       </motion.div>
     </div>
@@ -499,9 +500,9 @@ export default function MasterTenantView() {
   const tenantName = (authUser as StaffUser & { tenant?: Tenant }).tenant?.name || 'Franchise HQ';
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="h-screen flex overflow-hidden bg-slate-50">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-64 border-r bg-white shrink-0">
+      <aside className="hidden lg:flex flex-col w-64 border-r bg-white shrink-0 h-full">
         <MTSidebar navItems={navItems} mtTab={mtTab} setMTTab={(t) => { setMTTab(t); setSidebarOpen(false); }} userName={authUser.name} userRole={authUser.role} logout={logout} />
       </aside>
 

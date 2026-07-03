@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, ArrowLeft, Clock, Users, Timer, CheckCircle2, Monitor, Tv } from 'lucide-react';
+import { Building2, ArrowLeft, Clock, Users, Timer, CheckCircle2, Monitor, Tv, QrCode } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAppStore } from '@/stores/app-store';
 import { useQueueWebSocket } from '@/hooks/use-queue-ws';
 import type { Tenant, Queue, BrandingConfig } from '@/lib/types';
+import { QRCodeDisplay } from '@/components/QRCode';
 
 /* ------------------------------------------------------------------ */
 /*  Audio chime via Web Audio API                                      */
@@ -572,13 +573,27 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
       {/* ---- TICKER BAR ---- */}
       <TickerBar items={recentlyCompleted} accentColor={accentColor} />
 
+      {/* QR Code — Scan to Join (bottom-right) */}
+      <div className="fixed bottom-6 right-6 z-20 flex flex-col items-center gap-1.5 bg-slate-900/90 border border-slate-700/50 rounded-xl p-2.5 backdrop-blur-sm">
+        <QRCodeDisplay
+          value={`${window.location.origin}/?tenant=${tenant.id}`}
+          size={90}
+          bgColor="transparent"
+          fgColor="#94a3b8"
+        />
+        <div className="flex items-center gap-1 text-slate-500">
+          <QrCode className="w-3 h-3" />
+          <span className="text-[10px] font-medium">Scan to Join</span>
+        </div>
+      </div>
+
       {/* Exit button (subtle, for admin use) */}
       <button
         onClick={() => {
           setDisplayTenantId(null);
           setCurrentView('marketing');
         }}
-        className="fixed bottom-20 right-6 z-20 w-10 h-10 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-600 hover:text-white hover:border-slate-600 transition-colors opacity-30 hover:opacity-100"
+        className="fixed bottom-32 right-6 z-20 w-10 h-10 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-600 hover:text-white hover:border-slate-600 transition-colors opacity-30 hover:opacity-100"
         aria-label="Exit display"
       >
         <ArrowLeft className="w-4 h-4" />

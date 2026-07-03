@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import type { Tenant, Queue, Ticket, TicketStatus, BrandingConfig } from '@/lib/types';
 
+import { QRCodeDisplay } from '@/components/QRCode';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -138,18 +139,6 @@ async function registerPushNotification(tenantId: string, ticketId: string) {
   } catch {
     // Silently fail if push isn't supported
   }
-}
-
-// ---------------------------------------------------------------------------
-// Dynamic QR Code component loader
-// ---------------------------------------------------------------------------
-let QRCodeDisplay: React.ComponentType<{ value: string; size?: number }> | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require('@/components/QRCode');
-  QRCodeDisplay = mod.QRCodeDisplay || mod.default || null;
-} catch {
-  // QRCode component not available yet
 }
 
 // ---------------------------------------------------------------------------
@@ -609,14 +598,12 @@ function StepTicketConfirmation({
             </div>
 
             {/* QR Code */}
-            {QRCodeDisplay && (
-              <div className="flex flex-col items-center gap-2">
-                <QRCodeDisplay value={`${typeof window !== 'undefined' ? window.location.origin : ''}/?ticket=${ticket.id}`} size={140} />
-                <p className="text-xs text-muted-foreground text-center">
-                  Scan to track on another device
-                </p>
-              </div>
-            )}
+            <div className="flex flex-col items-center gap-2">
+              <QRCodeDisplay value={`${window.location.origin}/?ticket=${ticket.id}`} size={140} />
+              <p className="text-xs text-muted-foreground text-center">
+                Scan to track on another device
+              </p>
+            </div>
 
             <Separator className="w-full" />
 

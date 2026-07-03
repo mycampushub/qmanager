@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAppStore } from '@/stores/app-store';
 import MarketingView from '@/components/views/MarketingView';
@@ -32,8 +33,31 @@ function getReducedMotion(): boolean {
 }
 
 export default function Home() {
+  return (
+    <Suspense>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
+  const searchParams = useSearchParams();
   const currentView = useAppStore((s) => s.currentView);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(getReducedMotion);
+
+  // Handle URL params: ?tenant=xxx redirects to join view, ?display=xxx opens display
+  useEffect(() => {
+    const tenantId = searchParams.get('tenant');
+    const displayId = searchParams.get('display');
+
+    if (tenantId) {
+      useAppStore.getState().setCurrentView('join');
+      useAppStore.getState().setJoinTenantId(tenantId);
+    } else if (displayId) {
+      useAppStore.getState().setCurrentView('display');
+      useAppStore.getState().setDisplayTenantId(displayId);
+    }
+  }, [searchParams]);
 
   // Listen for reduced motion preference changes
   useEffect(() => {

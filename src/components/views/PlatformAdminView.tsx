@@ -125,7 +125,7 @@ function AdminLoginScreen() {
           </CardContent>
         </Card>
         <div className="mt-6 text-center">
-          <p className="text-xs text-muted-foreground">Demo: admin@queueflow.com / admin123</p>
+          <p className="text-xs text-muted-foreground">Demo: admin@yourqueueapp.com / admin123</p>
         </div>
       </motion.div>
     </div>
@@ -134,12 +134,15 @@ function AdminLoginScreen() {
 
 // ─── OVERVIEW TAB ───────────────────────────────────────────
 function OverviewTab() {
+  const adminToken = useAppStore((s) => s.adminToken);
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchAnalytics = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/analytics');
+      const res = await fetch('/api/admin/analytics', {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
       const data = await res.json();
       if (data.analytics) {
         setAnalytics(data.analytics);
@@ -149,7 +152,7 @@ function OverviewTab() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [adminToken]);
 
   useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
 
@@ -194,6 +197,7 @@ function OverviewTab() {
 
 // ─── TENANTS TAB ────────────────────────────────────────────
 function TenantsTab() {
+  const adminToken = useAppStore((s) => s.adminToken);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -205,7 +209,9 @@ function TenantsTab() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(limit), search });
-      const res = await fetch(`/api/admin/tenants?${params}`);
+      const res = await fetch(`/api/admin/tenants?${params}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
       const data = await res.json();
       if (data.tenants) setTenants(data.tenants);
       if (data.pagination) setTotalPages(data.pagination.totalPages || 1);
@@ -214,7 +220,7 @@ function TenantsTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, search, adminToken]);
 
   useEffect(() => { fetchTenants(); }, [fetchTenants]);
 
@@ -299,6 +305,7 @@ function TenantsTab() {
 
 // ─── MASTER TENANTS TAB ─────────────────────────────────────
 function MasterTenantsTab() {
+  const adminToken = useAppStore((s) => s.adminToken);
   const [masterTenants, setMasterTenants] = useState<MasterTenantRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -308,7 +315,9 @@ function MasterTenantsTab() {
 
   const fetchMasterTenants = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/master-tenants');
+      const res = await fetch('/api/admin/master-tenants', {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
       const data = await res.json();
       if (data.masterTenants) setMasterTenants(data.masterTenants);
     } catch {
@@ -316,7 +325,7 @@ function MasterTenantsTab() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [adminToken]);
 
   useEffect(() => { fetchMasterTenants(); }, [fetchMasterTenants]);
 
@@ -326,7 +335,7 @@ function MasterTenantsTab() {
     try {
       const res = await fetch('/api/admin/master-tenants', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
         body: JSON.stringify({ corporateName: newName, billingEmail: newEmail }),
       });
       const data = await res.json();
@@ -537,9 +546,9 @@ export default function PlatformAdminView() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="h-screen flex overflow-hidden bg-slate-50">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-64 border-r bg-white shrink-0">
+      <aside className="hidden lg:flex flex-col w-64 border-r bg-white shrink-0 h-full">
         <AdminSidebar navItems={navItems} adminTab={adminTab} setAdminTab={(t) => { setAdminTab(t); setSidebarOpen(false); }} adminUser={adminUser} logout={adminLogout} />
       </aside>
 

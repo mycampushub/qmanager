@@ -66,3 +66,71 @@ Stage Summary:
 - **Free plan compatible** — only D1, R2, KV (no paid features)
 - Same real-time UX — 3-second polling detects queue changes
 - Components unchanged (same hook interface)
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix all dashboard layout alignment issues - sidebar and detail view side-by-side
+
+Work Log:
+- Explored full project structure and identified 3 dashboard views with sidebar layouts: DashboardView, PlatformAdminView, MasterTenantView
+- Found root cause: all 3 dashboard root containers used `flex flex-col` causing sidebar and main content to stack vertically
+- Fixed root containers in all 3 files: changed `min-h-screen flex flex-col bg-slate-50` to `h-screen flex overflow-hidden bg-slate-50` with `h-full` on aside
+- Fixed AgentView: wrapped "Currently Serving" card and "Queue Overview" card in `grid lg:grid-cols-5` (3:2 split) for side-by-side on desktop
+- Fixed AnalyticsTab: wrapped "Queue Performance" table and "Recent Activity" feed in `grid lg:grid-cols-5` (3:2 split) for side-by-side on desktop
+- Fixed FeedbackTab: wrapped "Rating Distribution" and "Recent Reviews" in `grid lg:grid-cols-5` (2:3 split) for side-by-side on desktop
+- Fixed AppointmentsTab: changed stats grid from `grid-cols-4` to `grid-cols-2 sm:grid-cols-4` for mobile responsiveness
+- Verified PlatformAdminView and MasterTenantView internal tabs are correctly laid out (no issues found)
+- Verified marketing page renders correctly
+
+Stage Summary:
+- 4 files modified: DashboardView.tsx, PlatformAdminView.tsx, MasterTenantView.tsx, FeedbackTab.tsx, AppointmentsTab.tsx
+- Root cause was `flex-col` (vertical) instead of `flex`/`flex-row` (horizontal) on dashboard root containers
+- All side-by-side layouts now use responsive `grid lg:grid-cols-5` pattern with col-span for proportional widths
+- Mobile layout preserved: single column on small screens, side-by-side on lg+ breakpoint
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix QR code, Master Tenant dashboard layout, and 401 auth errors
+
+Work Log:
+- Fixed 401 errors on /api/admin/* endpoints: OverviewTab, TenantsTab, MasterTenantsTab were all missing Authorization headers
+  - Added `const adminToken = useAppStore((s) => s.adminToken)` to each tab
+  - Added `headers: { Authorization: \`Bearer ${adminToken}\` }` to all 4 fetch calls (GET analytics, GET tenants, GET master-tenants, POST master-tenants)
+  - Added adminToken to useCallback dependency arrays
+- Fixed QR code in JoinView.tsx:
+  - Replaced fragile `require('@/components/QRCode')` dynamic import with proper ES `import { QRCodeDisplay } from '@/components/QRCode'`
+  - Removed unnecessary `QRCodeDisplay &&` conditional guard (always defined now)
+  - Removed SSR-unsafe `typeof window !== 'undefined'` check (component only renders after user interaction)
+- Verified MasterTenantView internal tabs: BranchesTab (responsive grid), CrossBranchAnalyticsTab (table), StaffTab (table) - all correctly laid out
+- Verified dev server compiles with zero errors
+
+Stage Summary:
+- 2 files modified: PlatformAdminView.tsx (auth headers), JoinView.tsx (QR code import fix)
+- Root cause of 401: tab components never read adminToken from Zustand store
+- Root cause of QR issue: fragile require() with try/catch that could silently fail
+- MasterTenantView layout was already fixed in previous round (sidebar flex-col → flex)
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Add master tenant login credentials, build QR code system
+
+Work Log:
+- Fixed PlatformAdminView login hint: `admin@queueflow.com` → `admin@yourqueueapp.com` (matches seed data)
+- Fixed MasterTenantView login hint: `manager@cityhealthdowntown.com` → `manager@cityhealthdowntownclinic.com` + added `manager@cityhealthuptownclinic.com`
+- Added URL param handling in page.tsx: `?tenant=xxx` auto-navigates to join view, `?display=xxx` opens display
+- Wrapped page.tsx in Suspense for useSearchParams() compatibility
+- Added QueueQRCodes component to Branding tab (DashboardView):
+  - General tenant QR code (140px) with copy link + download SVG
+  - Per-queue QR codes in responsive grid (100px each) with copy + download
+  - Fetches queues from /api/tenants/[id]/queues
+- Added QR code to DisplayView (TV display):
+  - Bottom-right floating QR code (90px, transparent bg, slate fg)
+  - "Scan to Join" label with QrCode icon
+  - Moved exit button up to avoid overlap
+
+Stage Summary:
+- 4 files modified: PlatformAdminView.tsx, MasterTenantView.tsx, page.tsx, DashboardView.tsx, DisplayView.tsx
+- QR codes now work end-to-end: Branding tab generates them → DisplayView shows them → customers scan → ?tenant= URL param auto-navigates to join
+- All login credentials now match the actual seeded data
