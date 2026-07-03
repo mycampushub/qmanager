@@ -1,15 +1,12 @@
 // =============================================================================
 // QueueFlow — Cloudflare Workers API Auth Wrapper
-// Replaces: src/lib/api-auth.ts
 //
-// Changes:
-//   - Removed AsyncLocalStorage / withTenantCtx (not available on CF Workers)
-//   - Uses cf-connecting-ip instead of connection.remoteAddress
-//   - Passes tenantId explicitly instead of via context
-//   - KV-backed rate limiting
+// Uses getCloudflareContext() for KV-backed rate limiting.
+// CF Workers compatible: no AsyncLocalStorage, uses cf-connecting-ip.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { authenticateRequest, rateLimit, type JwtPayload } from '@/lib/auth';
 
 type RequireRole = 'PLATFORM_ADMIN' | 'MANAGER' | 'AGENT';
@@ -23,9 +20,6 @@ interface AuthenticatedRequest {
 
 /**
  * Wraps an API handler with authentication + optional rate limiting + optional role check.
- *
- * CF Workers compatible: no AsyncLocalStorage, uses cf-connecting-ip, KV rate limits.
- * Tenant context is passed via user.tenantId (explicit, not AsyncLocalStorage).
  */
 export function withAuth<T extends AuthenticatedRequest>(
   handler: (req: NextRequest, ctx: T) => Promise<NextResponse> | NextResponse,
@@ -33,11 +27,11 @@ export function withAuth<T extends AuthenticatedRequest>(
     roles?: RequireRole[];
     rateLimit?: { max?: number; windowMs?: number; keyPrefix?: string };
     requireTenantId?: boolean;
-    public?: boolean; // Skip auth entirely
+    public?: boolean;
   }
 ) {
   return async (req: NextRequest) => {
-    // Rate limiting (public endpoints also get rate limited)
+    // Rate limiting
     if (options?.rateLimit) {
       const rl = options.rateLimit;
       const ip = req.headers.get('cf-connecting-ip') ||
@@ -45,8 +39,17 @@ export function withAuth<T extends AuthenticatedRequest>(
         req.headers.get('x-real-ip') ||
         'unknown';
 
+      // Get KV from Cloudflare context for distributed rate limiting
+      let kv: KVNamespace | undefined;
+      try {
+        const { env } = await getCloudflareContext({ async: true });
+        kv = env.RATE_LIMIT_KV as KVNamespace | undefined;
+      } catch {
+        // Fallback to in-memory if context unavailable (shouldn't happen in prod)
+      }
+
       const key = `${rl.keyPrefix || 'api'}:${ip}`;
-      const { allowed, retryAfterMs } = await rateLimit(key, rl.max ?? 60, rl.windowMs ?? 60_000);
+      const { allowed, retryAfterMs } = await rateLimit(key, rl.max ?? 60, rl.windowMs ?? 60_000, kv);
       if (!allowed) {
         return NextResponse.json(
           { error: 'Too many requests. Please try again later.' },
@@ -78,13 +81,11 @@ export function withAuth<T extends AuthenticatedRequest>(
       }
     }
 
-    // Tenant ID check (for staff-scoped routes)
+    // Tenant ID check
     if (options?.requireTenantId && !user.tenantId) {
       return NextResponse.json({ error: 'Tenant context required' }, { status: 400 });
     }
 
-    // Call handler with user context (no AsyncLocalStorage needed)
     return handler(req, { user } as T);
   };
 }
-

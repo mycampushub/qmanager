@@ -8,18 +8,20 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
 ]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-function getStorageBucket(): R2Bucket {
-  const env = globalThis as unknown as { STORAGE?: R2Bucket };
-  if (!env.STORAGE) {
+async function getStorageBucket(): Promise<R2Bucket> {
+  const { env } = await getCloudflareContext({ async: true });
+  const bucket = env.STORAGE as R2Bucket | undefined;
+  if (!bucket) {
     throw new Error('R2 STORAGE binding not found. Ensure STORAGE is bound in wrangler.toml.');
   }
-  return env.STORAGE;
+  return bucket;
 }
 
 // GET /api/storage/logos/tenant-123/logo.png
@@ -31,7 +33,7 @@ export async function GET(
   const fileKey = key.join('/');
 
   try {
-    const bucket = getStorageBucket();
+    const bucket = await getStorageBucket();
     const object = await bucket.get(fileKey);
 
     if (!object) {
@@ -80,7 +82,7 @@ export async function POST(
     const fileId = crypto.randomUUID();
     const fullKey = `${prefix}/${fileId}.${ext}`;
 
-    const bucket = getStorageBucket();
+    const bucket = await getStorageBucket();
     await bucket.put(fullKey, await file.arrayBuffer(), {
       httpMetadata: { contentType: file.type },
       customMetadata: { uploadedAt: new Date().toISOString(), originalName: file.name },
@@ -107,7 +109,7 @@ export async function DELETE(
   const fileKey = key.join('/');
 
   try {
-    const bucket = getStorageBucket();
+    const bucket = await getStorageBucket();
     await bucket.delete(fileKey);
     return NextResponse.json({ success: true, key: fileKey });
   } catch (err) {
