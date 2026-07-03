@@ -16,12 +16,9 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ['https://*.space-z.ai'],
 
   // Exclude server-only modules from client bundles.
-  // better-sqlite3 is listed here so the bundler does NOT try to bundle
-  // the native addon when analyzing the dynamic import in db.ts.
   serverExternalPackages: [
     'jose',
     'bcryptjs',
-    'better-sqlite3',
   ],
 
   // Headers for security
