@@ -3,7 +3,7 @@
 # wrangler.toml
 name = "qmanager"
 main = ".open-next/worker.js"
-compatibility_date = "2024-12-01"
+compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
 
 # ─── Environment Variables ────────────────────────────────────────────────────
@@ -24,25 +24,11 @@ binding = "STORAGE"
 bucket_name = "queueflow-storage"
 # Create with: wrangler r2 bucket create queueflow-storage
 
-# ─── Durable Objects (WebSocket real-time) ───────────────────────────────────
-[[durable_objects.bindings]]
-name = "QUEUE_WS"
-class_name = "QueueWebSocket"
-
-# Durable Object migrations
-[[migrations]]
-tag = "v1"
-new_classes = ["QueueWebSocket"]
-
 # ─── KV Namespace (rate limiting, session cache) ─────────────────────────────
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
 id = "54a197d9999441f28eac28b24ca2219e"
 # Create with: wrangler kv namespace create "queueflow-rate-limit"
-
-# ─── Build ───────────────────────────────────────────────────────────────────
-[build]
-command = "npm run build:cf"
 
 # ─── Static Assets ───────────────────────────────────────────────────────────
 [assets]

@@ -232,7 +232,7 @@ function TickerBar({ items, accentColor }: { items: CompletedTicket[]; accentCol
 /* ------------------------------------------------------------------ */
 function MainDisplay({ tenantId }: { tenantId: string }) {
   const { setDisplayTenantId, setCurrentView } = useAppStore();
-  const { isConnected, lastEvent, clearLastEvent } = useQueueWebSocket(tenantId);
+  const { lastEvent, clearLastEvent } = useQueueWebSocket(tenantId);
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [branding, setBranding] = useState<BrandingConfig | null>(null);
@@ -276,22 +276,10 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
     }
   }, [tenantId]);
 
-  /* Initial fetch + adaptive polling: 5s when WS disconnected, 30s when connected */
+  /* Initial fetch — hook polling (3s) handles subsequent refreshes */
   useEffect(() => {
-    const poll = () => {
-      // Use shorter interval when WebSocket is disconnected
-      const intervalMs = isConnected ? 30000 : 5000;
-      const timer = setTimeout(() => {
-        fetchTenantData();
-        poll();
-      }, intervalMs);
-      return timer;
-    };
-    // Fire first fetch via microtask to avoid synchronous setState in effect
-    queueMicrotask(fetchTenantData);
-    const timer = poll();
-    return () => clearTimeout(timer);
-  }, [fetchTenantData, isConnected]);
+    fetchTenantData();
+  }, [fetchTenantData]);
 
   /* Rotate active queue for the big "NOW SERVING" display */
   const queues = useMemo(() => tenant?._queues ?? [], [tenant]);

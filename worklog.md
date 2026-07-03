@@ -39,3 +39,30 @@ Stage Summary:
 - `src/lib/db.ts` — uses `require('./local-d1')` instead of `import('./local-d1')`
 - `eslint.config.mjs` — disabled `no-require-imports` rule
 - This pattern ensures Turbopack can parse both files without resolving Node.js-only modules
+
+---
+Task ID: remove-do-replace-with-polling
+Agent: Main Agent
+Task: Remove Durable Objects (paid plan required), replace with polling (free plan compatible)
+
+Work Log:
+- Removed `src/do/QueueWebSocket.ts` (Durable Object class)
+- Removed `src/app/api/ws/route.ts` (WebSocket upgrade route)
+- Removed `scripts/patch-durable-objects.mjs` (post-build DO patch script)
+- Removed `scripts/` directory
+- Rewrote `src/hooks/use-queue-ws.ts` — replaced WebSocket with HTTP polling (3s interval)
+  - Same interface: `{ connected, isConnected, lastEvent, clearLastEvent, broadcast }`
+  - Polls `/api/tenants/[id]/poll` and compares queue serials to detect changes
+  - Emits TICKET_CALLED (now_serving_serial changed), TICKET_CREATED (current_serial changed), QUEUE_UPDATE
+- Created `src/app/api/tenants/[id]/poll/route.ts` — lightweight endpoint returning only queue IDs + serials
+- Cleaned `wrangler.toml` — removed all `durable_objects` sections, `migrations`, `[build]`, Hyperdrive
+- Cleaned `open-next.config.ts` — removed WebSocket route override
+- Simplified `DisplayView.tsx` — removed adaptive polling (hook handles it), removed `isConnected` usage
+- Reverted `package.json` build:cf — removed patch script
+- Removed empty `db/` directory (local SQLite no longer used)
+
+Stage Summary:
+- **Zero DO references** in entire codebase
+- **Free plan compatible** — only D1, R2, KV (no paid features)
+- Same real-time UX — 3-second polling detects queue changes
+- Components unchanged (same hook interface)
