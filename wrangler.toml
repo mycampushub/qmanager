@@ -15,7 +15,7 @@ JWT_SECRET = "EzUybgmeD50ymbGacbN5rWVZzWg8ADllp78w7OaWiDg"
 [[d1_databases]]
 binding = "DB"
 database_name = "queueflow-db"
-database_id = "e5dfee80-f56a-4179-aa6b-0112eb032a83"
+database_id = "34ca74e7-e9d0-444d-8dca-5daf8bc8a8db"
 # Create with: wrangler d1 create queueflow-db
 
 # ─── R2 Storage Binding (logos, branding assets, exports) ────────────────────
