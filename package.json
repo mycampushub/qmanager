@@ -15,7 +15,7 @@
     "kv:create": "wrangler kv namespace create \"queueflow-rate-limit\"",
     "cf:dev": "wrangler dev",
     "cf:deploy": "wrangler deploy",
-    "setup:cf": "bun run d1:create && bun run r2:create && bun run kv:create && bun run d1:schema && echo 'Update wrangler.toml with the generated IDs, then run: bun run cf:deploy'"
+    "setup:cf": "bun run d1:create && bun run r2:create && bun run kv:create && bun run d1:schema && echo 'Update wrangler.jsonc with the generated IDs, then run: bun run cf:deploy'"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.11",
