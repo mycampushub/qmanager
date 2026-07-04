@@ -1,57 +1,59 @@
 {
-  // =============================================================================
-  // QueueFlow — Cloudflare Workers Configuration
-  //
-  // Bindings:
-  //   DB             — D1 SQLite database (all application data)
-  //   STORAGE        — R2 object storage (logos, uploaded images)
-  //   RATE_LIMIT_KV  — KV namespace (rate limiting, ephemeral caching)
-  //
-  // Usage:
-  //   bun run d1:create     → creates the D1 database (note the ID in output)
-  //   bun run r2:create     → creates the R2 bucket
-  //   bun run kv:create     → creates the KV namespace
-  //   # Update the IDs below with the real ones from the commands above
-  //   bun run d1:schema     → applies schema.sql to the D1 database
-  //   bun run build:cf      → builds for Cloudflare Workers
-  //   bun run cf:deploy     → deploys to Cloudflare
-  // =============================================================================
-
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "qmanager",
-  "main": ".open-next/worker.js",
-  "compatibility_date": "2025-04-01",
-  "compatibility_flags": ["nodejs_compat"],
-
-  // ─── D1 Database ─────────────────────────────────────────────────────────
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "queueflow-db",
-      "database_id": "bbd6e755-3c57-4c6f-91d2-0f754a7c3ce3",
-      "migrations_dir": "migrations"
-    }
-  ],
-
-  // ─── R2 Storage ──────────────────────────────────────────────────────────
-  "r2_buckets": [
-    {
-      "binding": "STORAGE",
-      "bucket_name": "queueflow-storage"
-    }
-  ],
-
-  // ─── KV Namespace ────────────────────────────────────────────────────────
-  "kv_namespaces": [
-    {
-      "binding": "RATE_LIMIT_KV",
-      "id": "54a197d9999441f28eac28b24ca2219e"
-    }
-  ],
-
-  // ─── Build ───────────────────────────────────────────────────────────────
-  "assets": {
-    "directory": ".open-next/assets",
-    "binding": "ASSETS"
-  }
+	// =============================================================================
+	// QueueFlow — Cloudflare Workers Configuration
+	//
+	// Bindings:
+	//   DB             — D1 SQLite database (all application data)
+	//   STORAGE        — R2 object storage (logos, uploaded images)
+	//   RATE_LIMIT_KV  — KV namespace (rate limiting, ephemeral caching)
+	//
+	// Usage:
+	//   bun run d1:create     → creates the D1 database (note the ID in output)
+	//   bun run r2:create     → creates the R2 bucket
+	//   bun run kv:create     → creates the KV namespace
+	//   # Update the IDs below with the real ones from the commands above
+	//   bun run d1:schema     → applies schema.sql to the D1 database
+	//   bun run build:cf      → builds for Cloudflare Workers
+	//   bun run cf:deploy     → deploys to Cloudflare
+	// =============================================================================
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "qmanager",
+	"main": ".open-next/worker.js",
+	"compatibility_date": "2025-04-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	// ─── D1 Database ─────────────────────────────────────────────────────────
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "queueflow-db",
+			"database_id": "bbd6e755-3c57-4c6f-91d2-0f754a7c3ce3",
+			"migrations_dir": "migrations"
+		}
+	],
+	// ─── R2 Storage ──────────────────────────────────────────────────────────
+	"r2_buckets": [
+		{
+			"binding": "STORAGE",
+			"bucket_name": "queueflow-storage"
+		},
+		{
+			"bucket_name": "queueflow-opennext-cache",
+			"binding": "queueflow_opennext_cache",
+			"remote": true
+		}
+	],
+	// ─── KV Namespace ────────────────────────────────────────────────────────
+	"kv_namespaces": [
+		{
+			"binding": "RATE_LIMIT_KV",
+			"id": "54a197d9999441f28eac28b24ca2219e"
+		}
+	],
+	// ─── Build ───────────────────────────────────────────────────────────────
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	}
 }
