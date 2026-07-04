@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getD1FromEnv } from '@/lib/db';
+import { getD1FromEnv, type D1Database } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
 import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { dbNow } from '@/lib/datetime';
@@ -61,6 +61,7 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
+      const d1 = await getD1FromEnv();
 
       // Tenant isolation: verify queue belongs to user's tenant
       const queue = await d1
@@ -113,7 +114,6 @@ export const POST = withAuth(
 
       sql += ' ORDER BY t.created_at DESC LIMIT 1';
 
-      const d1 = await getD1FromEnv();
       const ticket = await d1
         .prepare(sql)
         .bind(...bindValues)
@@ -261,7 +261,7 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      const ticketTenantId = (ticket.tenant_id as string) || tenantIdParam;
+      const ticketTenantId: string = (ticket.tenant_id as string) || tenantIdParam || '';
       const serialNumber = ticket.serial_number as number;
       const waitingAhead = await getWaitingAhead(
         d1,

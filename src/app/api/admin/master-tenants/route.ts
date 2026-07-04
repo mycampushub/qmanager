@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { getD1FromEnv } from '@/lib/db';
+import { getD1FromEnv, type BoundStatement } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
 import { dbNow } from '@/lib/datetime';
@@ -154,7 +154,7 @@ export const POST = withAuth(
 
       const newId = crypto.randomUUID();
 
-      const statements: D1PreparedStatement[] = [
+      const statements: BoundStatement[] = [
         d1.prepare(
           `INSERT INTO master_tenants (id, corporate_name, billing_status)
            VALUES (?, ?, 'ACTIVE')`

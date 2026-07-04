@@ -209,7 +209,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
         setFlashActive(true);
         fetchTenantData();
         // Find the queue that was called and focus it
-        const queueId = lastEvent.payload.queueId as string | undefined;
+        const queueId = lastEvent.payload?.queueId as string | undefined;
         if (queueId) {
           const idx = queues.findIndex((q) => q.id === queueId);
           if (idx >= 0) setActiveQueueIdx(idx);
@@ -218,7 +218,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
       }
 
       if (lastEvent.event === 'TICKET_COMPLETED') {
-        const payload = lastEvent.payload;
+        const payload = lastEvent.payload ?? {};
         const serialNumber = payload.serialNumber as number | undefined;
         const prefix = payload.prefix as string | undefined;
         const queueName = payload.queueName as string | undefined;

@@ -1,6 +1,5 @@
 // =============================================================================
-// QueueFlow — R2 Storage API (file upload/download proxy)
-// Route: /api/storage/[...key]
+// QueueFlow — Storage API (Cloudflare R2)
 //
 // GET    — Download a file from R2
 // POST   — Upload a file to R2 (multipart/form-data)
@@ -9,20 +8,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import { withAuth } from '@/lib/api-auth';
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
 ]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-
-async function getStorageBucket(): Promise<R2Bucket> {
-  const { env } = await getCloudflareContext({ async: true });
-  const bucket = env.STORAGE as R2Bucket | undefined;
-  if (!bucket) {
-    throw new Error('R2 STORAGE binding not found. Ensure STORAGE is bound in wrangler.toml.');
-  }
-  return bucket;
-}
 
 // GET /api/storage/logos/tenant-123/logo.png
 export async function GET(
@@ -33,19 +24,23 @@ export async function GET(
   const fileKey = key.join('/');
 
   try {
-    const bucket = await getStorageBucket();
-    const object = await bucket.get(fileKey);
+    const { env } = await getCloudflareContext({ async: true });
+    const object = await env.STORAGE.get(fileKey);
 
     if (!object) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
     const headers = new Headers();
-    headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+    if (object.httpMetadata?.contentType) {
+      headers.set('Content-Type', object.httpMetadata.contentType);
+    }
     headers.set('Content-Length', String(object.size));
     headers.set('ETag', object.etag);
     headers.set('Cache-Control', 'public, max-age=86400');
-    headers.set('Last-Modified', object.uploaded.toISOString());
+    if (object.uploaded) {
+      headers.set('Last-Modified', new Date(object.uploaded).toISOString());
+    }
 
     return new Response(object.body, { headers });
   } catch (err) {
@@ -62,58 +57,76 @@ export async function POST(
   const { key } = await params;
   const prefix = key.join('/');
 
-  try {
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
+  return withAuth(
+    async (req) => {
+      try {
+        const { env } = await getCloudflareContext({ async: true });
+        const formData = await req.formData();
+        const file = formData.get('file') as File | null;
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided. Use FormData with "file" field.' }, { status: 400 });
-    }
+        if (!file) {
+          return NextResponse.json(
+            { error: 'No file provided. Use FormData with "file" field.' },
+            { status: 400 }
+          );
+        }
 
-    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
-      return NextResponse.json({ error: `Invalid file type: ${file.type}` }, { status: 400 });
-    }
+        if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+          return NextResponse.json(
+            { error: `Invalid file type: ${file.type}. Allowed: ${[...ALLOWED_IMAGE_TYPES].join(', ')}` },
+            { status: 400 }
+          );
+        }
 
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: `File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB. Max: 5MB` }, { status: 400 });
-    }
+        if (file.size > MAX_FILE_SIZE) {
+          return NextResponse.json(
+            { error: `File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB. Max: 5MB` },
+            { status: 400 }
+          );
+        }
 
-    const ext = file.type.split('/')[1]?.replace('svg+xml', 'svg') || 'bin';
-    const fileId = crypto.randomUUID();
-    const fullKey = `${prefix}/${fileId}.${ext}`;
+        const ext = file.type.split('/')[1]?.replace('svg+xml', 'svg') || 'bin';
+        const fileId = crypto.randomUUID();
+        const fullKey = `${prefix}/${fileId}.${ext}`;
 
-    const bucket = await getStorageBucket();
-    await bucket.put(fullKey, await file.arrayBuffer(), {
-      httpMetadata: { contentType: file.type },
-      customMetadata: { uploadedAt: new Date().toISOString(), originalName: file.name },
-    });
+        await env.STORAGE.put(fullKey, file.stream(), {
+          httpMetadata: { contentType: file.type },
+        });
 
-    return NextResponse.json({
-      key: fullKey,
-      url: `/api/storage/${fullKey}`,
-      size: file.size,
-      type: file.type,
-    });
-  } catch (err) {
-    console.error('[Storage] POST error:', err);
-    return NextResponse.json({ error: 'Failed to upload file' }, { status: 500 });
-  }
+        return NextResponse.json({
+          key: fullKey,
+          url: `/api/storage/${fullKey}`,
+          size: file.size,
+          type: file.type,
+        });
+      } catch (err) {
+        console.error('[Storage] POST error:', err);
+        return NextResponse.json({ error: 'Failed to upload file' }, { status: 500 });
+      }
+    },
+    { csrf: true }
+  )(request);
 }
 
 // DELETE /api/storage/logos/tenant-123/old-logo.png
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ key: string[] }> }
 ) {
   const { key } = await params;
   const fileKey = key.join('/');
 
-  try {
-    const bucket = await getStorageBucket();
-    await bucket.delete(fileKey);
-    return NextResponse.json({ success: true, key: fileKey });
-  } catch (err) {
-    console.error('[Storage] DELETE error:', err);
-    return NextResponse.json({ error: 'Failed to delete file' }, { status: 500 });
-  }
+  return withAuth(
+    async (req) => {
+      try {
+        const { env } = await getCloudflareContext({ async: true });
+        await env.STORAGE.delete(fileKey);
+        return NextResponse.json({ success: true, key: fileKey });
+      } catch (err) {
+        console.error('[Storage] DELETE error:', err);
+        return NextResponse.json({ error: 'Failed to delete file' }, { status: 500 });
+      }
+    },
+    { csrf: true }
+  )(request);
 }

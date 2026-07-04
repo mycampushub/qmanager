@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -247,7 +247,7 @@ export default function MarketingView() {
             </Button>
             <Button
               className="bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200"
-              onClick={() => window.location.href = '/dashboard'}
+              onClick={() => scrollTo('pricing')}
             >
               Get Started
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -292,7 +292,7 @@ export default function MarketingView() {
               </Button>
               <Button
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
-                onClick={() => { setMobileOpen(false); window.location.href = '/dashboard'; }}
+                onClick={() => { setMobileOpen(false); scrollTo('pricing'); }}
               >
                 Get Started
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -354,7 +354,7 @@ export default function MarketingView() {
                 <Button
                   size="lg"
                   className="bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg shadow-emerald-900/20 font-semibold text-base px-8 py-6"
-                  onClick={() => window.location.href = '/dashboard'}
+                  onClick={() => scrollTo('pricing')}
                 >
                   Get Started Free
                   <ArrowRight className="ml-2 h-5 w-5" />
@@ -474,7 +474,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  FEATURES                                                     */}
       {/* ============================================================ */}
-      <section id="features" className="py-20 sm:py-28">
+      <section id="features" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -518,7 +518,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  HOW IT WORKS                                                 */}
       {/* ============================================================ */}
-      <section id="how-it-works" className="bg-gray-50/60 py-20 sm:py-28">
+      <section id="how-it-works" style={{ scrollMarginTop: '5rem' }} className="bg-gray-50/60 py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -567,7 +567,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  PRICING                                                      */}
       {/* ============================================================ */}
-      <section id="pricing" className="py-20 sm:py-28">
+      <section id="pricing" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -636,7 +636,7 @@ export default function MarketingView() {
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
                           : 'bg-gray-900 text-white hover:bg-gray-800'
                       }`}
-                      onClick={() => window.location.href = '/dashboard'}
+                      onClick={() => tier.cta === 'Contact Sales' ? scrollTo('contact') : (window.location.href = '/dashboard')}
                     >
                       {tier.cta}
                       <ChevronRight className="ml-1 h-4 w-4" />
@@ -652,7 +652,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  FAQ                                                          */}
       {/* ============================================================ */}
-      <section id="faq" className="bg-gray-50/60 py-20 sm:py-28">
+      <section id="faq" style={{ scrollMarginTop: '5rem' }} className="bg-gray-50/60 py-20 sm:py-28">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -679,7 +679,7 @@ export default function MarketingView() {
                 custom={i}
                 variants={fadeUp}
               >
-                <Card className="overflow-hidden border-gray-200">
+                <Card className="border-gray-200">
                   <button
                     className="flex w-full items-center justify-between px-6 py-5 text-left"
                     onClick={() => setOpenFaq(openFaq === i ? null : i)}
@@ -695,17 +695,21 @@ export default function MarketingView() {
                       }`}
                     />
                   </button>
-                  {openFaq === i && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                    >
-                      <div className="px-6 pb-5 pl-14">
-                        <p className="text-sm leading-relaxed text-gray-600">{faq.a}</p>
-                      </div>
-                    </motion.div>
-                  )}
+                  <AnimatePresence mode="wait" initial={false}>
+                    {openFaq === i && (
+                      <motion.div
+                        key={`faq-${i}`}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      >
+                        <div className="px-6 pb-5 pl-14">
+                          <p className="text-sm leading-relaxed text-gray-600">{faq.a}</p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </Card>
               </motion.div>
             ))}
@@ -716,7 +720,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  CONTACT                                                      */}
       {/* ============================================================ */}
-      <section id="contact" className="py-20 sm:py-28">
+      <section id="contact" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
         <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"

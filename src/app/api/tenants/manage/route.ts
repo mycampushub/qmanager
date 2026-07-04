@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { getD1FromEnv } from '@/lib/db';
+import { getD1FromEnv, type D1Database, type BoundStatement } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
 import { dbNow } from '@/lib/datetime';
@@ -224,7 +224,7 @@ export const POST = withAuth(
       }
 
       // Create tenant (+ manager if provided) in a batch
-      const statements: D1PreparedStatement[] = [
+      const statements: BoundStatement[] = [
         d1.prepare(
           `INSERT INTO tenants (id, name, plan_tier, master_tenant_id, wallet_balance, is_active) VALUES (?, ?, ?, ?, ?, 1)`
         ).bind(tenantId, name, tier, masterTenantId || null, walletBalance ?? 50000),

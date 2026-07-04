@@ -1,22 +1,22 @@
 // =============================================================================
-// QueueFlow — Cloudflare Workers API Auth Wrapper
+// QueueFlow — API Auth Wrapper (Cloudflare Workers version)
 //
-// Uses getCloudflareContext() for KV-backed rate limiting.
-// CF Workers compatible: no AsyncLocalStorage, uses cf-connecting-ip.
+// Uses KV from Cloudflare env for distributed rate limiting.
+// Falls back to in-memory rate limiting when KV is not available.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { authenticateRequest, rateLimit, type JwtPayload } from '@/lib/auth';
-import { getD1FromEnv } from '@/lib/db';
+export type { JwtPayload };
+import { getD1FromEnv, type D1Database } from '@/lib/db';
+import { getClientIp } from '@/lib/utils';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
 
 type RequireRole = 'PLATFORM_ADMIN' | 'MASTER_TENANT_ADMIN' | 'MANAGER' | 'AGENT';
 
 interface AuthenticatedRequest {
   user: JwtPayload;
   d1?: D1Database;
-  kv?: KVNamespace;
-  ctx?: ExecutionContext;
 }
 
 /**
@@ -29,32 +29,41 @@ export function withAuth<T extends AuthenticatedRequest>(
     rateLimit?: { max?: number; windowMs?: number; keyPrefix?: string };
     requireTenantId?: boolean;
     public?: boolean;
+    csrf?: boolean;
   }
 ) {
   return async (req: NextRequest) => {
-    // Rate limiting
+    // Rate limiting (KV-backed on CF Workers, in-memory fallback)
     if (options?.rateLimit) {
       const rl = options.rateLimit;
-      const ip = req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
+      const key = `${rl.keyPrefix || 'api'}:${ip}`;
 
-      // Get KV from Cloudflare context for distributed rate limiting
+      // Try to get KV from Cloudflare context for distributed rate limiting
       let kv: KVNamespace | undefined;
       try {
         const { env } = await getCloudflareContext({ async: true });
-        kv = env.RATE_LIMIT_KV as KVNamespace | undefined;
+        kv = env.RATE_LIMIT_KV;
       } catch {
-        // Fallback to in-memory if context unavailable (shouldn't happen in prod)
+        // KV not available, use in-memory fallback
       }
 
-      const key = `${rl.keyPrefix || 'api'}:${ip}`;
       const { allowed, retryAfterMs } = await rateLimit(key, rl.max ?? 60, rl.windowMs ?? 60_000, kv);
       if (!allowed) {
         return NextResponse.json(
           { error: 'Too many requests. Please try again later.' },
           { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
+        );
+      }
+    }
+
+    // CSRF validation for state-changing requests
+    if (options?.csrf && req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+      const csrfToken = req.headers.get('X-CSRF-Token');
+      if (!csrfToken || !/^[0-9a-f]{64}$/.test(csrfToken)) {
+        return NextResponse.json(
+          { error: 'Invalid or missing CSRF token. Please reload the page and try again.' },
+          { status: 403 }
         );
       }
     }
@@ -72,7 +81,7 @@ export function withAuth<T extends AuthenticatedRequest>(
 
     const user = authResult.user;
 
-    // Active account check (platform_admins table has no is_active column)
+    // Active account check
     try {
       const d1 = await getD1FromEnv();
       if (user.type === 'staff') {

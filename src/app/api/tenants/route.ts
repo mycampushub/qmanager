@@ -336,5 +336,5 @@ export const PUT = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['PLATFORM_ADMIN', 'MANAGER'] }
+  { roles: ['PLATFORM_ADMIN', 'MANAGER'], csrf: true }
 );

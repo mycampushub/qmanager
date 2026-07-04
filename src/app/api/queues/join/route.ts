@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
       const isWithinWindow = openWindows.some(
         (w) => {
           const rec = w as Record<string, unknown>;
-          return rec.open_time <= currentTime && currentTime < rec.close_time;
+          return String(rec.open_time) <= currentTime && currentTime < String(rec.close_time);
         }
       );
       if (!isWithinWindow) {

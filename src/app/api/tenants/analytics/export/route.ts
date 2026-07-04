@@ -226,10 +226,9 @@ export const GET = withAuth(
       }
 
       // Default: JSON
-      return new NextResponse(JSON.stringify(analyticsData, null, 2), {
+      return NextResponse.json(analyticsData, {
         status: 200,
         headers: {
-          'Content-Type': 'application/json',
           'Content-Disposition': 'attachment; filename="analytics.json"',
         },
       });

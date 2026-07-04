@@ -40,7 +40,7 @@ export const POST = withAuth(
       }
 
       const VALID_STATUSES = ['WAITING', 'SERVING', 'COMPLETED', 'SKIPPED', 'CANCELLED'];
-      const statusFilter = VALID_STATUSES.includes(status) ? status : null;
+      const statusFilter = VALID_STATUSES.includes(status ?? '') ? (status ?? '') : null;
 
       let sql = `SELECT t.* FROM tickets t WHERE t.queue_id = ? AND t.tenant_id = ?`;
       const bindValues: unknown[] = [queueId, tenantId];

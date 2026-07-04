@@ -15,7 +15,7 @@ export async function GET(
     const { id: tenantId } = await params;
     const d1 = await getD1FromEnv();
 
-    const result = d1
+    const result = await d1
       .prepare(
         `SELECT id, now_serving_serial, current_serial
          FROM queues

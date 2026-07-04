@@ -13,10 +13,10 @@ export const GET = withAuth(async (_req: NextRequest, _ctx: { user: unknown }) =
 
     // Platform-level stats
     const [tenantStats, activeStats, newMonthStats, staffStats] = await d1.batch([
-      d1.prepare('SELECT count(*) as cnt FROM tenants'),
-      d1.prepare('SELECT count(*) as cnt FROM tenants WHERE is_active = 1'),
+      d1.prepare('SELECT count(*) as cnt FROM tenants').bind(),
+      d1.prepare('SELECT count(*) as cnt FROM tenants WHERE is_active = 1').bind(),
       d1.prepare('SELECT count(*) as cnt FROM tenants WHERE created_at >= ?').bind(monthStartISO),
-      d1.prepare('SELECT count(*) as cnt FROM users WHERE is_active = 1'),
+      d1.prepare('SELECT count(*) as cnt FROM users WHERE is_active = 1').bind(),
     ]);
 
     const totalTenants = ((tenantStats.results as { cnt: number }[])[0]?.cnt) ?? 0;

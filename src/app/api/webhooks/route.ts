@@ -200,7 +200,7 @@ export const POST = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'] }
+  { roles: ['MANAGER'], csrf: true }
 );
 
 // ─── PUT: Update webhook ────────────────────────────────────────
@@ -299,7 +299,7 @@ export const PUT = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'] }
+  { roles: ['MANAGER'], csrf: true }
 );
 
 // ─── DELETE: Delete webhook (requires confirm=true) ─────────────
@@ -352,5 +352,5 @@ export const DELETE = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'] }
+  { roles: ['MANAGER'], csrf: true }
 );
