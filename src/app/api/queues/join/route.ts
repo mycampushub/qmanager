@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getD1FromEnv } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
+import { getClientIp } from '@/lib/utils';
 
 const TICKET_COST_CENTS = 100;
 
@@ -46,11 +47,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: 30 per minute per tenant
-    const ip =
-      req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      req.headers.get('x-real-ip') ||
-      'unknown';
+    const ip = getClientIp(req);
     const { allowed, retryAfterMs } = await rateLimit(
       `join:${ip}:${tenantId}`,
       30,

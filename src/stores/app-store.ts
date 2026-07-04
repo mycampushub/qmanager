@@ -60,9 +60,6 @@ interface AppState {
   tenants: Tenant[];
   setTenants: (tenants: Tenant[]) => void;
 
-  // Registration dialog
-  registrationOpen: boolean;
-  setRegistrationOpen: (v: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -151,7 +148,4 @@ export const useAppStore = create<AppState>((set) => ({
   tenants: [],
   setTenants: (tenants) => set({ tenants }),
 
-  // Registration dialog
-  registrationOpen: false,
-  setRegistrationOpen: (v) => set({ registrationOpen: v }),
 }));

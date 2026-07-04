@@ -3,6 +3,7 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { hashPassword, signToken, rateLimit, generateCsrfToken } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
+import { getClientIp } from '@/lib/utils';
 
 // =============================================================================
 // Row types for D1 raw SQL results (snake_case)
@@ -121,11 +122,7 @@ export async function POST(req: NextRequest) {
     const tier = 'FREE';
 
     // Rate limit: 3 per hour per IP
-    const ip =
-      req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      req.headers.get('x-real-ip') ||
-      'unknown';
+    const ip = getClientIp(req);
 
     const { allowed, retryAfterMs } = await rateLimit('register:' + ip, 3, 3_600_000);
     if (!allowed) {

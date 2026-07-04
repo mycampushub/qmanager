@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
 
 const MAX_WEBHOOKS_PER_TENANT = 10;
 
@@ -169,12 +170,11 @@ export const POST = withAuth(
 
       const webhookSecret = secret || generateSecret();
       const newId = crypto.randomUUID();
-      const now = new Date().toISOString();
 
       await d1.prepare(
-        `INSERT INTO webhooks (id, tenant_id, url, events, secret, is_active, success_count, failure_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 1, 0, 0, ?, ?)`
-      ).bind(newId, tenantId, url, JSON.stringify(events), webhookSecret, now, now).run();
+        `INSERT INTO webhooks (id, tenant_id, url, events, secret, is_active, success_count, failure_count)
+         VALUES (?, ?, ?, ?, ?, 1, 0, 0)`
+      ).bind(newId, tenantId, url, JSON.stringify(events), webhookSecret).run();
 
       // Return full secret only on creation
       return NextResponse.json(
@@ -189,8 +189,8 @@ export const POST = withAuth(
             successCount: 0,
             failureCount: 0,
             lastTriggeredAt: null,
-            createdAt: now,
-            updatedAt: now,
+            createdAt: dbNow(),
+            updatedAt: dbNow(),
           },
         },
         { status: 201 }
@@ -241,7 +241,6 @@ export const PUT = withAuth(
 
       const setClauses: string[] = [];
       const values: unknown[] = [];
-      const now = new Date().toISOString();
 
       if (isActive !== undefined) {
         setClauses.push('is_active = ?');
@@ -280,8 +279,7 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
       }
 
-      setClauses.push('updated_at = ?');
-      values.push(now);
+      setClauses.push("updated_at = datetime('now')");
       values.push(id);
 
       await d1
@@ -344,8 +342,8 @@ export const DELETE = withAuth(
 
       // H-10: Soft delete — deactivate instead of hard deleting
       await d1
-        .prepare('UPDATE webhooks SET is_active = 0, updated_at = ? WHERE id = ?')
-        .bind(new Date().toISOString(), id)
+        .prepare("UPDATE webhooks SET is_active = 0, updated_at = datetime('now') WHERE id = ?")
+        .bind(id)
         .run();
 
       return NextResponse.json({ success: true });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
 
 const PAYMENT_METHODS = ['bKash', 'Nagad', 'Bank Transfer', 'Rocket'] as const;
 type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -46,12 +47,11 @@ export const POST = withAuth(
 
       // Create a PAYMENT transaction (negative amount, simulates pending payment)
       const paymentId = crypto.randomUUID();
-      const now = new Date().toISOString();
 
       await d1.prepare(
-        `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by, created_at)
-         VALUES (?, ?, 'PAYMENT', ?, 'Pending payment', ?, ?)`
-      ).bind(paymentId, effectiveTenantId, -amountCents, user.userId, now).run();
+        `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by)
+         VALUES (?, ?, 'PAYMENT', ?, 'Pending payment', ?)`
+      ).bind(paymentId, effectiveTenantId, -amountCents, user.userId).run();
 
       return NextResponse.json(
         {
@@ -116,7 +116,7 @@ export const PUT = withAuth(
 
       const topUpAmount = Math.abs(payment.amount_cents);
       const methodLabel = method || 'Unknown';
-      const now = new Date().toISOString();
+      const now = dbNow();
 
       // Get current wallet balance before update
       const tenantRow = await d1

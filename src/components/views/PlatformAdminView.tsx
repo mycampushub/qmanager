@@ -758,7 +758,7 @@ function MasterTenantsTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h2 className="text-lg font-semibold">Master Tenants (Franchise Groups)</h2>
+        <h2 className="text-lg font-semibold">Master Tenants (Branch Groups)</h2>
         <div className="flex-1" />
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
@@ -1220,7 +1220,7 @@ export default function PlatformAdminView() {
             <h1 className="text-sm font-semibold truncate">Platform Admin</h1>
             <p className="text-xs text-muted-foreground hidden sm:block">{adminUser.email}</p>
           </div>
-          <Badge className="bg-emerald-100 text-emerald-700">Admin</Badge>
+          <Badge className="bg-emerald-100 text-emerald-700">Platform Admin</Badge>
           <Avatar className="w-8 h-8">
             <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs">{adminUser.name.charAt(0).toUpperCase()}</AvatarFallback>
           </Avatar>

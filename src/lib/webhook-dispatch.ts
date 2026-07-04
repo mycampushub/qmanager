@@ -6,6 +6,7 @@
 // =============================================================================
 
 import { getD1FromEnv } from './db';
+import { dbNow } from './datetime';
 
 /**
  * Compute HMAC-SHA256 signature using Web Crypto API.
@@ -86,7 +87,7 @@ export function dispatchWebhooks(
           });
 
           const success = response.ok;
-          const now = new Date().toISOString();
+          const now = dbNow();
 
           await (d1 as unknown as { prepare(sql: string): { bind(...args: unknown[]): { run(): unknown } } })
             .prepare(
@@ -99,7 +100,7 @@ export function dispatchWebhooks(
             await (d1 as unknown as { prepare(sql: string): { bind(...args: unknown[]): { run(): unknown } } })
               .prepare(
                 `UPDATE webhooks SET failure_count = failure_count + 1, last_triggered_at = ? WHERE id = ?`
-              ).bind(new Date().toISOString(), webhook.id).run();
+              )              .bind(dbNow(), webhook.id).run();
           } catch { /* swallow */ }
         }
       }

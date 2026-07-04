@@ -3,16 +3,8 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
-
-// Helper: extract client IP
-function getClientIp(req: NextRequest): string {
-  return (
-    req.headers.get('cf-connecting-ip') ||
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    'unknown'
-  );
-}
+import { dbNow } from '@/lib/datetime';
+import { getClientIp } from '@/lib/utils';
 
 // GET: List branches for the master tenant
 export const GET = withAuth(
@@ -143,40 +135,39 @@ export const POST = withAuth(
 
       const tenantId = crypto.randomUUID();
       const queueId = crypto.randomUUID();
-      const now = new Date().toISOString();
+      const now = dbNow();
 
       const statements: D1PreparedStatement[] = [
         d1.prepare(
-          `INSERT INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, is_active, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
-        ).bind(tenantId, name.trim(), user.masterTenantId, tier, 50000, now, now),
+          `INSERT INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, is_active)
+           VALUES (?, ?, ?, ?, ?, 1)`
+        ).bind(tenantId, name.trim(), user.masterTenantId, tier, 50000),
         // Create default queue for the branch
         d1.prepare(
-          `INSERT INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial, is_active, created_at, updated_at)
-           VALUES (?, ?, 'General Service', 'A', 300, 0, 0, 1, ?, ?)`
-        ).bind(queueId, tenantId, now, now),
+          `INSERT INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial, is_active)
+           VALUES (?, ?, 'General Service', 'A', 300, 0, 0, 1)`
+        ).bind(queueId, tenantId),
       ];
 
       if (managerId && passwordHash) {
         statements.push(
           d1.prepare(
-            `INSERT INTO users (id, tenant_id, email, name, password_hash, role, is_active, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'MANAGER', 1, ?, ?)`
-          ).bind(managerId, tenantId, managerEmail!, managerName!, passwordHash, now, now)
+            `INSERT INTO users (id, tenant_id, email, name, password_hash, role, is_active)
+             VALUES (?, ?, ?, ?, ?, 'MANAGER', 1)`
+          ).bind(managerId, tenantId, managerEmail!, managerName!, passwordHash)
         );
       }
 
       // Audit log
       statements.push(
         d1.prepare(
-          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-           VALUES (?, ?, 'master_tenant_admin', 'BRANCH_CREATE', ?, ?, ?)`
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
+           VALUES (?, ?, 'master_tenant_admin', 'BRANCH_CREATE', ?, ?)`
         ).bind(
           crypto.randomUUID(),
           user.userId,
           JSON.stringify({ tenantId, name: name.trim(), planTier: tier, masterTenantId: user.masterTenantId }),
-          getClientIp(req),
-          now
+          getClientIp(req)
         )
       );
 
@@ -200,7 +191,7 @@ export const POST = withAuth(
             planTier: tier,
             masterTenantId: user.masterTenantId,
             isActive: true,
-            createdAt: now,
+            createdAt: dbNow(),
           },
         },
         { status: 201 }
@@ -264,13 +255,12 @@ export const PUT = withAuth(
 
       // Audit log
       await d1.prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at) VALUES (?, ?, 'master_tenant_admin', 'BRANCH_UPDATE', ?, ?, ?)`
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address) VALUES (?, ?, 'master_tenant_admin', 'BRANCH_UPDATE', ?, ?)`
       ).bind(
         crypto.randomUUID(),
         user.userId,
         JSON.stringify({ branchId, name, isActive }),
-        getClientIp(req),
-        new Date().toISOString()
+        getClientIp(req)
       ).run();
 
       return NextResponse.json({ success: true });

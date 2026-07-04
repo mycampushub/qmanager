@@ -7,6 +7,7 @@ import {
   rateLimit,
   ensureDemoData,
 } from '@/lib/auth';
+import { getClientIp } from '@/lib/utils';
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,11 +48,7 @@ export async function POST(req: NextRequest) {
     }
 
     // A8 + A13: IP-based rate limit (20/min) using cf-connecting-ip
-    const ip =
-      req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      req.headers.get('x-real-ip') ||
-      'unknown';
+    const ip = getClientIp(req);
 
     const { allowed: ipAllowed, retryAfterMs: ipRetryAfterMs } = await rateLimit('login-ip:' + ip, 20, 60_000);
     if (!ipAllowed) {
@@ -132,65 +129,140 @@ export async function POST(req: NextRequest) {
         tenant_plan_tier: string | null;
       }>();
 
-    if (!staffRow) {
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
-      );
-    }
+    if (staffRow) {
+      if (!staffRow.is_active) {
+        return NextResponse.json(
+          { error: 'Account is deactivated. Contact your manager.' },
+          { status: 403 }
+        );
+      }
 
-    if (!staffRow.is_active) {
-      return NextResponse.json(
-        { error: 'Account is deactivated. Contact your manager.' },
-        { status: 403 }
-      );
-    }
+      const valid = await verifyPassword(password, staffRow.password_hash);
+      if (!valid) {
+        return NextResponse.json(
+          { error: 'Invalid email or password' },
+          { status: 401 }
+        );
+      }
 
-    const valid = await verifyPassword(password, staffRow.password_hash);
-    if (!valid) {
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
-      );
-    }
-
-    const token = await signToken({
-      userId: staffRow.id,
-      tenantId: staffRow.tenant_id,
-      role: staffRow.role as 'MANAGER' | 'AGENT',
-      type: 'staff',
-    });
-
-    const csrfToken = generateCsrfToken();
-
-    // Audit log
-    await d1
-      .prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-         VALUES (?, ?, 'staff', 'LOGIN', ?, ?, datetime('now'))`
-      )
-      .bind(crypto.randomUUID(), staffRow.id, JSON.stringify({ email, tenantId: staffRow.tenant_id }), ip)
-      .run();
-
-    return NextResponse.json({
-      user: {
-        id: staffRow.id,
-        email: staffRow.email,
-        name: staffRow.name,
-        role: staffRow.role,
-        type: 'staff',
+      const token = await signToken({
+        userId: staffRow.id,
         tenantId: staffRow.tenant_id,
-        tenant: staffRow.tenant_id_col
-          ? {
-              id: staffRow.tenant_id_col,
-              name: staffRow.tenant_name!,
-              planTier: staffRow.tenant_plan_tier!,
-            }
-          : null,
-      },
-      token,
-      csrfToken,
-    });
+        role: staffRow.role as 'MANAGER' | 'AGENT',
+        type: 'staff',
+      });
+
+      const csrfToken = generateCsrfToken();
+
+      // Audit log
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, 'staff', 'LOGIN', ?, ?, datetime('now'))`
+        )
+        .bind(crypto.randomUUID(), staffRow.id, JSON.stringify({ email, tenantId: staffRow.tenant_id }), ip)
+        .run();
+
+      return NextResponse.json({
+        user: {
+          id: staffRow.id,
+          email: staffRow.email,
+          name: staffRow.name,
+          role: staffRow.role,
+          type: 'staff',
+          tenantId: staffRow.tenant_id,
+          tenant: staffRow.tenant_id_col
+            ? {
+                id: staffRow.tenant_id_col,
+                name: staffRow.tenant_name!,
+                planTier: staffRow.tenant_plan_tier!,
+              }
+            : null,
+        },
+        token,
+        csrfToken,
+      });
+    }
+
+    // Try master tenant admin
+    const mtAdminRow = await d1
+      .prepare(
+        `SELECT mta.id, mta.master_tenant_id, mta.email, mta.name, mta.password_hash, mta.is_active,
+                mt.corporate_name, mt.billing_status
+         FROM master_tenant_admins mta
+         JOIN master_tenants mt ON mt.id = mta.master_tenant_id
+         WHERE mta.email = ?`
+      )
+      .bind(email)
+      .first<{
+        id: string;
+        master_tenant_id: string;
+        email: string;
+        name: string;
+        password_hash: string;
+        is_active: number;
+        corporate_name: string;
+        billing_status: string;
+      }>();
+
+    if (mtAdminRow) {
+      if (!mtAdminRow.is_active) {
+        return NextResponse.json(
+          { error: 'Account is deactivated. Contact your manager.' },
+          { status: 403 }
+        );
+      }
+
+      const valid = await verifyPassword(password, mtAdminRow.password_hash);
+      if (!valid) {
+        return NextResponse.json(
+          { error: 'Invalid email or password' },
+          { status: 401 }
+        );
+      }
+
+      const token = await signToken({
+        userId: mtAdminRow.id,
+        masterTenantId: mtAdminRow.master_tenant_id,
+        role: 'MASTER_TENANT_ADMIN',
+        type: 'master_tenant_admin',
+      });
+
+      const csrfToken = generateCsrfToken();
+
+      // Audit log
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, 'master_tenant_admin', 'LOGIN', ?, ?, datetime('now'))`
+        )
+        .bind(crypto.randomUUID(), mtAdminRow.id, JSON.stringify({ email, masterTenantId: mtAdminRow.master_tenant_id }), ip)
+        .run();
+
+      return NextResponse.json({
+        user: {
+          id: mtAdminRow.id,
+          email: mtAdminRow.email,
+          name: mtAdminRow.name,
+          role: 'MASTER_TENANT_ADMIN',
+          type: 'master_tenant_admin',
+          masterTenantId: mtAdminRow.master_tenant_id,
+          masterTenant: {
+            id: mtAdminRow.master_tenant_id,
+            corporateName: mtAdminRow.corporate_name,
+            billingStatus: mtAdminRow.billing_status,
+          },
+        },
+        token,
+        csrfToken,
+      });
+    }
+
+    // Not found in any user table
+    return NextResponse.json(
+      { error: 'Invalid email or password' },
+      { status: 401 }
+    );
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json(

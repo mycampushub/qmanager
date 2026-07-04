@@ -11,11 +11,20 @@ import type { Tenant, Queue, BrandingConfig } from '@/lib/types';
 import { QRCodeDisplay } from '@/components/QRCode';
 
 /* ------------------------------------------------------------------ */
-/*  Audio chime via Web Audio API                                      */
+/*  Audio chime via Web Audio API (singleton AudioContext)             */
 /* ------------------------------------------------------------------ */
+let audioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext {
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+  }
+  return audioCtx;
+}
+
 function playChime() {
   try {
-    const ctx = new AudioContext();
+    const ctx = getAudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);

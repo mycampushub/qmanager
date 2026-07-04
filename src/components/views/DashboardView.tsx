@@ -60,15 +60,33 @@ function LoginScreen() {
       if (data.csrfToken) {
         localStorage.setItem('qms_csrf', data.csrfToken);
       }
-      // Check if platform admin
+      // Platform admin → store admin auth + redirect to root
       if (data.user.type === 'platform_admin' || data.user.role === 'PLATFORM_ADMIN') {
-        setAdminAuth(
+        useAppStore.getState().setAdminAuth(
           { id: data.user.id, email: data.user.email, name: data.user.name },
           data.token
         );
         toast.success(`Welcome back, ${data.user.name}!`);
+        window.location.href = '/';
         return;
       }
+      // Master tenant admin → store MT auth + redirect to root
+      if (data.user.type === 'master_tenant_admin' || data.user.role === 'MASTER_TENANT_ADMIN') {
+        useAppStore.getState().setMtAuth(
+          {
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name,
+            masterTenantId: data.user.masterTenantId,
+            masterTenant: data.user.masterTenant,
+          },
+          data.token
+        );
+        toast.success(`Welcome back, ${data.user.name}!`);
+        window.location.href = '/';
+        return;
+      }
+      // Staff/Manager/Agent → stay on dashboard
       setAuth(data.user, data.token, data.csrfToken);
       toast.success(`Welcome back, ${data.user.name}!`);
     } catch {
@@ -83,8 +101,8 @@ function LoginScreen() {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 text-white text-2xl font-bold mb-4">QF</div>
-          <h1 className="text-3xl font-bold text-foreground">Staff Dashboard</h1>
-          <p className="text-muted-foreground mt-2">Sign in to manage your queues</p>
+          <h1 className="text-3xl font-bold text-foreground">Login</h1>
+          <p className="text-muted-foreground mt-2">Sign in to your account</p>
         </div>
         <Card className="shadow-lg border-slate-200">
           <CardContent className="pt-6">
@@ -113,6 +131,7 @@ function LoginScreen() {
           <p className="text-xs text-muted-foreground">Agent: agent1@quickbiterestaurant.com / agent123</p>
           <p className="text-xs text-muted-foreground mt-1">Manager: manager@quickbiterestaurant.com / manager123</p>
           <p className="text-xs text-muted-foreground mt-1">Platform Admin: admin@yourqueueapp.com / admin123</p>
+          <p className="text-xs text-muted-foreground mt-1">HQ Admin: hq@cityhealthgroup.com / manager123</p>
         </div>
       </motion.div>
     </div>
@@ -1438,6 +1457,8 @@ function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: 
   const [queues, setQueues] = useState<Queue[]>([]);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const tenantUrl = `${origin}/?tenant=${tenantId}`;
+  const generalRef = useRef<HTMLDivElement>(null);
+  const qrRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
 
   useEffect(() => {
     (async () => {
@@ -1454,16 +1475,22 @@ function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: 
     toast.success('Link copied to clipboard');
   };
 
-  const handleDownload = (queueName: string, svgEl: HTMLElement | null) => {
-    if (!svgEl) return;
-    const svgData = new XMLSerializer().serializeToString(svgEl);
+  const handleDownload = (name: string, el: HTMLDivElement | null) => {
+    if (!el) return;
+    const svg = el.querySelector('svg');
+    if (!svg) return;
+    const svgData = new XMLSerializer().serializeToString(svg);
     const blob = new Blob([svgData], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `qrcode-${tenantName.toLowerCase().replace(/\s+/g, '-')}-${queueName.toLowerCase().replace(/\s+/g, '-')}.svg`;
+    a.download = `qrcode-${tenantName.toLowerCase().replace(/\s+/g, '-')}-${name.toLowerCase().replace(/\s+/g, '-')}.svg`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const setQrRef = (queueId: string) => (el: HTMLDivElement | null) => {
+    qrRefs.current.set(queueId, el);
   };
 
   return (
@@ -1479,10 +1506,8 @@ function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: 
       <CardContent>
         {/* General tenant QR code */}
         <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-lg border bg-slate-50/50 mb-6">
-          <div className="shrink-0 bg-white p-3 rounded-xl shadow-sm border">
-            <div ref={(el) => {}}>
-              <QRCodeDisplay value={tenantUrl} size={140} />
-            </div>
+          <div className="shrink-0 bg-white p-3 rounded-xl shadow-sm border" ref={generalRef}>
+            <QRCodeDisplay value={tenantUrl} size={140} />
           </div>
           <div className="flex-1 text-center sm:text-left">
             <p className="font-semibold">General Queue Join Link</p>
@@ -1492,10 +1517,7 @@ function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: 
               <Button variant="outline" size="sm" onClick={() => handleCopy(tenantUrl)}>
                 <Copy className="w-3.5 h-3.5 mr-1" /> Copy Link
               </Button>
-              <Button variant="outline" size="sm" onClick={(e) => {
-                const svg = (e.currentTarget.closest('.flex.flex-col') as HTMLElement)?.querySelector('svg');
-                handleDownload('general', svg || null);
-              }}>
+              <Button variant="outline" size="sm" onClick={() => handleDownload('general', generalRef.current)}>
                 <Download className="w-3.5 h-3.5 mr-1" /> Download SVG
               </Button>
             </div>
@@ -1508,10 +1530,10 @@ function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: 
             <p className="text-sm font-medium mb-3">Per-Queue QR Codes</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {queues.map((q) => {
-                const queueUrl = `${origin}/?tenant=${tenantId}`;
+                const queueUrl = `${origin}/?tenant=${tenantId}&queue=${q.id}`;
                 return (
                   <div key={q.id} className="flex flex-col items-center gap-2 p-3 rounded-lg border bg-white">
-                    <div className="bg-white p-2 rounded-lg shadow-sm border">
+                    <div className="bg-white p-2 rounded-lg shadow-sm border" ref={setQrRef(q.id)}>
                       <QRCodeDisplay value={queueUrl} size={100} />
                     </div>
                     <div className="text-center">
@@ -1522,10 +1544,7 @@ function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: 
                       <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleCopy(queueUrl)}>
                         <Copy className="w-3 h-3" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={(e) => {
-                        const svg = (e.currentTarget.closest('.flex.flex-col') as HTMLElement)?.querySelector('svg');
-                        handleDownload(q.prefix, svg || null);
-                      }}>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleDownload(q.prefix, qrRefs.current.get(q.id) ?? null)}>
                         <Download className="w-3 h-3" />
                       </Button>
                     </div>
@@ -1543,6 +1562,8 @@ function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: 
 // ─── STAFF TAB ───────────────────────────────────────────
 function StaffTab({ tenantId }: { tenantId: string }) {
   const authToken = useAppStore((s) => s.authToken);
+  const authUser = useAppStore((s) => s.authUser);
+  const managerLabel = authUser?.tenant?.masterTenantId ? 'Branch Manager' : 'Admin (Tenant Admin)';
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1717,7 +1738,7 @@ function StaffTab({ tenantId }: { tenantId: string }) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="AGENT">Agent</SelectItem>
-                    <SelectItem value="MANAGER">Manager</SelectItem>
+                    <SelectItem value="MANAGER">{managerLabel}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1759,7 +1780,7 @@ function StaffTab({ tenantId }: { tenantId: string }) {
                       <TableCell className="text-sm text-muted-foreground">{member.email}</TableCell>
                       <TableCell>
                         <Badge variant={member.role === 'MANAGER' ? 'default' : 'secondary'} className={member.role === 'MANAGER' ? 'bg-emerald-100 text-emerald-700' : ''}>
-                          {member.role}
+                          {member.role === 'MANAGER' ? managerLabel : 'Agent'}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -1782,7 +1803,7 @@ function StaffTab({ tenantId }: { tenantId: string }) {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleChangeRole(member)}
-                            title={`Change role to ${member.role === 'MANAGER' ? 'Agent' : 'Manager'}`}
+                            title={`Change role to ${member.role === 'MANAGER' ? 'Agent' : managerLabel}`}
                             aria-label={`Change role for ${member.name}`}
                           >
                             <UserCog className="w-4 h-4" />
@@ -1944,7 +1965,7 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{authUser.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{authUser.role}</p>
+            <p className="text-xs text-muted-foreground truncate">{authUser.role === 'MANAGER' ? (authUser.tenant?.masterTenantId ? 'Branch Manager' : 'Admin (Tenant Admin)') : 'Agent'}</p>
           </div>
         </div>
         <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => setChangePwdOpen(true)}>
@@ -2077,7 +2098,7 @@ export default function DashboardView() {
             <p className="text-xs text-muted-foreground hidden sm:block">{authUser.email}</p>
           </div>
           <Badge variant={isManager ? 'default' : 'secondary'} className={isManager ? 'bg-emerald-100 text-emerald-700' : ''}>
-            {authUser.role}
+            {isManager ? (authUser?.tenant?.masterTenantId ? 'Branch Manager' : 'Admin (Tenant Admin)') : 'Agent'}
           </Badge>
           <Avatar className="w-8 h-8">
             <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs">{authUser.name.charAt(0)}</AvatarFallback>

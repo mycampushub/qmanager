@@ -3,6 +3,8 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
+import { getClientIp } from '@/lib/utils';
 
 // GET: List all master tenants with their sub-tenants
 export const GET = withAuth(
@@ -151,39 +153,33 @@ export const POST = withAuth(
       }
 
       const newId = crypto.randomUUID();
-      const now = new Date().toISOString();
 
       const statements: D1PreparedStatement[] = [
         d1.prepare(
-          `INSERT INTO master_tenants (id, corporate_name, billing_status, created_at, updated_at)
-           VALUES (?, ?, 'ACTIVE', ?, ?)`
-        ).bind(newId, corporateName, now, now),
+          `INSERT INTO master_tenants (id, corporate_name, billing_status)
+           VALUES (?, ?, 'ACTIVE')`
+        ).bind(newId, corporateName),
       ];
 
       if (adminId && passwordHash) {
         statements.push(
           d1.prepare(
-            `INSERT INTO master_tenant_admins (id, master_tenant_id, email, name, password_hash, is_active, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
-          ).bind(adminId, newId, adminEmail!, adminName!, passwordHash, now, now)
+            `INSERT INTO master_tenant_admins (id, master_tenant_id, email, name, password_hash, is_active)
+             VALUES (?, ?, ?, ?, ?, 1)`
+          ).bind(adminId, newId, adminEmail!, adminName!, passwordHash)
         );
       }
 
       // Audit log
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
-
+      const ip = getClientIp(req);
       statements.push(
         d1.prepare(
-          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-           VALUES (?, ?, ?, 'MASTER_TENANT_CREATE', ?, ?, ?)`
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
+           VALUES (?, ?, ?, 'MASTER_TENANT_CREATE', ?, ?)`
         ).bind(
           crypto.randomUUID(), user.userId, user.type,
           JSON.stringify({ masterTenantId: newId, corporateName, adminCreated: !!adminId }),
-          ip, now
+          ip
         )
       );
 
@@ -205,8 +201,8 @@ export const POST = withAuth(
             id: newId,
             corporateName,
             billingStatus: 'ACTIVE',
-            createdAt: now,
-            updatedAt: now,
+            createdAt: dbNow(),
+            updatedAt: dbNow(),
           },
         },
         { status: 201 }
@@ -242,16 +238,12 @@ export const PUT = withAuth(
 
       await d1.prepare(`UPDATE master_tenants SET ${setClauses.join(', ')}, updated_at = datetime('now') WHERE id = ?`).bind(...values, masterTenantId).run();
 
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
       await d1.prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at) VALUES (?, ?, ?, 'MASTER_TENANT_UPDATE', ?, ?, ?)`
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address) VALUES (?, ?, ?, 'MASTER_TENANT_UPDATE', ?, ?)`
       ).bind(
         crypto.randomUUID(), user.userId, user.type, JSON.stringify({ masterTenantId, corporateName, billingStatus }),
-        ip, new Date().toISOString()
+        ip
       ).run();
 
       return NextResponse.json({ success: true });
@@ -280,16 +272,12 @@ export const DELETE = withAuth(
 
       await d1.prepare('DELETE FROM master_tenants WHERE id = ?').bind(masterTenantId).run();
 
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
       await d1.prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at) VALUES (?, ?, ?, 'MASTER_TENANT_DELETE', ?, ?, ?)`
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address) VALUES (?, ?, ?, 'MASTER_TENANT_DELETE', ?, ?)`
       ).bind(
         crypto.randomUUID(), user.userId, user.type, JSON.stringify({ masterTenantId }),
-        ip, new Date().toISOString()
+        ip
       ).run();
 
       return NextResponse.json({ success: true });

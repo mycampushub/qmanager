@@ -34,12 +34,6 @@ interface BranchData {
   createdAt: string;
 }
 
-interface BranchAnalytics {
-  branchName: string;
-  queueCount: number;
-  staffCount: number;
-}
-
 interface StaffRow {
   id: string;
   name: string;
@@ -110,7 +104,7 @@ function MTLoginScreen() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-600 text-white mb-4">
             <Crown className="w-8 h-8" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">Franchise HQ</h1>
+          <h1 className="text-3xl font-bold text-foreground">Master Tenant Admin</h1>
           <p className="text-muted-foreground mt-2">Multi-branch management dashboard</p>
         </div>
         <Card className="shadow-lg border-slate-200">
@@ -581,32 +575,34 @@ function BranchesTab() {
 // ─── CROSS-BRANCH ANALYTICS TAB ─────────────────────────────
 function CrossBranchAnalyticsTab() {
   const mtToken = useAppStore((s) => s.mtToken);
-  const [analytics, setAnalytics] = useState<BranchAnalytics[]>([]);
+  const [analytics, setAnalytics] = useState<{
+    totalTickets: number;
+    completedToday: number;
+    avgWaitTimeSec: number;
+    branches: Array<{ name: string; totalTickets: number; completed: number; waiting: number }>;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchBranches = useCallback(async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
-      const res = await fetch('/api/master-tenant/branches', {
+      const res = await fetch('/api/master-tenant/analytics', {
         headers: { Authorization: `Bearer ${mtToken}` },
       });
       const data = await res.json();
-      if (data.branches) {
-        const branchAnalytics: BranchAnalytics[] = data.branches.map((b: BranchData) => ({
-          branchName: b.name,
-          queueCount: b.queueCount,
-          staffCount: b.staffCount,
-        }));
-        setAnalytics(branchAnalytics);
-      }
+      setAnalytics({
+        totalTickets: data.totalTickets ?? 0,
+        completedToday: data.completedToday ?? 0,
+        avgWaitTimeSec: data.avgWaitTimeSec ?? 0,
+        branches: data.branches ?? [],
+      });
     } catch {
-      // Fallback to empty
-      setAnalytics([]);
+      setAnalytics(null);
     } finally {
       setLoading(false);
     }
   }, [mtToken]);
 
-  useEffect(() => { fetchBranches(); }, [fetchBranches]);
+  useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
 
   if (loading) {
     return (
@@ -616,46 +612,52 @@ function CrossBranchAnalyticsTab() {
     );
   }
 
-  // Summary stats
-  const totalQueues = analytics.reduce((s, a) => s + a.queueCount, 0);
-  const totalStaff = analytics.reduce((s, a) => s + a.staffCount, 0);
+  if (!analytics) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-muted-foreground">Failed to load analytics</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold">Cross-Branch Analytics</h2>
-        <p className="text-sm text-muted-foreground">Overview across all {analytics.length} branch{analytics.length !== 1 ? 'es' : ''}</p>
+        <p className="text-sm text-muted-foreground">
+          Overview across all {analytics.branches.length} branch{analytics.branches.length !== 1 ? 'es' : ''}
+        </p>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-4 pb-4">
+            <p className="text-sm text-muted-foreground">Total Tickets Today</p>
+            <p className="text-2xl font-bold">{analytics.totalTickets}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-sm text-muted-foreground">Completed Today</p>
+            <p className="text-2xl font-bold">{analytics.completedToday}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-sm text-muted-foreground">Avg Wait Time</p>
+            <p className="text-2xl font-bold">{analytics.avgWaitTimeSec}s</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
             <p className="text-sm text-muted-foreground">Branches</p>
-            <p className="text-2xl font-bold">{analytics.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-sm text-muted-foreground">Total Queues</p>
-            <p className="text-2xl font-bold">{totalQueues}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-sm text-muted-foreground">Total Staff</p>
-            <p className="text-2xl font-bold">{totalStaff}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-sm text-muted-foreground">Avg Staff/Branch</p>
-            <p className="text-2xl font-bold">{analytics.length > 0 ? (totalStaff / analytics.length).toFixed(1) : '0'}</p>
+            <p className="text-2xl font-bold">{analytics.branches.length}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Branch Table */}
+      {/* Per-Branch Breakdown Table */}
       <Card>
         <CardContent className="p-0">
           <div className="max-h-96 overflow-y-auto">
@@ -663,32 +665,30 @@ function CrossBranchAnalyticsTab() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Branch</TableHead>
-                  <TableHead className="text-center hidden sm:table-cell">Queues</TableHead>
-                  <TableHead className="text-center hidden sm:table-cell">Staff</TableHead>
-                  <TableHead className="text-center sm:hidden">Q / S</TableHead>
+                  <TableHead className="text-center">Total Tickets</TableHead>
+                  <TableHead className="text-center">Completed</TableHead>
+                  <TableHead className="text-center">Waiting</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {analytics.length === 0 ? (
+                {analytics.branches.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                      No branch data available
+                      No ticket data available
                     </TableCell>
                   </TableRow>
                 ) : (
-                  analytics.map((a) => (
-                    <TableRow key={a.branchName}>
+                  analytics.branches.map((b) => (
+                    <TableRow key={b.name}>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
-                          <span className="font-medium">{a.branchName}</span>
+                          <span className="font-medium">{b.name}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-center hidden sm:table-cell">{a.queueCount}</TableCell>
-                      <TableCell className="text-center hidden sm:table-cell">{a.staffCount}</TableCell>
-                      <TableCell className="text-center sm:hidden">
-                        <span className="text-sm">{a.queueCount} / {a.staffCount}</span>
-                      </TableCell>
+                      <TableCell className="text-center">{b.totalTickets}</TableCell>
+                      <TableCell className="text-center">{b.completed}</TableCell>
+                      <TableCell className="text-center">{b.waiting}</TableCell>
                     </TableRow>
                   ))
                 )}
@@ -707,51 +707,23 @@ function StaffTab() {
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchBranches = useCallback(async () => {
+  const fetchStaff = useCallback(async () => {
     try {
-      const res = await fetch('/api/master-tenant/branches', {
+      const res = await fetch('/api/master-tenant/staff', {
         headers: { Authorization: `Bearer ${mtToken}` },
       });
       const data = await res.json();
-      if (data.branches) {
-        // Derive staff counts per branch from the branch data
-        // Since the branch API returns staffCount, we show per-branch summary
-        const staffList: StaffRow[] = [];
-        for (const b of data.branches) {
-          // Show a placeholder manager row for each branch (real staff data per branch
-          // requires individual branch login)
-          staffList.push({
-            id: `${b.id}-mgr`,
-            name: `${b.name} Manager`,
-            email: '(set at creation)',
-            role: 'MANAGER',
-            branchName: b.name,
-            isActive: b.isActive,
-          });
-          // Add placeholder agent rows based on staffCount - 1 (for manager)
-          const agentCount = Math.max(0, (b.staffCount ?? 0) - 1);
-          for (let i = 1; i <= agentCount; i++) {
-            staffList.push({
-              id: `${b.id}-a${i}`,
-              name: `Agent ${i}`,
-              email: '(branch staff)',
-              role: 'AGENT',
-              branchName: b.name,
-              isActive: b.isActive,
-            });
-          }
-        }
-        setStaff(staffList);
+      if (data.staff) {
+        setStaff(data.staff);
       }
     } catch {
-      // Fallback to empty
       setStaff([]);
     } finally {
       setLoading(false);
     }
   }, [mtToken]);
 
-  useEffect(() => { fetchBranches(); }, [fetchBranches]);
+  useEffect(() => { fetchStaff(); }, [fetchStaff]);
 
   if (loading) {
     return (
@@ -765,8 +737,8 @@ function StaffTab() {
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold">Staff Across All Branches</h2>
-        <p className="text-xs text-muted-foreground">
-          Staff data shown per branch is derived from branch records. Full staff management is available in each branch&apos;s own dashboard.
+        <p className="text-sm text-muted-foreground">
+          Staff across all branches under your organization.
         </p>
       </div>
       <Card>
@@ -853,7 +825,7 @@ function MTSidebar({
           </div>
         </div>
       </div>
-      <nav className="flex-1 overflow-y-auto p-3 space-y-1" aria-label="Franchise navigation">
+      <nav className="flex-1 overflow-y-auto p-3 space-y-1" aria-label="Branch navigation">
         {navItems.map((item) => (
           <button
             key={item.id}
@@ -917,7 +889,7 @@ export default function MasterTenantView() {
     { id: 'staff', label: 'Staff', icon: Users },
   ];
 
-  const corporateName = mtUser.masterTenant?.corporateName || 'Franchise HQ';
+  const corporateName = mtUser.masterTenant?.corporateName || 'Master Tenant Admin';
 
   return (
     <div className="h-screen flex flex-row overflow-hidden bg-slate-50">
@@ -980,7 +952,7 @@ export default function MasterTenantView() {
             <h1 className="text-sm font-semibold truncate">{corporateName}</h1>
             <p className="text-xs text-muted-foreground hidden sm:block">{mtUser.email}</p>
           </div>
-          <Badge className="bg-emerald-100 text-emerald-700">HQ</Badge>
+          <Badge className="bg-emerald-100 text-emerald-700">MT Admin</Badge>
           <Avatar className="w-8 h-8">
             <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs">
               {mtUser.name.charAt(0).toUpperCase()}

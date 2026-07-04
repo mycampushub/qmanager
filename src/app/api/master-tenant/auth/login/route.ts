@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getD1FromEnv } from '@/lib/db';
-import { verifyPassword, signToken, rateLimit } from '@/lib/auth';
+import { verifyPassword, signToken, rateLimit, generateCsrfToken } from '@/lib/auth';
+import { getClientIp } from '@/lib/utils';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,11 +13,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit
-    const ip =
-      req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      req.headers.get('x-real-ip') ||
-      'unknown';
+    const ip = getClientIp(req);
 
     const { allowed, retryAfterMs } = await rateLimit('mt-login:' + ip, 10, 300_000);
     if (!allowed) {
@@ -70,8 +67,20 @@ export async function POST(req: NextRequest) {
       type: 'master_tenant_admin',
     });
 
+    const csrfToken = generateCsrfToken();
+
+    // Audit log
+    await d1
+      .prepare(
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+         VALUES (?, ?, 'master_tenant_admin', 'LOGIN', ?, ?, datetime('now'))`
+      )
+      .bind(crypto.randomUUID(), admin.id, JSON.stringify({ email, masterTenantId: admin.master_tenant_id }), ip)
+      .run();
+
     return NextResponse.json({
       success: true,
+      csrfToken,
       user: {
         id: admin.id,
         email: admin.email,

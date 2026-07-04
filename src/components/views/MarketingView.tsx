@@ -30,7 +30,6 @@ import {
   Send,
   MessageSquare,
   HelpCircle,
-  Crown,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -195,7 +194,6 @@ const faqs = [
 /*  Component                                                          */
 /* ================================================================== */
 export default function MarketingView() {
-  const { setCurrentView } = useAppStore();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [contactName, setContactName] = useState('');
@@ -245,11 +243,11 @@ export default function MarketingView() {
               className="text-gray-600 hover:text-emerald-600"
               onClick={() => window.location.href = '/dashboard'}
             >
-              Staff Login
+              Login
             </Button>
             <Button
               className="bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200"
-              onClick={() => useAppStore.getState().setRegistrationOpen(true)}
+              onClick={() => window.location.href = '/dashboard'}
             >
               Get Started
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -290,11 +288,11 @@ export default function MarketingView() {
                 className="justify-start text-gray-600 hover:text-emerald-600"
                 onClick={() => { setMobileOpen(false); window.location.href = '/dashboard'; }}
               >
-                Staff Login
+                Login
               </Button>
               <Button
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
-                onClick={() => { setMobileOpen(false); useAppStore.getState().setRegistrationOpen(true); }}
+                onClick={() => { setMobileOpen(false); window.location.href = '/dashboard'; }}
               >
                 Get Started
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -356,7 +354,7 @@ export default function MarketingView() {
                 <Button
                   size="lg"
                   className="bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg shadow-emerald-900/20 font-semibold text-base px-8 py-6"
-                  onClick={() => useAppStore.getState().setRegistrationOpen(true)}
+                  onClick={() => window.location.href = '/dashboard'}
                 >
                   Get Started Free
                   <ArrowRight className="ml-2 h-5 w-5" />
@@ -638,7 +636,7 @@ export default function MarketingView() {
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
                           : 'bg-gray-900 text-white hover:bg-gray-800'
                       }`}
-                      onClick={() => useAppStore.getState().setRegistrationOpen(true)}
+                      onClick={() => window.location.href = '/dashboard'}
                     >
                       {tier.cta}
                       <ChevronRight className="ml-1 h-4 w-4" />
@@ -843,9 +841,8 @@ export default function MarketingView() {
             </p>
           </motion.div>
 
-          {/* 3-way Login Cards */}
-          <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-3">
-            {/* Staff / Tenant Manager */}
+          {/* Login Card */}
+          <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-1 max-w-sm mx-auto">
             <motion.div variants={fadeUp}>
               <Card
                 className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
@@ -853,57 +850,12 @@ export default function MarketingView() {
               >
                 <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
                   <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
-                    <Building2 className="h-7 w-7" />
-                  </div>
-                  <h3 className="text-lg font-bold text-white">Staff / Tenant Manager</h3>
-                  <p className="text-sm text-emerald-100/80">
-                    Manage queues, serve customers, and monitor real-time operations for your branch.
-                  </p>
-                  <span className="mt-auto pt-2 text-xs text-emerald-200/60">
-                    e.g. staff@demo.com / staff123
-                  </span>
-                </CardContent>
-              </Card>
-            </motion.div>
-
-            {/* Platform Admin */}
-            <motion.div variants={fadeUp}>
-              <Card
-                className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
-                onClick={() => setCurrentView('admin')}
-              >
-                <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
                     <Shield className="h-7 w-7" />
                   </div>
-                  <h3 className="text-lg font-bold text-white">Platform Admin</h3>
+                  <h3 className="text-lg font-bold text-white">Login</h3>
                   <p className="text-sm text-emerald-100/80">
-                    Oversee all tenants, manage billing, review audit logs, and control the platform.
+                    Sign in to manage your queues, branches, or platform.
                   </p>
-                  <span className="mt-auto pt-2 text-xs text-emerald-200/60">
-                    e.g. admin@yourqueueapp.com / admin123
-                  </span>
-                </CardContent>
-              </Card>
-            </motion.div>
-
-            {/* Master Tenant (Franchise HQ) */}
-            <motion.div variants={fadeUp}>
-              <Card
-                className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
-                onClick={() => setCurrentView('masterTenant')}
-              >
-                <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
-                    <Crown className="h-7 w-7" />
-                  </div>
-                  <h3 className="text-lg font-bold text-white">Franchise HQ</h3>
-                  <p className="text-sm text-emerald-100/80">
-                    Manage branches, view cross-branch analytics, add new locations.
-                  </p>
-                  <span className="mt-auto pt-2 text-xs text-emerald-200/60">
-                    e.g. hq@cityhealthgroup.com / manager123
-                  </span>
                 </CardContent>
               </Card>
             </motion.div>
@@ -938,19 +890,7 @@ export default function MarketingView() {
                 onClick={() => window.location.href = '/dashboard'}
                 className="text-sm text-gray-500 transition-colors hover:text-emerald-600"
               >
-                Staff Dashboard
-              </button>
-              <button
-                onClick={() => setCurrentView('admin')}
-                className="text-sm text-gray-500 transition-colors hover:text-emerald-600"
-              >
-                Platform Admin
-              </button>
-              <button
-                onClick={() => setCurrentView('masterTenant')}
-                className="text-sm text-gray-500 transition-colors hover:text-emerald-600"
-              >
-                Franchise HQ
+                Dashboard
               </button>
               <button
                 onClick={() => scrollTo('faq')}

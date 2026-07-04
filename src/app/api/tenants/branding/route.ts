@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
+import { getClientIp } from '@/lib/utils';
 
 // GET: Public — anyone can read branding for display purposes
 export async function GET(req: NextRequest) {
@@ -105,11 +106,7 @@ export const PUT = withAuth(
         }
       }
 
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
 
       await d1.batch([
         d1

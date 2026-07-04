@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getD1FromEnv } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
+import { getClientIp } from '@/lib/utils';
 
 // A14: Public endpoint with IP rate limiting
 export async function POST(req: NextRequest) {
   try {
-    const ip =
-      req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      req.headers.get('x-real-ip') ||
-      'unknown';
+    const ip = getClientIp(req);
 
     const { allowed, retryAfterMs } = await rateLimit('unsubscribe:' + ip, 10, 60_000);
     if (!allowed) {

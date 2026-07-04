@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getD1FromEnv } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
 import { withAuth, type JwtPayload } from '@/lib/api-auth';
+import { dbNow } from '@/lib/datetime';
+import { getClientIp } from '@/lib/utils';
 
 // Helper: compute avg service time for a queue
 async function getAvgServiceTime(
@@ -214,11 +216,7 @@ export async function GET(req: NextRequest) {
     const d1 = await getD1FromEnv();
 
     // Rate limit
-    const ip =
-      req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      req.headers.get('x-real-ip') ||
-      'unknown';
+    const ip = getClientIp(req);
     const rlKey = ticketId || phone || 'unknown';
     const { allowed, retryAfterMs } = await rateLimit(
       `status:${ip}:${rlKey}`,

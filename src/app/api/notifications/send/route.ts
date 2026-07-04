@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
+import { getClientIp } from '@/lib/utils';
 
 // Send push notification (and SMS stub)
 export const POST = withAuth(
@@ -88,20 +90,15 @@ export const POST = withAuth(
       }
 
       // Audit log
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
 
-      const now = new Date().toISOString();
       await d1.prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-         VALUES (?, ?, ?, 'NOTIFICATION_SEND', ?, ?, ?)`
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
+         VALUES (?, ?, ?, 'NOTIFICATION_SEND', ?, ?)`
       ).bind(
         crypto.randomUUID(), user.userId, user.type,
         JSON.stringify({ tenantId, ticketId, event, message, pushSent, smsPrepared }),
-        ip, now
+        ip
       ).run();
 
       return NextResponse.json({ success: true, pushSent, smsPrepared });

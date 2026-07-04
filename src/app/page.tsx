@@ -9,7 +9,6 @@ import JoinView from '@/components/views/JoinView';
 import DisplayView from '@/components/views/DisplayView';
 import PlatformAdminView from '@/components/views/PlatformAdminView';
 import MasterTenantView from '@/components/views/MasterTenantView';
-import { RegistrationDialog } from '@/components/RegistrationDialog';
 import { Toaster } from 'sonner';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -167,8 +166,17 @@ function HomeContent() {
       }
     }
 
-    // If already on /dashboard path, do not redirect — handled by dashboard route
-    if (window.location.pathname === '/dashboard') return;
+    // Auto-navigate based on restored auth
+    const state = useAppStore.getState();
+    if (window.location.pathname !== '/dashboard') {
+      if (state.adminUser) {
+        state.setCurrentView('admin');
+      } else if (state.mtUser) {
+        state.setCurrentView('masterTenant');
+      } else if (state.authUser) {
+        window.location.href = '/dashboard';
+      }
+    }
   }, []);
 
   const viewContent = (
@@ -184,7 +192,6 @@ function HomeContent() {
   return (
     <>
       <Toaster position="top-center" richColors closeButton />
-      <RegistrationDialog />
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-emerald-600 focus:text-white focus:px-4 focus:py-2 focus:rounded-md">
         Skip to main content
       </a>

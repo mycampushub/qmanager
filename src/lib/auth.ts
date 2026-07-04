@@ -15,7 +15,14 @@ import bcrypt from 'bcryptjs';
 
 
 // ─── JWT Secret ────────────────────────────────────────────────────────────
-const JWT_SECRET = process.env.JWT_SECRET || 'queueflow-dev-secret-do-not-use-in-prod';
+if (!process.env.JWT_SECRET) {
+  throw new Error(
+    '[QueueFlow] JWT_SECRET environment variable is required.\n' +
+    'Set a strong, random secret in your .env or wrangler.toml [vars] block.\n' +
+    'Example: JWT_SECRET=your-256-bit-random-secret-here'
+  );
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 
 function getJwtSecret(): Uint8Array {
   return new TextEncoder().encode(JWT_SECRET);

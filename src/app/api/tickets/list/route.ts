@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
+import { toCamel } from '@/lib/utils';
 
 // POST: List tickets for a queue by status (authed, for AgentView)
 export const POST = withAuth(
@@ -63,11 +64,7 @@ export const POST = withAuth(
 
       // Convert to camelCase + add formattedSerial
       const tickets = result.results.map((row) => {
-        const ticket: Record<string, unknown> = {};
-        for (const key of Object.keys(row)) {
-          const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
-          ticket[camelKey] = row[key];
-        }
+        const ticket = toCamel(row);
         ticket.formattedSerial = `${queue.prefix}${String(row.serial_number as number).padStart(3, '0')}`;
         return ticket;
       });

@@ -3,6 +3,7 @@ import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { verifyToken } from '@/lib/auth';
 import type { JwtPayload as JwtPayloadFull } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
 
 // ─── Loyalty Tier Logic ─────────────────────────────────────────
 
@@ -211,16 +212,16 @@ export const POST = withAuth(
         .bind(effectiveTenantId, phone)
         .first<CustomerProfileRow>();
 
-      const now = new Date().toISOString();
+      const now = dbNow();
 
       if (existing) {
         // Update: only update name if provided
         if (name !== undefined && name !== null) {
           await d1
             .prepare(
-              'UPDATE customer_profiles SET name = ?, updated_at = ? WHERE id = ?'
+              "UPDATE customer_profiles SET name = ?, updated_at = datetime('now') WHERE id = ?"
             )
-            .bind(name, now, existing.id)
+            .bind(name, existing.id)
             .run();
         }
 
@@ -247,10 +248,10 @@ export const POST = withAuth(
       const id = crypto.randomUUID();
       await d1
         .prepare(
-          `INSERT INTO customer_profiles (id, tenant_id, phone, name, total_visits, total_tickets, completed_tickets, last_visit_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?, ?)`
+          `INSERT INTO customer_profiles (id, tenant_id, phone, name)
+           VALUES (?, ?, ?, ?)`
         )
-        .bind(id, effectiveTenantId, phone, name ?? null, now, now, now)
+        .bind(id, effectiveTenantId, phone, name ?? null)
         .run();
 
       const tier = getLoyaltyTier(0);

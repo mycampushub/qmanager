@@ -3,6 +3,7 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { verifyToken } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
 
 // ─── POST: Submit feedback (public for ticket holders, auth optional) ─
 
@@ -76,12 +77,11 @@ export async function POST(req: NextRequest) {
     }
 
     const newId = crypto.randomUUID();
-    const now = new Date().toISOString();
 
     await d1.prepare(
-      `INSERT INTO feedback (id, tenant_id, ticket_id, rating, comment, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(newId, tenantId, ticketId, Math.round(rating), comment || null, now).run();
+      `INSERT INTO feedback (id, tenant_id, ticket_id, rating, comment)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(newId, tenantId, ticketId, Math.round(rating), comment || null).run();
 
     return NextResponse.json(
       {
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
           ticketId,
           rating: Math.round(rating),
           comment: comment || null,
-          createdAt: now,
+          createdAt: dbNow(),
         },
       },
       { status: 201 }

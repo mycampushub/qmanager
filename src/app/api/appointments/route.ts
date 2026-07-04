@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
 
 const TICKET_COST_CENTS = 100;
 
@@ -229,12 +230,10 @@ export const POST = withAuth(
         .first<{ max_tpd: number }>();
 
       if (tenantRow) {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+        const todayStr = dbNow().slice(0, 10);
 
         const [ticketCount, apptCount] = await d1.batch([
-          d1.prepare('SELECT count(*) as cnt FROM tickets WHERE tenant_id = ? AND created_at >= ?').bind(effectiveTenantId, todayStart.toISOString()),
+          d1.prepare("SELECT count(*) as cnt FROM tickets WHERE tenant_id = ? AND created_at >= datetime('now', 'start of day')").bind(effectiveTenantId),
           d1.prepare("SELECT count(*) as cnt FROM appointments WHERE tenant_id = ? AND scheduled_date = ? AND status NOT IN ('CANCELLED', 'NO_SHOW')").bind(effectiveTenantId, todayStr),
         ]);
 
@@ -251,12 +250,11 @@ export const POST = withAuth(
 
       // Create appointment
       const newId = crypto.randomUUID();
-      const now = new Date().toISOString();
 
       await d1.prepare(
-        `INSERT INTO appointments (id, tenant_id, queue_id, customer_name, customer_phone, scheduled_date, scheduled_time, notes, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, ?)`
-      ).bind(newId, effectiveTenantId, queueId, customerName, customerPhone || null, scheduledDate, scheduledTime, notes || null, now, now).run();
+        `INSERT INTO appointments (id, tenant_id, queue_id, customer_name, customer_phone, scheduled_date, scheduled_time, notes, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED')`
+      ).bind(newId, effectiveTenantId, queueId, customerName, customerPhone || null, scheduledDate, scheduledTime, notes || null).run();
 
       const appointment = {
         id: newId,
@@ -269,8 +267,8 @@ export const POST = withAuth(
         status: 'SCHEDULED',
         notes: notes || null,
         ticketId: null,
-        createdAt: now,
-        updatedAt: now,
+        createdAt: dbNow(),
+        updatedAt: dbNow(),
       };
 
       return NextResponse.json({ appointment }, { status: 201 });
@@ -347,7 +345,7 @@ export const PUT = withAuth(
           );
         }
 
-        const now = new Date().toISOString();
+        const now = dbNow();
         const ticketId = crypto.randomUUID();
         const ledgerId = crypto.randomUUID();
         const txnId = crypto.randomUUID();
@@ -372,8 +370,8 @@ export const PUT = withAuth(
 
         // Execute all writes in a batch (D1 transaction)
         await d1.batch([
-          d1.prepare('UPDATE queues SET current_serial = ?, updated_at = ? WHERE id = ?').bind(newSerial, now, appointment.queue_id),
-          d1.prepare('UPDATE tenants SET wallet_balance = wallet_balance - ?, updated_at = ? WHERE id = ?').bind(TICKET_COST_CENTS, now, appointment.tenant_id),
+          d1.prepare("UPDATE queues SET current_serial = ?, updated_at = datetime('now') WHERE id = ?").bind(newSerial, appointment.queue_id),
+          d1.prepare("UPDATE tenants SET wallet_balance = wallet_balance - ?, updated_at = datetime('now') WHERE id = ?").bind(TICKET_COST_CENTS, appointment.tenant_id),
           d1.prepare(
             `INSERT INTO tickets (id, tenant_id, queue_id, serial_number, status, customer_name, customer_phone, created_at)
              VALUES (?, ?, ?, ?, 'WAITING', ?, ?, ?)`
@@ -382,12 +380,12 @@ export const PUT = withAuth(
             `INSERT INTO usage_ledgers (id, tenant_id, ticket_id, cost_cents, created_at) VALUES (?, ?, ?, ?, ?)`
           ).bind(ledgerId, appointment.tenant_id, ticketId, TICKET_COST_CENTS, now),
           d1.prepare(
-            `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by, created_at)
-             VALUES (?, ?, 'TICKET_CHARGE', ?, ?, ?, ?)`
-          ).bind(txnId, appointment.tenant_id, -TICKET_COST_CENTS, `Ticket from appointment ${appointment.id}`, user.userId, now),
+            `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by)
+             VALUES (?, ?, 'TICKET_CHARGE', ?, ?, ?)`
+          ).bind(txnId, appointment.tenant_id, -TICKET_COST_CENTS, `Ticket from appointment ${appointment.id}`, user.userId),
           d1.prepare(
-            `UPDATE appointments SET status = 'CHECKED_IN', ticket_id = ?, updated_at = ? WHERE id = ?`
-          ).bind(ticketId, now, id),
+            "UPDATE appointments SET status = 'CHECKED_IN', ticket_id = ?, updated_at = datetime('now') WHERE id = ?"
+          ).bind(ticketId, id),
         ]);
 
         const newBalance = tenant.wallet_balance - TICKET_COST_CENTS;
@@ -422,10 +420,9 @@ export const PUT = withAuth(
       }
 
       // Handle CANCELLED / NO_SHOW / SERVING / COMPLETED — simple update
-      const now = new Date().toISOString();
       await d1
-        .prepare('UPDATE appointments SET status = ?, updated_at = ? WHERE id = ?')
-        .bind(status, now, id)
+        .prepare("UPDATE appointments SET status = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(status, id)
         .run();
 
       // Fetch updated
@@ -479,10 +476,9 @@ export const DELETE = withAuth(
         );
       }
 
-      const now = new Date().toISOString();
       await d1
-        .prepare("UPDATE appointments SET status = 'CANCELLED', updated_at = ? WHERE id = ?")
-        .bind(now, id)
+        .prepare("UPDATE appointments SET status = 'CANCELLED', updated_at = datetime('now') WHERE id = ?")
+        .bind(id)
         .run();
 
       // Fetch updated

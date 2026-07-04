@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { authenticateRequest, rateLimit, type JwtPayload } from '@/lib/auth';
+import { getD1FromEnv } from '@/lib/db';
 
 type RequireRole = 'PLATFORM_ADMIN' | 'MASTER_TENANT_ADMIN' | 'MANAGER' | 'AGENT';
 
@@ -70,6 +71,24 @@ export function withAuth<T extends AuthenticatedRequest>(
     }
 
     const user = authResult.user;
+
+    // Active account check (platform_admins table has no is_active column)
+    try {
+      const d1 = await getD1FromEnv();
+      if (user.type === 'staff') {
+        const row = await d1.prepare('SELECT is_active FROM users WHERE id = ?').bind(user.userId).first<{ is_active: number }>();
+        if (!row || !row.is_active) {
+          return NextResponse.json({ error: 'Account is deactivated. Contact your manager.' }, { status: 403 });
+        }
+      } else if (user.type === 'master_tenant_admin') {
+        const row = await d1.prepare('SELECT is_active FROM master_tenant_admins WHERE id = ?').bind(user.userId).first<{ is_active: number }>();
+        if (!row || !row.is_active) {
+          return NextResponse.json({ error: 'Account is deactivated.' }, { status: 403 });
+        }
+      }
+    } catch {
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
 
     // Role check
     if (options?.roles && options.roles.length > 0) {

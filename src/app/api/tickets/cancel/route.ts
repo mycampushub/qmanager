@@ -3,26 +3,8 @@ import { getD1FromEnv } from '@/lib/db';
 import { authenticateRequest, rateLimit } from '@/lib/auth';
 import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
-
-// Helper: convert snake_case DB row to camelCase
-function toCamel(row: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const key of Object.keys(row)) {
-    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
-    result[camelKey] = row[key];
-  }
-  return result;
-}
-
-// Helper: get client IP
-function getClientIp(req: NextRequest): string {
-  return (
-    req.headers.get('cf-connecting-ip') ||
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    'unknown'
-  );
-}
+import { dbNow } from '@/lib/datetime';
+import { getClientIp, toCamel } from '@/lib/utils';
 
 interface TicketWithQueue {
   id: string;
@@ -152,7 +134,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const nowISO = new Date().toISOString();
+    const nowISO = dbNow();
 
     // A5: Cancel ticket with conditional WHERE to prevent double-refund race
     const cancelResult = await d1
@@ -182,21 +164,20 @@ export async function POST(req: NextRequest) {
       await d1.batch([
         d1
           .prepare(
-            'UPDATE tenants SET wallet_balance = wallet_balance + ?, updated_at = ? WHERE id = ?'
+            "UPDATE tenants SET wallet_balance = wallet_balance + ?, updated_at = datetime('now') WHERE id = ?"
           )
-          .bind(ledger.cost_cents, nowISO, tenantId),
+          .bind(ledger.cost_cents, tenantId),
         d1
           .prepare(
-            `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by, created_at)
-             VALUES (?, ?, 'REFUND', ?, ?, ?, ?)`
+            `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by)
+             VALUES (?, ?, 'REFUND', ?, ?, ?)`
           )
           .bind(
             crypto.randomUUID(),
             tenantId,
             ledger.cost_cents,
             `Refund for cancelled ticket ${ticket.queue_prefix}${String(ticket.serial_number).padStart(3, '0')}`,
-            userId,
-            nowISO
+            userId
           ),
       ]);
     }
@@ -205,8 +186,8 @@ export async function POST(req: NextRequest) {
     if (isStaff) {
       await d1
         .prepare(
-          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
+           VALUES (?, ?, ?, ?, ?, ?)`
         )
         .bind(
           crypto.randomUUID(),
@@ -218,8 +199,7 @@ export async function POST(req: NextRequest) {
             queueId: ticket.queue_id,
             previousStatus: ticket.status,
           }),
-          ip,
-          nowISO
+          ip
         )
         .run();
     }

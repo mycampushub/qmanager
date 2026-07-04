@@ -3,6 +3,7 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 import { analyticsToCSV } from '@/lib/csv-export';
+import { dbNow } from '@/lib/datetime';
 
 export const GET = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
@@ -213,7 +214,7 @@ export const GET = withAuth(
         peakHour: `${String(peakHour).padStart(2, '0')}:00`,
         queueStats,
         recentActivity,
-        exportedAt: new Date().toISOString(),
+        exportedAt: dbNow(),
       };
 
       // ── Format switch ──────────────────────────────────────────────────
