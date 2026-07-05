@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import type { NextMiddleware } from 'next/server';
 
-export function middleware(request: NextRequest) {
+const middleware: NextMiddleware = (request: NextRequest) => {
   const response = NextResponse.next();
 
   // Security headers
@@ -12,7 +13,9 @@ export function middleware(request: NextRequest) {
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
   return response;
-}
+};
+
+export default middleware;
 
 export const config = {
   matcher: [

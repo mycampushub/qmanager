@@ -1,12 +1,12 @@
 'use client';
 
-import dynamic from 'next/dynamic';
-
-const DashboardView = dynamic(
-  () => import('@/components/views/DashboardView'),
-  { ssr: false }
-);
+import { Suspense } from 'react';
+import DashboardView from '@/components/views/DashboardView';
 
 export default function DashboardPage() {
-  return <DashboardView />;
+  return (
+    <Suspense fallback={null}>
+      <DashboardView />
+    </Suspense>
+  );
 }

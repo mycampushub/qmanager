@@ -1,8 +1,7 @@
 // =============================================================================
-// QueueFlow — API Auth Wrapper (Cloudflare Workers version)
+// QueueFlow — API Auth Wrapper (Local SQLite version)
 //
-// Uses KV from Cloudflare env for distributed rate limiting.
-// Falls back to in-memory rate limiting when KV is not available.
+// Uses in-memory rate limiting (KV removed for local dev).
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,7 +9,6 @@ import { authenticateRequest, rateLimit, type JwtPayload } from '@/lib/auth';
 export type { JwtPayload };
 import { getD1FromEnv, type D1Database } from '@/lib/db';
 import { getClientIp } from '@/lib/utils';
-import { getCloudflareContext } from '@opennextjs/cloudflare';
 
 type RequireRole = 'PLATFORM_ADMIN' | 'MASTER_TENANT_ADMIN' | 'MANAGER' | 'AGENT';
 
@@ -33,22 +31,13 @@ export function withAuth<T extends AuthenticatedRequest>(
   }
 ) {
   return async (req: NextRequest) => {
-    // Rate limiting (KV-backed on CF Workers, in-memory fallback)
+    // Rate limiting (in-memory for local dev)
     if (options?.rateLimit) {
       const rl = options.rateLimit;
       const ip = getClientIp(req);
       const key = `${rl.keyPrefix || 'api'}:${ip}`;
 
-      // Try to get KV from Cloudflare context for distributed rate limiting
-      let kv: KVNamespace | undefined;
-      try {
-        const { env } = await getCloudflareContext({ async: true });
-        kv = env.RATE_LIMIT_KV;
-      } catch {
-        // KV not available, use in-memory fallback
-      }
-
-      const { allowed, retryAfterMs } = await rateLimit(key, rl.max ?? 60, rl.windowMs ?? 60_000, kv);
+      const { allowed, retryAfterMs } = await rateLimit(key, rl.max ?? 60, rl.windowMs ?? 60_000);
       if (!allowed) {
         return NextResponse.json(
           { error: 'Too many requests. Please try again later.' },

@@ -154,9 +154,9 @@ export async function ensureDemoData(d1: D1Database): Promise<void> {
     return;
   }
 
-  const adminHash = await hashPassword('Admin@2024!Secure');
-  const managerHash = await hashPassword('Manager@2024!Secure');
-  const agentHash = await hashPassword('Agent@2024!Secure');
+  const adminHash = await hashPassword('admin123');
+  const managerHash = await hashPassword('manager123');
+  const agentHash = await hashPassword('agent123');
 
   await d1.batch([
     d1.prepare(`INSERT OR IGNORE INTO platform_admins (id, email, name, password_hash) VALUES ('admin-001', 'admin@yourqueueapp.com', 'System Admin', ?)`).bind(adminHash),

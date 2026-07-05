@@ -1,19 +1,28 @@
 // =============================================================================
-// QueueFlow — Storage API (Cloudflare R2)
+// QueueFlow — Storage API (Local File System)
 //
-// GET    — Download a file from R2
-// POST   — Upload a file to R2 (multipart/form-data)
-// DELETE — Delete a file from R2
+// GET    — Download a file
+// POST   — Upload a file (multipart/form-data)
+// DELETE — Delete a file
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { withAuth } from '@/lib/api-auth';
+import fs from 'fs';
+import path from 'path';
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
 ]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+const UPLOAD_DIR = path.join(process.cwd(), 'db', 'uploads');
+
+function ensureUploadDir() {
+  if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
+}
 
 // GET /api/storage/logos/tenant-123/logo.png
 export async function GET(
@@ -22,27 +31,31 @@ export async function GET(
 ) {
   const { key } = await params;
   const fileKey = key.join('/');
+  const filePath = path.join(UPLOAD_DIR, fileKey);
 
   try {
-    const { env } = await getCloudflareContext({ async: true });
-    const object = await env.STORAGE.get(fileKey);
-
-    if (!object) {
+    if (!fs.existsSync(filePath)) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    const headers = new Headers();
-    if (object.httpMetadata?.contentType) {
-      headers.set('Content-Type', object.httpMetadata.contentType);
-    }
-    headers.set('Content-Length', String(object.size));
-    headers.set('ETag', object.etag);
-    headers.set('Cache-Control', 'public, max-age=86400');
-    if (object.uploaded) {
-      headers.set('Last-Modified', new Date(object.uploaded).toISOString());
-    }
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+    }[ext] || 'application/octet-stream';
 
-    return new Response(object.body, { headers });
+    return new Response(buffer, {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(buffer.length),
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
   } catch (err) {
     console.error('[Storage] GET error:', err);
     return NextResponse.json({ error: 'Failed to retrieve file' }, { status: 500 });
@@ -60,7 +73,7 @@ export async function POST(
   return withAuth(
     async (req) => {
       try {
-        const { env } = await getCloudflareContext({ async: true });
+        ensureUploadDir();
         const formData = await req.formData();
         const file = formData.get('file') as File | null;
 
@@ -88,10 +101,16 @@ export async function POST(
         const ext = file.type.split('/')[1]?.replace('svg+xml', 'svg') || 'bin';
         const fileId = crypto.randomUUID();
         const fullKey = `${prefix}/${fileId}.${ext}`;
+        const filePath = path.join(UPLOAD_DIR, fullKey);
 
-        await env.STORAGE.put(fullKey, file.stream(), {
-          httpMetadata: { contentType: file.type },
-        });
+        // Ensure directory exists
+        const dirPath = path.dirname(filePath);
+        if (!fs.existsSync(dirPath)) {
+          fs.mkdirSync(dirPath, { recursive: true });
+        }
+
+        const buffer = Buffer.from(await file.arrayBuffer());
+        fs.writeFileSync(filePath, buffer);
 
         return NextResponse.json({
           key: fullKey,
@@ -119,8 +138,10 @@ export async function DELETE(
   return withAuth(
     async (req) => {
       try {
-        const { env } = await getCloudflareContext({ async: true });
-        await env.STORAGE.delete(fileKey);
+        const filePath = path.join(UPLOAD_DIR, fileKey);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
         return NextResponse.json({ success: true, key: fileKey });
       } catch (err) {
         console.error('[Storage] DELETE error:', err);
