@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
 
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -71,7 +72,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       const queueId = req.nextUrl.searchParams.get('queueId');
 
@@ -121,7 +122,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { tenantId, queueId, dayOfWeek, openTime, closeTime, isClosed } = body as {
         tenantId?: string;
@@ -182,12 +183,11 @@ export const POST = withAuth(
       }
 
       const newId = crypto.randomUUID();
-      const now = new Date().toISOString();
 
       await d1.prepare(
-        `INSERT INTO service_windows (id, tenant_id, queue_id, day_of_week, open_time, close_time, is_closed, is_active, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-      ).bind(newId, effectiveTenantId, queueId || null, dayOfWeek, openTime, closeTime, isClosed ? 1 : 0, now, now).run();
+        `INSERT INTO service_windows (id, tenant_id, queue_id, day_of_week, open_time, close_time, is_closed, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+      ).bind(newId, effectiveTenantId, queueId || null, dayOfWeek, openTime, closeTime, isClosed ? 1 : 0).run();
 
       // Fetch created window with queue info
       const created = await d1.prepare(
@@ -205,7 +205,7 @@ export const POST = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'] }
+  { roles: ['MANAGER'], csrf: true }
 );
 
 // ─── PUT: Update service window ─────────────────────────────────
@@ -215,7 +215,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { id, dayOfWeek, openTime, closeTime, isClosed, queueId } = body as {
         id: string;
@@ -248,7 +248,6 @@ export const PUT = withAuth(
 
       const setClauses: string[] = [];
       const values: unknown[] = [];
-      const now = new Date().toISOString();
 
       if (dayOfWeek !== undefined) {
         if (typeof dayOfWeek !== 'number' || dayOfWeek < 0 || dayOfWeek > 6) {
@@ -329,8 +328,7 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
       }
 
-      setClauses.push('updated_at = ?');
-      values.push(now);
+      setClauses.push("updated_at = datetime('now')");
       values.push(id); // WHERE id = ?
 
       await d1
@@ -354,7 +352,7 @@ export const PUT = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'] }
+  { roles: ['MANAGER'], csrf: true }
 );
 
 // ─── DELETE: Soft-delete service window ─────────────────────────
@@ -364,7 +362,7 @@ export const DELETE = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const id = req.nextUrl.searchParams.get('id');
       if (!id) {
         return NextResponse.json({ error: 'id query param is required' }, { status: 400 });
@@ -387,8 +385,8 @@ export const DELETE = withAuth(
       }
 
       await d1
-        .prepare('UPDATE service_windows SET is_active = 0, updated_at = ? WHERE id = ?')
-        .bind(new Date().toISOString(), id)
+        .prepare("UPDATE service_windows SET is_active = 0, updated_at = datetime('now') WHERE id = ?")
+        .bind(id)
         .run();
 
       return NextResponse.json({ success: true });
@@ -397,5 +395,5 @@ export const DELETE = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'] }
+  { roles: ['MANAGER'], csrf: true }
 );

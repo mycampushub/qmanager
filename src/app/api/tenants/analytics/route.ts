@@ -51,7 +51,7 @@ export const GET = withAuth(
       if (dateToISO) { dateConditions.push('created_at <= ?'); dateBinds.push(dateToISO); }
       const dateWhere = dateConditions.length > 0 ? `AND ${dateConditions.join(' AND ')}` : '';
 
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       // ── Overall stats ──────────────────────────────────────────────────
       const [totalResult, completedResult, skippedResult] = await Promise.all([

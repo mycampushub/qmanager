@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
+import { getClientIp } from '@/lib/utils';
+import { sendWebPush } from '@/lib/web-push';
 
 // Send push notification (and SMS stub)
 export const POST = withAuth(
@@ -9,15 +11,16 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
-      const { tenantId, ticketId, event, message, title, body: notifBody } = body as {
+      const { tenantId, ticketId, event, message, title, body: notifBody, data } = body as {
         tenantId: string;
         ticketId: string;
         event: string;
         message?: string;
         title?: string;
         body?: string;
+        data?: Record<string, unknown>;
       };
 
       if (!tenantId) {
@@ -33,7 +36,13 @@ export const POST = withAuth(
       }
 
       // C11: Validate event against whitelist
-      const VALID_EVENTS = ['TICKET_CALLED', 'TICKET_COMPLETED', 'TICKET_SKIPPED', 'TICKET_CANCELLED', 'QUEUE_UPDATED'];
+      const VALID_EVENTS = [
+        'TICKET_CALLED',
+        'TICKET_COMPLETED',
+        'TICKET_SKIPPED',
+        'TICKET_CANCELLED',
+        'QUEUE_UPDATED',
+      ];
       if (!ticketId || !event) {
         return NextResponse.json({ error: 'ticketId and event are required' }, { status: 400 });
       }
@@ -67,15 +76,56 @@ export const POST = withAuth(
 
       // Look up push subscriptions for this ticket
       const subResult = await d1
-        .prepare('SELECT id, endpoint, keys_json FROM push_subscriptions WHERE tenant_id = ? AND ticket_id = ?')
+        .prepare(
+          'SELECT id, endpoint, keys_json FROM push_subscriptions WHERE tenant_id = ? AND ticket_id = ?'
+        )
         .bind(tenantId, ticketId)
         .all<{ id: string; endpoint: string; keys_json: string }>();
 
-      let pushSent = 0;
+      // Build notification data payload
+      const notifData = {
+        event,
+        ticketId,
+        tenantId,
+        ...(data || {}),
+      };
 
-      for (const _sub of subResult.results) {
-        // Web Push notification (stub - actual implementation needs VAPID keys)
-        pushSent++;
+      // Send Web Push notifications to each subscription
+      let pushSent = 0;
+      let pushFailed = 0;
+      const expiredSubIds: string[] = [];
+
+      for (const sub of subResult.results) {
+        const result = await sendWebPush(sub.endpoint, sub.keys_json, {
+          title,
+          body: notifBody,
+          data: notifData,
+        });
+
+        if (result.success) {
+          pushSent++;
+        } else {
+          pushFailed++;
+          if (result.expired) {
+            expiredSubIds.push(sub.id);
+          } else {
+            console.warn(
+              `[WebPush] Failed to send to ${sub.endpoint}: ${result.error}`
+            );
+          }
+        }
+      }
+
+      // Clean up expired subscriptions in batch
+      if (expiredSubIds.length > 0) {
+        const placeholders = expiredSubIds.map(() => '?').join(', ');
+        await d1
+          .prepare(`DELETE FROM push_subscriptions WHERE id IN (${placeholders})`)
+          .bind(...expiredSubIds)
+          .run();
+        console.log(
+          `[WebPush] Cleaned up ${expiredSubIds.length} expired subscription(s)`
+        );
       }
 
       // SMS stub
@@ -88,23 +138,31 @@ export const POST = withAuth(
       }
 
       // Audit log
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
 
-      const now = new Date().toISOString();
-      await d1.prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-         VALUES (?, ?, ?, 'NOTIFICATION_SEND', ?, ?, ?)`
-      ).bind(
-        crypto.randomUUID(), user.userId, user.type,
-        JSON.stringify({ tenantId, ticketId, event, message, pushSent, smsPrepared }),
-        ip, now
-      ).run();
+      await d1
+        .prepare(
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
+           VALUES (?, ?, ?, 'NOTIFICATION_SEND', ?, ?)`
+        )
+        .bind(
+          crypto.randomUUID(),
+          user.userId,
+          user.type,
+          JSON.stringify({
+            tenantId,
+            ticketId,
+            event,
+            message,
+            pushSent,
+            pushFailed,
+            smsPrepared,
+          }),
+          ip
+        )
+        .run();
 
-      return NextResponse.json({ success: true, pushSent, smsPrepared });
+      return NextResponse.json({ success: true, sent: pushSent, failed: pushFailed, smsPrepared });
     } catch (error) {
       console.error('Send notification error:', error);
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

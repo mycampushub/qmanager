@@ -1,22 +1,30 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, ArrowLeft, Clock, Users, Timer, CheckCircle2, Monitor, Tv } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { ArrowLeft, Clock, Users, Timer, CheckCircle2, QrCode } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAppStore } from '@/stores/app-store';
 import { useQueueWebSocket } from '@/hooks/use-queue-ws';
 import type { Tenant, Queue, BrandingConfig } from '@/lib/types';
+import { QRCodeDisplay } from '@/components/QRCode';
 
 /* ------------------------------------------------------------------ */
-/*  Audio chime via Web Audio API                                      */
+/*  Audio chime via Web Audio API (singleton AudioContext)             */
 /* ------------------------------------------------------------------ */
+let audioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext {
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+  }
+  return audioCtx;
+}
+
 function playChime() {
   try {
-    const ctx = new AudioContext();
+    const ctx = getAudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -52,104 +60,6 @@ function waitColor(count: number): string {
   return 'text-red-400';
 }
 
-
-/* ------------------------------------------------------------------ */
-/*  Tenant Selection Screen                                            */
-/* ------------------------------------------------------------------ */
-function TenantSelection() {
-  const { tenants, setTenants, setDisplayTenantId, setCurrentView } = useAppStore();
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchTenants() {
-      try {
-        const res = await fetch('/api/tenants');
-        const data = await res.json();
-        if (data.tenants) setTenants(data.tenants);
-      } catch {
-        // silently handle
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchTenants();
-  }, [setTenants]);
-
-  return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8">
-      {/* Background decoration */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl" />
-      </div>
-
-      <div className="relative z-10 w-full max-w-5xl">
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <Tv className="w-10 h-10 text-emerald-400" />
-            <h1 className="text-5xl font-bold text-white">TV Display</h1>
-          </div>
-          <p className="text-xl text-slate-400">Select a business location to display on this screen</p>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
-          </div>
-        ) : tenants.length === 0 ? (
-          <div className="text-center py-20">
-            <Building2 className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-            <p className="text-2xl text-slate-500">No business locations found</p>
-            <p className="text-slate-600 mt-2">Please create a tenant first from the dashboard.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tenants.map((tenant) => (
-              <motion.div
-                key={tenant.id}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <Card
-                  className="cursor-pointer border-slate-800 bg-slate-900 hover:border-emerald-500/50 hover:bg-slate-800/80 transition-all duration-300 py-0"
-                  onClick={() => setDisplayTenantId(tenant.id)}
-                >
-                  <CardContent className="p-8 flex flex-col items-center text-center gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
-                      <Building2 className="w-8 h-8 text-emerald-400" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-semibold text-white">{tenant.name}</h3>
-                      {tenant.masterTenant && (
-                        <p className="text-sm text-slate-500 mt-1">{tenant.masterTenant.corporateName}</p>
-                      )}
-                    </div>
-                    <Badge variant="outline" className="border-slate-700 text-slate-400">
-                      <Monitor className="w-3 h-3 mr-1" />
-                      {tenant._queueCount ?? 0} {tenant._queueCount === 1 ? 'Queue' : 'Queues'}
-                    </Badge>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-12 text-center">
-          <Button
-            variant="ghost"
-            size="lg"
-            className="text-slate-500 hover:text-white hover:bg-slate-800"
-            onClick={() => setCurrentView('marketing')}
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Home
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Flash overlay that fires on TICKET_CALLED                          */
@@ -232,7 +142,7 @@ function TickerBar({ items, accentColor }: { items: CompletedTicket[]; accentCol
 /* ------------------------------------------------------------------ */
 function MainDisplay({ tenantId }: { tenantId: string }) {
   const { setDisplayTenantId, setCurrentView } = useAppStore();
-  const { isConnected, lastEvent, clearLastEvent } = useQueueWebSocket(tenantId);
+  const { lastEvent, clearLastEvent } = useQueueWebSocket(tenantId);
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [branding, setBranding] = useState<BrandingConfig | null>(null);
@@ -250,15 +160,11 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
     return () => clearInterval(interval);
   }, []);
 
-  /* Fetch tenant + branding */
+  /* Fetch tenant + branding (both public, no auth needed) */
   const fetchTenantData = useCallback(async () => {
     try {
       const [tenantRes, brandingRes] = await Promise.all([
-        fetch('/api/tenants', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId }),
-        }),
+        fetch(`/api/tenants/${tenantId}/display`),
         fetch(`/api/tenants/branding?tenantId=${tenantId}`),
       ]);
 
@@ -276,22 +182,10 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
     }
   }, [tenantId]);
 
-  /* Initial fetch + adaptive polling: 5s when WS disconnected, 30s when connected */
+  /* Initial fetch — hook polling (3s) handles subsequent refreshes */
   useEffect(() => {
-    const poll = () => {
-      // Use shorter interval when WebSocket is disconnected
-      const intervalMs = isConnected ? 30000 : 5000;
-      const timer = setTimeout(() => {
-        fetchTenantData();
-        poll();
-      }, intervalMs);
-      return timer;
-    };
-    // Fire first fetch via microtask to avoid synchronous setState in effect
-    queueMicrotask(fetchTenantData);
-    const timer = poll();
-    return () => clearTimeout(timer);
-  }, [fetchTenantData, isConnected]);
+    fetchTenantData();
+  }, [fetchTenantData]);
 
   /* Rotate active queue for the big "NOW SERVING" display */
   const queues = useMemo(() => tenant?._queues ?? [], [tenant]);
@@ -315,7 +209,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
         setFlashActive(true);
         fetchTenantData();
         // Find the queue that was called and focus it
-        const queueId = lastEvent.payload.queueId as string | undefined;
+        const queueId = lastEvent.payload?.queueId as string | undefined;
         if (queueId) {
           const idx = queues.findIndex((q) => q.id === queueId);
           if (idx >= 0) setActiveQueueIdx(idx);
@@ -324,7 +218,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
       }
 
       if (lastEvent.event === 'TICKET_COMPLETED') {
-        const payload = lastEvent.payload;
+        const payload = lastEvent.payload ?? {};
         const serialNumber = payload.serialNumber as number | undefined;
         const prefix = payload.prefix as string | undefined;
         const queueName = payload.queueName as string | undefined;
@@ -584,17 +478,52 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
       {/* ---- TICKER BAR ---- */}
       <TickerBar items={recentlyCompleted} accentColor={accentColor} />
 
+      {/* QR Code — Scan to Join (bottom-right) */}
+      <div className="fixed bottom-6 right-6 z-20 flex flex-col items-center gap-1.5 bg-slate-900/90 border border-slate-700/50 rounded-xl p-2.5 backdrop-blur-sm">
+        <QRCodeDisplay
+          value={`${window.location.origin}/?tenant=${tenant.id}`}
+          size={90}
+          bgColor="transparent"
+          fgColor="#94a3b8"
+        />
+        <div className="flex items-center gap-1 text-slate-500">
+          <QrCode className="w-3 h-3" />
+          <span className="text-[10px] font-medium">Scan to Join</span>
+        </div>
+      </div>
+
       {/* Exit button (subtle, for admin use) */}
       <button
         onClick={() => {
           setDisplayTenantId(null);
           setCurrentView('marketing');
         }}
-        className="fixed bottom-20 right-6 z-20 w-10 h-10 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-600 hover:text-white hover:border-slate-600 transition-colors opacity-30 hover:opacity-100"
+        className="fixed bottom-32 right-6 z-20 w-10 h-10 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-600 hover:text-white hover:border-slate-600 transition-colors opacity-30 hover:opacity-100"
         aria-label="Exit display"
       >
         <ArrowLeft className="w-4 h-4" />
       </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  No Tenant ID — redirect to marketing                               */
+/* ------------------------------------------------------------------ */
+function NoTenantRedirect() {
+  const { setCurrentView } = useAppStore();
+
+  useEffect(() => {
+    // TV Display must be opened via direct link: /?display=<tenant-id>
+    setCurrentView('marketing');
+  }, [setCurrentView]);
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-slate-400">Redirecting...</p>
+      </div>
     </div>
   );
 }
@@ -606,7 +535,7 @@ export default function DisplayView() {
   const displayTenantId = useAppStore((s) => s.displayTenantId);
 
   if (!displayTenantId) {
-    return <TenantSelection />;
+    return <NoTenantRedirect />;
   }
 
   return <MainDisplay tenantId={displayTenantId} />;

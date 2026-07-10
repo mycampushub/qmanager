@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getD1FromEnv } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
+import { getClientIp } from '@/lib/utils';
 
 const TICKET_COST_CENTS = 100;
 
@@ -46,11 +47,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit: 30 per minute per tenant
-    const ip =
-      req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      req.headers.get('x-real-ip') ||
-      'unknown';
+    const ip = getClientIp(req);
     const { allowed, retryAfterMs } = await rateLimit(
       `join:${ip}:${tenantId}`,
       30,
@@ -66,7 +63,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     // Platform-level checks (tenant existence, plan limit)
     const platformTenant = await d1
@@ -154,7 +151,7 @@ export async function POST(req: NextRequest) {
       const isWithinWindow = openWindows.some(
         (w) => {
           const rec = w as Record<string, unknown>;
-          return rec.open_time <= currentTime && currentTime < rec.close_time;
+          return String(rec.open_time) <= currentTime && currentTime < String(rec.close_time);
         }
       );
       if (!isWithinWindow) {
@@ -201,7 +198,7 @@ export async function POST(req: NextRequest) {
     if (customerPhone) {
       const existingTicket = await d1
         .prepare(
-          `SELECT t.*, q.name as queue_name, q.prefix as queue_prefix
+          `SELECT t.id, t.serial_number, q.name as queue_name, q.prefix as queue_prefix
            FROM tickets t
            JOIN queues q ON t.queue_id = q.id
            WHERE t.tenant_id = ? AND t.customer_phone = ? AND t.status IN (?, ?)
@@ -209,6 +206,7 @@ export async function POST(req: NextRequest) {
         )
         .bind(tenantId, customerPhone, 'WAITING', 'SERVING')
         .first<{
+          id: string;
           serial_number: number;
           queue_name: string;
           queue_prefix: string;
@@ -218,7 +216,10 @@ export async function POST(req: NextRequest) {
         const serial = `${existingTicket.queue_prefix}${String(existingTicket.serial_number).padStart(3, '0')}`;
         return NextResponse.json(
           {
+            code: 'DUPLICATE_TICKET',
             error: `You already have an active ticket (${serial}) in queue "${existingTicket.queue_name}"`,
+            existingTicketId: existingTicket.id,
+            existingTenantId: tenantId,
           },
           { status: 400 }
         );

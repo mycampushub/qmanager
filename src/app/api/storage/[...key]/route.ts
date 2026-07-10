@@ -1,6 +1,5 @@
 // =============================================================================
-// QueueFlow — R2 Storage API (file upload/download proxy)
-// Route: /api/storage/[...key]
+// QueueFlow — R2 Storage API (Cloudflare Workers)
 //
 // GET    — Download a file from R2
 // POST   — Upload a file to R2 (multipart/form-data)
@@ -8,19 +7,12 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getR2FromEnv } from '@/lib/db';
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
 ]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-
-function getStorageBucket(): R2Bucket {
-  const env = globalThis as unknown as { STORAGE?: R2Bucket };
-  if (!env.STORAGE) {
-    throw new Error('R2 STORAGE binding not found. Ensure STORAGE is bound in wrangler.toml.');
-  }
-  return env.STORAGE;
-}
 
 // GET /api/storage/logos/tenant-123/logo.png
 export async function GET(
@@ -31,19 +23,24 @@ export async function GET(
   const fileKey = key.join('/');
 
   try {
-    const bucket = getStorageBucket();
-    const object = await bucket.get(fileKey);
+    const r2 = await getR2FromEnv();
+    const object = await r2.get(fileKey);
 
     if (!object) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
     const headers = new Headers();
-    headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+    if (object.httpMetadata?.contentType) {
+      headers.set('Content-Type', object.httpMetadata.contentType);
+    } else {
+      headers.set('Content-Type', 'application/octet-stream');
+    }
     headers.set('Content-Length', String(object.size));
-    headers.set('ETag', object.etag);
     headers.set('Cache-Control', 'public, max-age=86400');
-    headers.set('Last-Modified', object.uploaded.toISOString());
+    if (object.etag) {
+      headers.set('ETag', object.etag);
+    }
 
     return new Response(object.body, { headers });
   } catch (err) {
@@ -80,10 +77,9 @@ export async function POST(
     const fileId = crypto.randomUUID();
     const fullKey = `${prefix}/${fileId}.${ext}`;
 
-    const bucket = getStorageBucket();
-    await bucket.put(fullKey, await file.arrayBuffer(), {
+    const r2 = await getR2FromEnv();
+    await r2.put(fullKey, await file.arrayBuffer(), {
       httpMetadata: { contentType: file.type },
-      customMetadata: { uploadedAt: new Date().toISOString(), originalName: file.name },
     });
 
     return NextResponse.json({
@@ -107,8 +103,8 @@ export async function DELETE(
   const fileKey = key.join('/');
 
   try {
-    const bucket = getStorageBucket();
-    await bucket.delete(fileKey);
+    const r2 = await getR2FromEnv();
+    await r2.delete(fileKey);
     return NextResponse.json({ success: true, key: fileKey });
   } catch (err) {
     console.error('[Storage] DELETE error:', err);

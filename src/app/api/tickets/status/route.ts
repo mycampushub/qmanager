@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getD1FromEnv } from '@/lib/db';
+import { getD1FromEnv, type D1Database } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
 import { withAuth, type JwtPayload } from '@/lib/api-auth';
+import { dbNow } from '@/lib/datetime';
+import { getClientIp } from '@/lib/utils';
 
 // Helper: compute avg service time for a queue
 async function getAvgServiceTime(
@@ -59,6 +61,7 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
+      const d1 = await getD1FromEnv();
 
       // Tenant isolation: verify queue belongs to user's tenant
       const queue = await d1
@@ -111,7 +114,6 @@ export const POST = withAuth(
 
       sql += ' ORDER BY t.created_at DESC LIMIT 1';
 
-      const d1 = getD1FromEnv();
       const ticket = await d1
         .prepare(sql)
         .bind(...bindValues)
@@ -206,29 +208,15 @@ export async function GET(req: NextRequest) {
 
     if (!ticketId && (!phone || !tenantIdParam)) {
       return NextResponse.json(
-        { error: 'Provide ticketId + tenantId OR (phone + tenantId)' },
+        { error: 'Provide ticketId OR (phone + tenantId)' },
         { status: 400 }
       );
     }
 
-    if (ticketId && !tenantIdParam) {
-      return NextResponse.json(
-        {
-          error: 'tenantId is required with ticketId for tenant context routing',
-        },
-        { status: 400 }
-      );
-    }
-
-    const tenantId = tenantIdParam!;
-    const d1 = getD1FromEnv();
+    const d1 = await getD1FromEnv();
 
     // Rate limit
-    const ip =
-      req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      req.headers.get('x-real-ip') ||
-      'unknown';
+    const ip = getClientIp(req);
     const rlKey = ticketId || phone || 'unknown';
     const { allowed, retryAfterMs } = await rateLimit(
       `status:${ip}:${rlKey}`,
@@ -249,15 +237,21 @@ export async function GET(req: NextRequest) {
 
     // Single ticket lookup
     if (ticketId) {
+      // If tenantId is provided, scope lookup; otherwise look up globally
+      let query = `SELECT t.id, t.tenant_id, t.queue_id, t.serial_number, t.status, t.customer_name, t.created_at,
+                          q.name as queue_name, q.prefix as queue_prefix, q.default_service_time_sec as queue_default_service_time_sec
+                   FROM tickets t
+                   JOIN queues q ON t.queue_id = q.id
+                   WHERE t.id = ?`;
+      const binds: unknown[] = [ticketId];
+      if (tenantIdParam) {
+        query += ' AND t.tenant_id = ?';
+        binds.push(tenantIdParam);
+      }
+
       const ticket = await d1
-        .prepare(
-          `SELECT t.id, t.queue_id, t.serial_number, t.status, t.created_at,
-                  q.name as queue_name, q.prefix as queue_prefix, q.default_service_time_sec as queue_default_service_time_sec
-           FROM tickets t
-           JOIN queues q ON t.queue_id = q.id
-           WHERE t.id = ? AND t.tenant_id = ?`
-        )
-        .bind(ticketId, tenantId)
+        .prepare(query)
+        .bind(...binds)
         .first<Record<string, unknown>>();
 
       if (!ticket) {
@@ -267,6 +261,7 @@ export async function GET(req: NextRequest) {
         );
       }
 
+      const ticketTenantId: string = (ticket.tenant_id as string) || tenantIdParam || '';
       const serialNumber = ticket.serial_number as number;
       const waitingAhead = await getWaitingAhead(
         d1,
@@ -276,7 +271,7 @@ export async function GET(req: NextRequest) {
 
       const avgServiceTime = await getAvgServiceTime(
         d1,
-        tenantId,
+        ticketTenantId,
         ticket.queue_id as string,
         ticket.queue_default_service_time_sec as number
       );
@@ -287,18 +282,31 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         ticket: {
           id: ticket.id,
+          tenantId: ticketTenantId,
           queueId: ticket.queue_id,
           serialNumber: ticket.serial_number,
           status: ticket.status,
+          customerName: ticket.customer_name,
           _formattedSerial: formattedSerial,
           _peopleAhead: waitingAhead + 1,
           _ewt: ewt,
           queue: {
             name: ticket.queue_name,
+            prefix: ticket.queue_prefix,
           },
         },
       });
     }
+
+    // Phone+tenantId is required for list lookup
+    if (!phone || !tenantIdParam) {
+      return NextResponse.json(
+        { error: 'tenantId is required with phone for list lookup' },
+        { status: 400 }
+      );
+    }
+
+    const tenantId = tenantIdParam;
 
     // Phone lookup with pagination and date filter
     let countSql =

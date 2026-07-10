@@ -1,13 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Note: For Cloudflare Workers deployment via opennextjs-cloudflare,
-  // "standalone" output is NOT used. The adapter handles the build.
-  // Keep "standalone" for local dev / Docker deployments.
-  output: "standalone",
-
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
 
   reactStrictMode: false,
@@ -15,21 +10,23 @@ const nextConfig: NextConfig = {
   // Allow preview panel cross-origin requests
   allowedDevOrigins: ['https://*.space-z.ai'],
 
-  // Exclude server-only modules from client bundles
+  // Exclude server-only modules from client bundles.
   serverExternalPackages: [
     'jose',
     'bcryptjs',
   ],
 
-  // Headers for security
+  // Security headers (replaces deprecated middleware)
   async headers() {
     return [
       {
-        source: '/(.*)',
+        source: '/((?!_next/static|_next/image|icons|favicon.ico|manifest.json|sw.js|robots.txt).*)',
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-XSS-Protection', value: '1; mode=block' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
         ],
       },
     ];

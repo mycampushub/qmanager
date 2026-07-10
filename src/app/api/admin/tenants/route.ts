@@ -6,7 +6,7 @@ import type { JwtPayload } from '@/lib/auth';
 export const GET = withAuth(
   async (req: NextRequest, _ctx: { user: JwtPayload }) => {
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const page = parseInt(req.nextUrl.searchParams.get('page') || '1', 10);
       const limit = Math.min(
         parseInt(req.nextUrl.searchParams.get('limit') || '20', 10),
@@ -58,34 +58,30 @@ export const GET = withAuth(
 
       const tenantRows = (tenantResult.results as TenantRow[]) ?? [];
 
-      // Enrich with today's ticket count
-      const enriched = await Promise.all(
-        tenantRows.map(async (tenant) => {
-          let todayTicketCount = 0;
-          try {
-            const ticketCount = await d1
-              .prepare('SELECT count(*) as cnt FROM tickets WHERE tenant_id = ? AND created_at >= ?')
-              .bind(tenant.id, todayISO)
-              .first<{ cnt: number }>();
-            todayTicketCount = ticketCount?.cnt ?? 0;
-          } catch {
-            // query failed
-          }
+      // Fetch today's ticket counts in a single GROUP BY query
+      let ticketCounts: Map<string, number> = new Map();
+      try {
+        const countResult = await d1
+          .prepare('SELECT tenant_id, count(*) as cnt FROM tickets WHERE created_at >= ? GROUP BY tenant_id')
+          .bind(todayISO)
+          .all<{ tenant_id: string; cnt: number }>();
+        for (const row of countResult.results) {
+          ticketCounts.set(row.tenant_id, row.cnt);
+        }
+      } catch { /* query failed */ }
 
-          return {
-            id: tenant.id,
-            name: tenant.name,
-            planTier: tenant.plan_tier,
-            walletBalance: tenant.wallet_balance,
-            isActive: tenant.is_active === 1,
-            masterTenant: tenant.mt_id ? { id: tenant.mt_id, corporateName: tenant.mt_name } : null,
-            staffCount: tenant.staff_count,
-            todayTicketCount,
-            createdAt: tenant.created_at,
-            updatedAt: tenant.updated_at,
-          };
-        })
-      );
+      const enriched = tenantRows.map((tenant) => ({
+        id: tenant.id,
+        name: tenant.name,
+        planTier: tenant.plan_tier,
+        walletBalance: tenant.wallet_balance,
+        isActive: tenant.is_active === 1,
+        masterTenant: tenant.mt_id ? { id: tenant.mt_id, corporateName: tenant.mt_name } : null,
+        staffCount: tenant.staff_count,
+        todayTicketCount: ticketCounts.get(tenant.id) ?? 0,
+        createdAt: tenant.created_at,
+        updatedAt: tenant.updated_at,
+      }));
 
       return NextResponse.json({
         tenants: enriched,

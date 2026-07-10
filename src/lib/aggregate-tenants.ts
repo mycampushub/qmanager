@@ -17,7 +17,7 @@ export interface TenantAggregates {
 }
 
 export async function aggregateAcrossTenants(): Promise<TenantAggregates> {
-  const d1 = getD1FromEnv();
+  const d1 = await getD1FromEnv();
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);

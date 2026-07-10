@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev -p 3000 2>&1 | tee dev.log",
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev -p 3000 --webpack 2>&1 | tee dev.log",
     "build": "next build",
     "build:cf": "opennextjs-cloudflare build",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
@@ -60,7 +60,6 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "better-sqlite3": "^12.11.1",
     "bun-types": "^1.3.4",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",

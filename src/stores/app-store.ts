@@ -1,12 +1,24 @@
 import { create } from 'zustand';
 import type { AppView, StaffUser, Ticket, Tenant } from '@/lib/types';
 
+export interface MasterTenantAdminUser {
+  id: string;
+  email: string;
+  name: string;
+  masterTenantId: string;
+  masterTenant: {
+    id: string;
+    corporateName: string;
+    billingStatus: string;
+  };
+}
+
 interface AppState {
   // Navigation
   currentView: AppView;
   setCurrentView: (view: AppView) => void;
 
-  // Auth
+  // Auth (staff/tenant manager)
   authUser: StaffUser | null;
   authToken: string | null;
   setAuth: (user: StaffUser, token: string, csrfToken?: string) => void;
@@ -17,6 +29,12 @@ interface AppState {
   adminToken: string | null;
   setAdminAuth: (user: { id: string; email: string; name: string }, token: string) => void;
   adminLogout: () => void;
+
+  // Master Tenant Admin Auth
+  mtUser: MasterTenantAdminUser | null;
+  mtToken: string | null;
+  setMtAuth: (user: MasterTenantAdminUser, token: string) => void;
+  mtLogout: () => void;
 
   // Dashboard sub-views
   dashboardTab: 'agent' | 'manager' | 'analytics' | 'branding' | 'wallet' | 'queues' | 'staff' | 'service-windows' | 'appointments' | 'feedback' | 'webhooks' | 'settings';
@@ -42,9 +60,6 @@ interface AppState {
   tenants: Tenant[];
   setTenants: (tenants: Tenant[]) => void;
 
-  // Registration dialog
-  registrationOpen: boolean;
-  setRegistrationOpen: (v: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -91,6 +106,24 @@ export const useAppStore = create<AppState>((set) => ({
     set({ adminUser: null, adminToken: null, currentView: 'marketing' });
   },
 
+  // Master Tenant Admin Auth
+  mtUser: null,
+  mtToken: null,
+  setMtAuth: (user, token) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('qms_mt_token', token);
+      localStorage.setItem('qms_mt_user', JSON.stringify(user));
+    }
+    set({ mtUser: user, mtToken: token });
+  },
+  mtLogout: () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('qms_mt_token');
+      localStorage.removeItem('qms_mt_user');
+    }
+    set({ mtUser: null, mtToken: null, currentView: 'marketing' });
+  },
+
   // Dashboard tabs
   dashboardTab: 'agent',
   setDashboardTab: (tab) => set({ dashboardTab: tab }),
@@ -115,7 +148,4 @@ export const useAppStore = create<AppState>((set) => ({
   tenants: [],
   setTenants: (tenants) => set({ tenants }),
 
-  // Registration dialog
-  registrationOpen: false,
-  setRegistrationOpen: (v) => set({ registrationOpen: v }),
 }));

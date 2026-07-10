@@ -1,31 +1,22 @@
 // =============================================================================
-// QueueFlow — Cloudflare Workers API Auth Wrapper
-// Replaces: src/lib/api-auth.ts
-//
-// Changes:
-//   - Removed AsyncLocalStorage / withTenantCtx (not available on CF Workers)
-//   - Uses cf-connecting-ip instead of connection.remoteAddress
-//   - Passes tenantId explicitly instead of via context
-//   - KV-backed rate limiting
+// QueueFlow — API Auth Wrapper (Cloudflare Workers version)
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateRequest, rateLimit, type JwtPayload } from '@/lib/auth';
+export type { JwtPayload };
+import { getD1FromEnv, type D1Database } from '@/lib/db';
+import { getClientIp } from '@/lib/utils';
 
-type RequireRole = 'PLATFORM_ADMIN' | 'MANAGER' | 'AGENT';
+type RequireRole = 'PLATFORM_ADMIN' | 'MASTER_TENANT_ADMIN' | 'MANAGER' | 'AGENT';
 
 interface AuthenticatedRequest {
   user: JwtPayload;
   d1?: D1Database;
-  kv?: KVNamespace;
-  ctx?: ExecutionContext;
 }
 
 /**
  * Wraps an API handler with authentication + optional rate limiting + optional role check.
- *
- * CF Workers compatible: no AsyncLocalStorage, uses cf-connecting-ip, KV rate limits.
- * Tenant context is passed via user.tenantId (explicit, not AsyncLocalStorage).
  */
 export function withAuth<T extends AuthenticatedRequest>(
   handler: (req: NextRequest, ctx: T) => Promise<NextResponse> | NextResponse,
@@ -33,24 +24,32 @@ export function withAuth<T extends AuthenticatedRequest>(
     roles?: RequireRole[];
     rateLimit?: { max?: number; windowMs?: number; keyPrefix?: string };
     requireTenantId?: boolean;
-    public?: boolean; // Skip auth entirely
+    public?: boolean;
+    csrf?: boolean;
   }
 ) {
   return async (req: NextRequest) => {
-    // Rate limiting (public endpoints also get rate limited)
+    // Rate limiting (in-memory only for local dev)
     if (options?.rateLimit) {
       const rl = options.rateLimit;
-      const ip = req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
-
+      const ip = getClientIp(req);
       const key = `${rl.keyPrefix || 'api'}:${ip}`;
       const { allowed, retryAfterMs } = await rateLimit(key, rl.max ?? 60, rl.windowMs ?? 60_000);
       if (!allowed) {
         return NextResponse.json(
           { error: 'Too many requests. Please try again later.' },
           { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } }
+        );
+      }
+    }
+
+    // CSRF validation for state-changing requests
+    if (options?.csrf && req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+      const csrfToken = req.headers.get('X-CSRF-Token');
+      if (!csrfToken || !/^[0-9a-f]{64}$/.test(csrfToken)) {
+        return NextResponse.json(
+          { error: 'Invalid or missing CSRF token. Please reload the page and try again.' },
+          { status: 403 }
         );
       }
     }
@@ -68,6 +67,24 @@ export function withAuth<T extends AuthenticatedRequest>(
 
     const user = authResult.user;
 
+    // Active account check
+    try {
+      const d1 = await getD1FromEnv();
+      if (user.type === 'staff') {
+        const row = await d1.prepare('SELECT is_active FROM users WHERE id = ?').bind(user.userId).first<{ is_active: number }>();
+        if (!row || !row.is_active) {
+          return NextResponse.json({ error: 'Account is deactivated. Contact your manager.' }, { status: 403 });
+        }
+      } else if (user.type === 'master_tenant_admin') {
+        const row = await d1.prepare('SELECT is_active FROM master_tenant_admins WHERE id = ?').bind(user.userId).first<{ is_active: number }>();
+        if (!row || !row.is_active) {
+          return NextResponse.json({ error: 'Account is deactivated.' }, { status: 403 });
+        }
+      }
+    } catch {
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
+
     // Role check
     if (options?.roles && options.roles.length > 0) {
       if (!options.roles.includes(user.role)) {
@@ -78,13 +95,11 @@ export function withAuth<T extends AuthenticatedRequest>(
       }
     }
 
-    // Tenant ID check (for staff-scoped routes)
+    // Tenant ID check
     if (options?.requireTenantId && !user.tenantId) {
       return NextResponse.json({ error: 'Tenant context required' }, { status: 400 });
     }
 
-    // Call handler with user context (no AsyncLocalStorage needed)
     return handler(req, { user } as T);
   };
 }
-

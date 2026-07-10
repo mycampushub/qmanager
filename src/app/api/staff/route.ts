@@ -3,6 +3,8 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
+import { dbNow } from '@/lib/datetime';
+import { getClientIp } from '@/lib/utils';
 
 // GET: List staff users
 export const GET = withAuth(
@@ -10,7 +12,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
 
       if (user.role === 'MANAGER') {
         const result = await d1
@@ -101,7 +103,7 @@ export const POST = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { tenantId, email, name, password, role } = body as {
         tenantId: string;
@@ -163,7 +165,6 @@ export const POST = withAuth(
 
       const passwordHash = await hashPassword(password);
       const newId = crypto.randomUUID();
-      const now = new Date().toISOString();
 
       // Check plan limits + email uniqueness + staff count
       const checks = await d1.batch([
@@ -197,9 +198,9 @@ export const POST = withAuth(
       // Create staff user
       try {
         await d1.prepare(
-          `INSERT INTO users (id, tenant_id, email, name, password_hash, role, is_active, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
-        ).bind(newId, tenantId, email, name, passwordHash, role, now, now).run();
+          `INSERT INTO users (id, tenant_id, email, name, password_hash, role, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, 1)`
+        ).bind(newId, tenantId, email, name, passwordHash, role).run();
       } catch (err) {
         const msg = err instanceof Error ? err.message : '';
         if (msg.includes('UNIQUE constraint failed')) {
@@ -209,19 +210,15 @@ export const POST = withAuth(
       }
 
       // Audit log
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
 
       await d1.prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-         VALUES (?, ?, ?, 'STAFF_CREATE', ?, ?, ?)`
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
+         VALUES (?, ?, ?, 'STAFF_CREATE', ?, ?)`
       ).bind(
         crypto.randomUUID(), user.userId, user.type,
         JSON.stringify({ newUserId: newId, email, role, tenantId }),
-        ip, now
+        ip
       ).run();
 
       return NextResponse.json(
@@ -233,7 +230,7 @@ export const POST = withAuth(
             name,
             role,
             isActive: true,
-            createdAt: now,
+            createdAt: dbNow(),
           },
         },
         { status: 201 }
@@ -243,7 +240,7 @@ export const POST = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true }
+  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
 );
 
 // PUT: Update staff user (MANAGER only)
@@ -252,7 +249,7 @@ export const PUT = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { userId, name, role, isActive } = body as {
         userId: string;
@@ -285,7 +282,6 @@ export const PUT = withAuth(
 
       const setClauses: string[] = [];
       const values: unknown[] = [];
-      const now = new Date().toISOString();
 
       if (name !== undefined) {
         setClauses.push('name = ?');
@@ -307,8 +303,7 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
       }
 
-      setClauses.push('updated_at = ?');
-      values.push(now);
+      setClauses.push("updated_at = datetime('now')");
       values.push(userId); // WHERE id = ?
 
       await d1
@@ -323,11 +318,8 @@ export const PUT = withAuth(
         .first<{ id: string; tenant_id: string; email: string; name: string; role: string; is_active: number; created_at: string }>();
 
       // Audit log
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
+      const now = dbNow();
 
       const updateData: Record<string, unknown> = {};
       if (name !== undefined) updateData.name = name;
@@ -335,12 +327,12 @@ export const PUT = withAuth(
       if (isActive !== undefined) updateData.isActive = isActive;
 
       await d1.prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-         VALUES (?, ?, ?, 'STAFF_UPDATE', ?, ?, ?)`
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
+         VALUES (?, ?, ?, 'STAFF_UPDATE', ?, ?)`
       ).bind(
         crypto.randomUUID(), user.userId, user.type,
         JSON.stringify({ targetUserId: userId, updateData }),
-        ip, now
+        ip
       ).run();
 
       return NextResponse.json({
@@ -358,7 +350,7 @@ export const PUT = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true }
+  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
 );
 
 // DELETE: Soft-delete staff (MANAGER only, cannot deactivate self)
@@ -367,7 +359,7 @@ export const DELETE = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = getD1FromEnv();
+      const d1 = await getD1FromEnv();
       const body = await req.json();
       const { userId } = body as { userId: string };
 
@@ -401,26 +393,21 @@ export const DELETE = withAuth(
         );
       }
 
-      const now = new Date().toISOString();
       await d1
-        .prepare('UPDATE users SET is_active = 0, updated_at = ? WHERE id = ?')
-        .bind(now, userId)
+        .prepare("UPDATE users SET is_active = 0, updated_at = datetime('now') WHERE id = ?")
+        .bind(userId)
         .run();
 
       // Audit log
-      const ip =
-        req.headers.get('cf-connecting-ip') ||
-        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-        req.headers.get('x-real-ip') ||
-        'unknown';
+      const ip = getClientIp(req);
 
       await d1.prepare(
-        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
-         VALUES (?, ?, ?, 'STAFF_DEACTIVATE', ?, ?, ?)`
+        `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
+         VALUES (?, ?, ?, 'STAFF_DEACTIVATE', ?, ?)`
       ).bind(
         crypto.randomUUID(), user.userId, user.type,
         JSON.stringify({ targetUserId: userId, targetEmail: target.email }),
-        ip, now
+        ip
       ).run();
 
       return NextResponse.json({ success: true });
@@ -429,5 +416,5 @@ export const DELETE = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true }
+  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
 );

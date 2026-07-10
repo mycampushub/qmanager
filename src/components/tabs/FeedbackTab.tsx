@@ -111,54 +111,60 @@ export default function FeedbackTab({ tenantId }: { tenantId: string }) {
         <Card><CardContent className="pt-4 pb-4 text-center"><p className="text-3xl font-bold text-blue-600">{npsEstimate}%</p><p className="text-xs text-muted-foreground mt-1">Positive Rating</p></CardContent></Card>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Rating Distribution</CardTitle></CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {[5, 4, 3, 2, 1].map((star) => {
-              const count = distribution[star - 1];
-              const pct = total > 0 ? (count / total) * 100 : 0;
-              return (
-                <div key={star} className="flex items-center gap-3">
-                  <span className="text-sm w-6 text-right">{star}</span>
-                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                  <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="text-xs text-muted-foreground w-16 text-right">{count} ({pct.toFixed(0)}%)</span>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Recent Reviews</CardTitle></CardHeader>
-        <CardContent>
-          {feedbacks.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">No feedback yet. Customers can rate after their service is completed.</p>
-          ) : (
-            <ScrollArea className="h-72">
-              <div className="space-y-3">
-                {feedbacks.map((f) => (
-                  <div key={f.id} className="flex items-start gap-3 p-3 rounded-lg border">
-                    <div className="mt-0.5"><Stars rating={f.rating} /></div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">{f.ticket?.customerName || 'Anonymous'}</span>
-                        {f.ticket?._formattedSerial && <Badge variant="outline" className="text-xs">{f.ticket._formattedSerial}</Badge>}
-                        <span className="text-xs text-muted-foreground ml-auto">{timeAgo(f.createdAt)}</span>
+      {/* Rating Distribution + Recent Reviews */}
+      <div className="grid lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-2">
+          <Card className="h-full">
+            <CardHeader className="pb-3"><CardTitle className="text-base">Rating Distribution</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {[5, 4, 3, 2, 1].map((star) => {
+                  const count = distribution[star - 1];
+                  const pct = total > 0 ? (count / total) * 100 : 0;
+                  return (
+                    <div key={star} className="flex items-center gap-3">
+                      <span className="text-sm w-6 text-right">{star}</span>
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
                       </div>
-                      {f.comment && <p className="text-sm text-muted-foreground mt-1">{f.comment}</p>}
+                      <span className="text-xs text-muted-foreground w-16 text-right">{count} ({pct.toFixed(0)}%)</span>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
-            </ScrollArea>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </div>
+        <div className="lg:col-span-3">
+          <Card className="h-full">
+            <CardHeader className="pb-3"><CardTitle className="text-base">Recent Reviews</CardTitle></CardHeader>
+            <CardContent>
+              {feedbacks.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No feedback yet. Customers can rate after their service is completed.</p>
+              ) : (
+                <ScrollArea className="h-72">
+                  <div className="space-y-3">
+                    {feedbacks.map((f) => (
+                      <div key={f.id} className="flex items-start gap-3 p-3 rounded-lg border">
+                        <div className="mt-0.5"><Stars rating={f.rating} /></div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{f.ticket?.customerName || 'Anonymous'}</span>
+                            {f.ticket?._formattedSerial && <Badge variant="outline" className="text-xs">{f.ticket._formattedSerial}</Badge>}
+                            <span className="text-xs text-muted-foreground ml-auto">{timeAgo(f.createdAt)}</span>
+                          </div>
+                          {f.comment && <p className="text-sm text-muted-foreground mt-1">{f.comment}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

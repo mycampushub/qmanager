@@ -12,10 +12,10 @@
 
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
-
+import type { D1Database } from '@/lib/db';
 
 // ─── JWT Secret ────────────────────────────────────────────────────────────
-const JWT_SECRET = process.env.JWT_SECRET || 'queueflow-dev-secret-do-not-use-in-prod';
+const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-key-for-queueflow-256bits!!';
 
 function getJwtSecret(): Uint8Array {
   return new TextEncoder().encode(JWT_SECRET);
@@ -34,8 +34,9 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 export interface JwtPayload {
   userId: string;
   tenantId?: string;
-  role: 'PLATFORM_ADMIN' | 'MANAGER' | 'AGENT';
-  type: 'staff' | 'platform_admin';
+  masterTenantId?: string;
+  role: 'PLATFORM_ADMIN' | 'MASTER_TENANT_ADMIN' | 'MANAGER' | 'AGENT';
+  type: 'staff' | 'platform_admin' | 'master_tenant_admin';
 }
 
 export async function signToken(payload: JwtPayload): Promise<string> {
@@ -70,33 +71,11 @@ export async function rateLimit(
   key: string,
   maxRequests: number = 60,
   windowMs: number = 60_000,
-  kv?: KVNamespace
+  _kv?: unknown
 ): Promise<{ allowed: boolean; retryAfterMs: number }> {
   const now = Date.now();
 
-  if (kv) {
-    // KV-backed rate limiting (production)
-    try {
-      const stored = await kv.get<{ count: number; resetAt: number }>(key, 'json');
-      if (!stored || now > stored.resetAt) {
-        await kv.put(key, JSON.stringify({ count: 1, resetAt: now + windowMs }), {
-          expirationTtl: Math.ceil(windowMs / 1000) + 1,
-        });
-        return { allowed: true, retryAfterMs: 0 };
-      }
-      if (stored.count >= maxRequests) {
-        return { allowed: false, retryAfterMs: stored.resetAt - now };
-      }
-      await kv.put(key, JSON.stringify({ count: stored.count + 1, resetAt: stored.resetAt }), {
-        expirationTtl: Math.ceil((stored.resetAt - now) / 1000) + 1,
-      });
-      return { allowed: true, retryAfterMs: 0 };
-    } catch (err) {
-      console.error('[RateLimit] KV error, falling back to in-memory:', err);
-    }
-  }
-
-  // In-memory fallback (local dev only — loses state between requests)
+  // In-memory rate limiting (local dev)
   const entry = inMemoryStore.get(key);
   if (!entry || now > entry.resetAt) {
     inMemoryStore.set(key, { count: 1, resetAt: now + windowMs });
@@ -144,17 +123,18 @@ export async function ensureDemoData(d1: D1Database): Promise<void> {
     return;
   }
 
-  const adminHash = await hashPassword('admin123');
-  const managerHash = await hashPassword('manager123');
-  const agentHash = await hashPassword('agent123');
+  const adminHash = await hashPassword('Admin@2024!Secure');
+  const managerHash = await hashPassword('Manager@2024!Secure');
+  const agentHash = await hashPassword('Agent@2024!Secure');
 
   await d1.batch([
     d1.prepare(`INSERT OR IGNORE INTO platform_admins (id, email, name, password_hash) VALUES ('admin-001', 'admin@yourqueueapp.com', 'System Admin', ?)`).bind(adminHash),
-    d1.prepare(`INSERT OR IGNORE INTO master_tenants (id, corporate_name, billing_status) VALUES ('master-001', 'CityHealth Medical Group', 'ACTIVE')`),
-    d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-quickbite', 'QuickBite Restaurant', NULL, 'PRO', 100000, '{"primaryColor":"#059669","secondaryColor":"#34d399","logoText":"QB"}', 'Welcome to QuickBite!')`),
-    d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-greenbank', 'GreenBank Branch', NULL, 'PRO', 200000, '{"primaryColor":"#0d9488","secondaryColor":"#5eead4","logoText":"GB"}', 'Welcome to GreenBank Branch.')`),
-    d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-ch-dt', 'CityHealth - Downtown Clinic', 'master-001', 'ENTERPRISE', 500000, '{"primaryColor":"#7c3aed","secondaryColor":"#a78bfa","logoText":"CH"}', 'CityHealth Downtown.')`),
-    d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-ch-ut', 'CityHealth - Uptown Clinic', 'master-001', 'ENTERPRISE', 500000, '{"primaryColor":"#7c3aed","secondaryColor":"#a78bfa","logoText":"CH"}', 'CityHealth Uptown.')`),
+    d1.prepare(`INSERT OR IGNORE INTO master_tenants (id, corporate_name, billing_status) VALUES ('master-001', 'CityHealth Medical Group', 'ACTIVE')`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO master_tenant_admins (id, master_tenant_id, email, name, password_hash) VALUES ('mt-admin-001', 'master-001', 'hq@cityhealthgroup.com', 'CityHealth HQ Admin', ?)`).bind(managerHash),
+    d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-quickbite', 'QuickBite Restaurant', NULL, 'PRO', 100000, '{"primaryColor":"#059669","secondaryColor":"#34d399","logoText":"QB"}', 'Welcome to QuickBite!')`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-greenbank', 'GreenBank Branch', NULL, 'PRO', 200000, '{"primaryColor":"#0d9488","secondaryColor":"#5eead4","logoText":"GB"}', 'Welcome to GreenBank Branch.')`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-ch-dt', 'CityHealth - Downtown Clinic', 'master-001', 'ENTERPRISE', 500000, '{"primaryColor":"#7c3aed","secondaryColor":"#a78bfa","logoText":"CH"}', 'CityHealth Downtown.')`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO tenants (id, name, master_tenant_id, plan_tier, wallet_balance, branding_config, welcome_message) VALUES ('tenant-ch-ut', 'CityHealth - Uptown Clinic', 'master-001', 'ENTERPRISE', 500000, '{"primaryColor":"#7c3aed","secondaryColor":"#a78bfa","logoText":"CH"}', 'CityHealth Uptown.')`).bind(),
     d1.prepare(`INSERT OR IGNORE INTO users (id, tenant_id, email, name, password_hash, role) VALUES ('staff-qb-mgr', 'tenant-quickbite', 'manager@quickbiterestaurant.com', 'QuickBite Manager', ?, 'MANAGER')`).bind(managerHash),
     d1.prepare(`INSERT OR IGNORE INTO users (id, tenant_id, email, name, password_hash, role) VALUES ('staff-qb-a1', 'tenant-quickbite', 'agent1@quickbiterestaurant.com', 'Agent One', ?, 'AGENT')`).bind(agentHash),
     d1.prepare(`INSERT OR IGNORE INTO users (id, tenant_id, email, name, password_hash, role) VALUES ('staff-qb-a2', 'tenant-quickbite', 'agent2@quickbiterestaurant.com', 'Agent Two', ?, 'AGENT')`).bind(agentHash),
@@ -167,16 +147,16 @@ export async function ensureDemoData(d1: D1Database): Promise<void> {
     d1.prepare(`INSERT OR IGNORE INTO users (id, tenant_id, email, name, password_hash, role) VALUES ('staff-chut-mgr', 'tenant-ch-ut', 'manager@cityhealthuptownclinic.com', 'CityHealth UT Manager', ?, 'MANAGER')`).bind(managerHash),
     d1.prepare(`INSERT OR IGNORE INTO users (id, tenant_id, email, name, password_hash, role) VALUES ('staff-chut-a1', 'tenant-ch-ut', 'agent1@cityhealthuptownclinic.com', 'Agent One', ?, 'AGENT')`).bind(agentHash),
     d1.prepare(`INSERT OR IGNORE INTO users (id, tenant_id, email, name, password_hash, role) VALUES ('staff-chut-a2', 'tenant-ch-ut', 'agent2@cityhealthuptownclinic.com', 'Agent Two', ?, 'AGENT')`).bind(agentHash),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-qb-gen', 'tenant-quickbite', 'General Queue', 'A', 300, 5, 3)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-qb-vip', 'tenant-quickbite', 'VIP Queue', 'V', 240, 3, 2)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-gb-dep', 'tenant-greenbank', 'Deposits', 'D', 300, 4, 2)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-gb-wth', 'tenant-greenbank', 'Withdrawals', 'W', 180, 3, 1)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-gb-cs', 'tenant-greenbank', 'Customer Service', 'C', 600, 2, 1)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chdt-gen', 'tenant-ch-dt', 'General Consultation', 'G', 900, 4, 2)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chdt-lab', 'tenant-ch-dt', 'Lab Tests', 'L', 300, 3, 1)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chut-gen', 'tenant-ch-ut', 'General Consultation', 'G', 900, 4, 2)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chut-lab', 'tenant-ch-ut', 'Lab Tests', 'L', 300, 3, 1)`),
-    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chut-ph', 'tenant-ch-ut', 'Pharmacy', 'P', 180, 2, 1)`),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-qb-gen', 'tenant-quickbite', 'General Queue', 'A', 300, 5, 3)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-qb-vip', 'tenant-quickbite', 'VIP Queue', 'V', 240, 3, 2)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-gb-dep', 'tenant-greenbank', 'Deposits', 'D', 300, 4, 2)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-gb-wth', 'tenant-greenbank', 'Withdrawals', 'W', 180, 3, 1)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-gb-cs', 'tenant-greenbank', 'Customer Service', 'C', 600, 2, 1)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chdt-gen', 'tenant-ch-dt', 'General Consultation', 'G', 900, 4, 2)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chdt-lab', 'tenant-ch-dt', 'Lab Tests', 'L', 300, 3, 1)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chut-gen', 'tenant-ch-ut', 'General Consultation', 'G', 900, 4, 2)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chut-lab', 'tenant-ch-ut', 'Lab Tests', 'L', 300, 3, 1)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO queues (id, tenant_id, name, prefix, default_service_time_sec, current_serial, now_serving_serial) VALUES ('q-chut-ph', 'tenant-ch-ut', 'Pharmacy', 'P', 180, 2, 1)`).bind(),
   ]);
 
   _demoSeeded = true;
