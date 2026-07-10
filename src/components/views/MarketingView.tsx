@@ -636,7 +636,7 @@ export default function MarketingView() {
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
                           : 'bg-gray-900 text-white hover:bg-gray-800'
                       }`}
-                      onClick={() => tier.cta === 'Contact Sales' ? scrollTo('contact') : (window.location.href = '/dashboard?signup=true')}
+                      onClick={() => tier.cta === 'Contact Sales' ? scrollTo('contact') : (window.location.href = '/dashboard')}
                     >
                       {tier.cta}
                       <ChevronRight className="ml-1 h-4 w-4" />

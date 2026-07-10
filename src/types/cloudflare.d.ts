@@ -1,35 +1,35 @@
-/// <reference types="@cloudflare/workers-types" />
-
 // =============================================================================
-// QueueFlow — Cloudflare Workers Type Declarations
-//
-// Extends the global CloudflareEnv (from @opennextjs/cloudflare) with
-// application-specific bindings: D1 database, R2 storage, KV rate limiting.
-//
-// All D1/R2/KV types are globally declared by @cloudflare/workers-types.
+// QueueFlow — Type Declarations (Local SQLite version)
 // =============================================================================
 
-declare global {
-  // ─── Cloudflare Env Bindings ───────────────────────────────────────────────
-
-  interface CloudflareEnv {
-    /** D1 — Primary SQLite database for all application data */
-    DB: D1Database;
-
-    /** R2 — Object storage for uploaded images, logos, etc. */
-    STORAGE: R2Bucket;
-
-    /** KV — Rate limiting & ephemeral caching */
-    RATE_LIMIT_KV: KVNamespace;
-  }
-
-  // ─── Fix Body.json() return type ──────────────────────────────────────────
-  // @cloudflare/workers-types overrides Body.json() to return Promise<unknown>,
-  // but the codebase expects Promise<any> (standard DOM behavior) for
-  // convenient destructuring: const { email } = await req.json()
-  interface Body {
-    json(): Promise<any>;
-  }
+// KVNamespace stub (used only in rate limiting type signature)
+interface KVNamespace {
+  get<T = unknown>(key: string, type?: string): Promise<T | null>;
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
-export {};
+// R2Bucket stub (storage routes now use local FS)
+interface R2Bucket {
+  get(key: string): Promise<R2Object | null>;
+  put(key: string, value: ArrayBuffer | ReadableStream, options?: Record<string, unknown>): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
+interface R2Object {
+  body: ReadableStream;
+  size: number;
+  etag: string;
+  uploaded: Date;
+  httpMetadata?: { contentType?: string };
+  customMetadata?: Record<string, string>;
+}
+
+declare global {
+  // Stub CloudflareEnv (not actually used in local dev)
+  interface CloudflareEnv {
+    DB: import('@/lib/db').D1Database;
+    STORAGE: R2Bucket;
+    RATE_LIMIT_KV: KVNamespace;
+  }
+}

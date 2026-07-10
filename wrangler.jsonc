@@ -53,5 +53,10 @@
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
+  },
+
+  // ─── Module Aliases ──────────────────────────────────────────────────────
+  "alias": {
+    "@opentelemetry/api": "./.open-next/otel-shim.mjs"
   }
 }

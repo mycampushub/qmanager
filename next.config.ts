@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     'jose',
     'bcryptjs',
-    'better-sqlite3',
+    'bun:sqlite',
   ],
 };
 

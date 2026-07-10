@@ -25,7 +25,6 @@ import SettingsTab from '@/components/tabs/SettingsTab';
 
 // Extracted sub-components
 import { LoginScreen } from '@/components/dashboard/LoginForm';
-import { SignupScreen } from '@/components/dashboard/SignupForm';
 import { AgentView } from '@/components/dashboard/AgentView';
 import { QueuesTab } from '@/components/dashboard/QueuesTab';
 import { AnalyticsTab } from '@/components/dashboard/AnalyticsTab';
@@ -227,11 +226,9 @@ export default function DashboardView() {
     return () => document.removeEventListener('keydown', handleEsc);
   }, [sidebarOpen, mobileMenuOpen]);
 
-  // Show login/signup if not authenticated
-  const showSignup = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('signup') === 'true';
-
+  // Show login if not authenticated
   if (!authUser) {
-    return showSignup ? <SignupScreen /> : <LoginScreen />;
+    return <LoginScreen />;
   }
 
   const navItems = [

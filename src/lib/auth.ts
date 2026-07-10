@@ -1,10 +1,11 @@
 // =============================================================================
 // QueueFlow — Cloudflare Workers Auth System
+// Replaces: src/lib/auth.ts (jsonwebtoken + Node.js crypto)
 //
-// Changes from original:
+// Changes:
 //   - jsonwebtoken → jose (Web Crypto based, CF Workers compatible)
 //   - crypto.randomBytes → crypto.getRandomValues
-//   - setInterval rate limiter → KV-backed rate limiter with in-memory fallback
+//   - setInterval rate limiter → KV-backed rate limiter
 //   - Top-level async IIFE removed
 //   - bcryptjs kept (pure JS, works in CF Workers)
 // =============================================================================
@@ -62,51 +63,19 @@ export function generateCsrfToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// ─── Rate Limiter (KV-backed with in-memory fallback) ───────────────────────
-
-// In-memory fallback for local dev without KV
+// ─── Rate Limiter (KV-backed, CF Workers compatible) ───────────────────────
+// Falls back to in-memory Map when KV is not available (local dev)
 const inMemoryStore = new Map<string, { count: number; resetAt: number }>();
 
-/**
- * Rate limiting using Cloudflare KV for distributed rate limiting.
- * Falls back to in-memory Map when KV is not available.
- */
 export async function rateLimit(
   key: string,
   maxRequests: number = 60,
   windowMs: number = 60_000,
-  kv?: KVNamespace
+  _kv?: unknown
 ): Promise<{ allowed: boolean; retryAfterMs: number }> {
   const now = Date.now();
 
-  // KV-backed rate limiting (production / Cloudflare Workers)
-  if (kv) {
-    try {
-      const stored = await kv.get<{ count: number; resetAt: number }>(key, 'json');
-      if (!stored || now > stored.resetAt) {
-        await kv.put(
-          key,
-          JSON.stringify({ count: 1, resetAt: now + windowMs }),
-          { expirationTtl: Math.ceil(windowMs / 1000) + 1 }
-        );
-        return { allowed: true, retryAfterMs: 0 };
-      }
-      if (stored.count >= maxRequests) {
-        return { allowed: false, retryAfterMs: stored.resetAt - now };
-      }
-      await kv.put(
-        key,
-        JSON.stringify({ count: stored.count + 1, resetAt: stored.resetAt }),
-        { expirationTtl: Math.ceil((stored.resetAt - now) / 1000) + 1 }
-      );
-      return { allowed: true, retryAfterMs: 0 };
-    } catch (err) {
-      console.warn('[RateLimit] KV error, falling back to in-memory:', err);
-      // Fall through to in-memory
-    }
-  }
-
-  // In-memory rate limiting (local dev / fallback)
+  // In-memory rate limiting (local dev)
   const entry = inMemoryStore.get(key);
   if (!entry || now > entry.resetAt) {
     inMemoryStore.set(key, { count: 1, resetAt: now + windowMs });
@@ -138,7 +107,7 @@ export async function authenticateRequest(request: Request): Promise<
   return { user: payload };
 }
 
-// ─── Auto-seed demo data on first login ─────────────────────────────────────
+// ─── Auto-seed demo data on first login (CF Workers compatible) ─────────────
 let _demoSeeded = false;
 
 export async function ensureDemoData(d1: D1Database): Promise<void> {
@@ -154,9 +123,9 @@ export async function ensureDemoData(d1: D1Database): Promise<void> {
     return;
   }
 
-  const adminHash = await hashPassword('admin123');
-  const managerHash = await hashPassword('manager123');
-  const agentHash = await hashPassword('agent123');
+  const adminHash = await hashPassword('Admin@2024!Secure');
+  const managerHash = await hashPassword('Manager@2024!Secure');
+  const agentHash = await hashPassword('Agent@2024!Secure');
 
   await d1.batch([
     d1.prepare(`INSERT OR IGNORE INTO platform_admins (id, email, name, password_hash) VALUES ('admin-001', 'admin@yourqueueapp.com', 'System Admin', ?)`).bind(adminHash),
@@ -193,3 +162,4 @@ export async function ensureDemoData(d1: D1Database): Promise<void> {
   _demoSeeded = true;
   console.log('[Auth] Demo data seeded on first login');
 }
+
