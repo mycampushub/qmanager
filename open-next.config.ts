@@ -1,7 +1,4 @@
-// default open-next.config.ts file created by @opennextjs/cloudflare
+// open-next.config.ts — No R2 cache (D1/KV only)
 import { defineCloudflareConfig } from "@opennextjs/cloudflare";
-import r2IncrementalCache from "@opennextjs/cloudflare/overrides/incremental-cache/r2-incremental-cache";
 
-export default defineCloudflareConfig({
-	incrementalCache: r2IncrementalCache,
-});
+export default defineCloudflareConfig({});
