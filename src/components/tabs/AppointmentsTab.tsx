@@ -139,7 +139,7 @@ export default function AppointmentsTab({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         {([{ l: 'Total', v: stats.total, c: '' }, { l: 'Checked In', v: stats.checkedIn, c: 'text-amber-600' }, { l: 'Completed', v: stats.completed, c: 'text-emerald-600' }, { l: 'No Shows', v: stats.noShow, c: 'text-red-600' }]).map((s) => (
           <Card key={s.l}><CardContent className="pt-3 pb-3 text-center"><p className={`text-2xl font-bold ${s.c}`}>{s.v}</p><p className="text-xs text-muted-foreground">{s.l}</p></CardContent></Card>
         ))}

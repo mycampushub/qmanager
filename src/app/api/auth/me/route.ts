@@ -7,7 +7,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx: { user: JwtPayload })
   const { user } = ctx;
 
   try {
-    const d1 = await getD1FromEnv();
+    const d1 = getD1FromEnv();
 
     if (user.type === 'platform_admin') {
       const admin = await d1

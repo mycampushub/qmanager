@@ -3,7 +3,6 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
 import { analyticsToCSV } from '@/lib/csv-export';
-import { dbNow } from '@/lib/datetime';
 
 export const GET = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
@@ -54,7 +53,7 @@ export const GET = withAuth(
       if (dateToISO) { dateConditions.push('created_at <= ?'); dateBinds.push(dateToISO); }
       const dateWhere = dateConditions.length > 0 ? `AND ${dateConditions.join(' AND ')}` : '';
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // ── Overall stats ──────────────────────────────────────────────────
       const [totalResult, completedResult, skippedResult] = await Promise.all([
@@ -214,7 +213,7 @@ export const GET = withAuth(
         peakHour: `${String(peakHour).padStart(2, '0')}:00`,
         queueStats,
         recentActivity,
-        exportedAt: dbNow(),
+        exportedAt: new Date().toISOString(),
       };
 
       // ── Format switch ──────────────────────────────────────────────────
@@ -226,9 +225,10 @@ export const GET = withAuth(
       }
 
       // Default: JSON
-      return NextResponse.json(analyticsData, {
+      return new NextResponse(JSON.stringify(analyticsData, null, 2), {
         status: 200,
         headers: {
+          'Content-Type': 'application/json',
           'Content-Disposition': 'attachment; filename="analytics.json"',
         },
       });

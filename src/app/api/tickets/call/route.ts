@@ -3,8 +3,16 @@ import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
-import { dbNow } from '@/lib/datetime';
-import { toCamel } from '@/lib/utils';
+
+// Helper: convert snake_case DB row to camelCase
+function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result;
+}
 
 interface TicketRow {
   id: string;
@@ -53,7 +61,7 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // A10: If agentId is provided, verify it belongs to same tenant
       let validatedAgentId = user.userId;
@@ -132,7 +140,7 @@ export const POST = withAuth(
       }
 
       // Build batch statements
-      const nowISO = dbNow();
+      const nowISO = new Date().toISOString();
       const statements: unknown[] = [];
 
       // Auto-complete previous SERVING ticket
@@ -151,8 +159,8 @@ export const POST = withAuth(
             .bind('COMPLETED', nowISO, prevServing.id, 'SERVING'),
           d1
             .prepare(
-              `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds)
-               VALUES (?, ?, ?, ?, ?, ?)`
+              `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`
             )
             .bind(
               crypto.randomUUID(),
@@ -160,7 +168,8 @@ export const POST = withAuth(
               queueId,
               prevServing.served_by_agent || validatedAgentId,
               prevServing.id,
-              durationSec
+              durationSec,
+              nowISO
             )
         );
 
@@ -169,9 +178,9 @@ export const POST = withAuth(
           statements.push(
             d1
               .prepare(
-                "UPDATE customer_profiles SET completed_tickets = completed_tickets + 1, updated_at = datetime('now') WHERE tenant_id = ? AND phone = ?"
+                'UPDATE customer_profiles SET completed_tickets = completed_tickets + 1, updated_at = ? WHERE tenant_id = ? AND phone = ?'
               )
-              .bind(tenantId, prevServing.customer_phone)
+              .bind(nowISO, tenantId, prevServing.customer_phone)
           );
         }
       }
@@ -193,9 +202,9 @@ export const POST = withAuth(
       statements.push(
         d1
           .prepare(
-            "UPDATE queues SET now_serving_serial = ?, updated_at = datetime('now') WHERE id = ?"
+            'UPDATE queues SET now_serving_serial = ?, updated_at = ? WHERE id = ?'
           )
-          .bind(newNowServing, queueId)
+          .bind(newNowServing, nowISO, queueId)
       );
 
       await d1.batch(statements as Parameters<typeof d1.batch>[0]);

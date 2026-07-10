@@ -3,8 +3,26 @@ import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
-import { dbNow } from '@/lib/datetime';
-import { getClientIp, toCamel } from '@/lib/utils';
+
+// Helper: convert snake_case DB row to camelCase
+function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result;
+}
+
+// Helper: get client IP
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
 
 interface TicketWithQueue {
   id: string;
@@ -48,7 +66,7 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // A10: If agentId is provided, verify it belongs to same tenant
       let validatedAgentId = user.userId;
@@ -106,7 +124,7 @@ export const POST = withAuth(
         );
       }
 
-      const nowISO = dbNow();
+      const nowISO = new Date().toISOString();
       const durationSec = ticket.served_at
         ? Math.round(
             (Date.now() - new Date(ticket.served_at).getTime()) / 1000
@@ -122,8 +140,8 @@ export const POST = withAuth(
           .bind('COMPLETED', nowISO, ticketId),
         d1
           .prepare(
-            `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds)
-             VALUES (?, ?, ?, ?, ?, ?)`
+            `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             crypto.randomUUID(),
@@ -131,7 +149,8 @@ export const POST = withAuth(
             ticket.queue_id,
             validatedAgentId || ticket.served_by_agent || user.userId,
             ticketId,
-            durationSec
+            durationSec,
+            nowISO
           ),
       ];
 
@@ -140,9 +159,9 @@ export const POST = withAuth(
         statements.push(
           d1
             .prepare(
-              "UPDATE customer_profiles SET completed_tickets = completed_tickets + 1, updated_at = datetime('now') WHERE tenant_id = ? AND phone = ?"
+              'UPDATE customer_profiles SET completed_tickets = completed_tickets + 1, updated_at = ? WHERE tenant_id = ? AND phone = ?'
             )
-            .bind(tenantId, ticket.customer_phone)
+            .bind(nowISO, tenantId, ticket.customer_phone)
         );
       }
 
@@ -152,8 +171,8 @@ export const POST = withAuth(
       const ip = getClientIp(req);
       await d1
         .prepare(
-          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           crypto.randomUUID(),
@@ -165,7 +184,8 @@ export const POST = withAuth(
             queueId: ticket.queue_id,
             durationSec,
           }),
-          ip
+          ip,
+          nowISO
         )
         .run();
 

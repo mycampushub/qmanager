@@ -6,7 +6,6 @@
 // =============================================================================
 
 import { getD1FromEnv } from './db';
-import { dbNow } from './datetime';
 
 /**
  * Compute HMAC-SHA256 signature using Web Crypto API.
@@ -48,7 +47,9 @@ export function dispatchWebhooks(
 ): void {
   const work = async () => {
     try {
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv() as {
+        prepare(sql: string): { bind(...args: unknown[]): { all<T>(): { results: T[] }; run(): unknown } };
+      };
 
       const { results: activeWebhooks } = await d1
         .prepare(`SELECT id, url, events, secret FROM webhooks WHERE tenant_id = ? AND is_active = 1`)
@@ -85,9 +86,9 @@ export function dispatchWebhooks(
           });
 
           const success = response.ok;
-          const now = dbNow();
+          const now = new Date().toISOString();
 
-          await d1
+          await (d1 as unknown as { prepare(sql: string): { bind(...args: unknown[]): { run(): unknown } } })
             .prepare(
               `UPDATE webhooks SET ${success ? 'success_count' : 'failure_count'} = ${success ? 'success_count' : 'failure_count'} + 1, last_triggered_at = ? WHERE id = ?`
             ).bind(now, webhook.id).run();
@@ -95,10 +96,10 @@ export function dispatchWebhooks(
         } catch (err) {
           console.error(`[Webhook] Failed to deliver to ${webhook.url}:`, err);
           try {
-            await d1
+            await (d1 as unknown as { prepare(sql: string): { bind(...args: unknown[]): { run(): unknown } } })
               .prepare(
                 `UPDATE webhooks SET failure_count = failure_count + 1, last_triggered_at = ? WHERE id = ?`
-              ).bind(dbNow(), webhook.id).run();
+              ).bind(new Date().toISOString(), webhook.id).run();
           } catch { /* swallow */ }
         }
       }

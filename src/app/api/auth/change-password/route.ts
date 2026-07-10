@@ -3,7 +3,6 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { verifyPassword, hashPassword } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
-import { getClientIp } from '@/lib/utils';
 
 export const POST = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
@@ -26,7 +25,7 @@ export const POST = withAuth(
     }
 
     try {
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
       const body = await req.json();
       const { currentPassword, newPassword } = body as {
         currentPassword: string;
@@ -99,7 +98,11 @@ export const POST = withAuth(
       }
 
       // Audit log
-      const ip = getClientIp(req);
+      const ip =
+        req.headers.get('cf-connecting-ip') ||
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        req.headers.get('x-real-ip') ||
+        'unknown';
 
       await d1
         .prepare(

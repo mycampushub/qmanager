@@ -49,130 +49,33 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// =============================================================================
-// Push Notification Handling
-// =============================================================================
-
-/**
- * Build a notification URL from push data.
- * Routes the user to the appropriate page based on the event type.
- */
-function buildNotificationUrl(data) {
-  const tenantId = data.tenantId;
-  const ticketId = data.ticketId;
-  const event = data.event || '';
-
-  if (tenantId) {
-    if (event === 'TICKET_CALLED') {
-      // Called tickets go to the track view
-      return ticketId ? `/track/${ticketId}` : `/`;
-    }
-    if (event === 'TICKET_COMPLETED' || event === 'TICKET_CANCELLED') {
-      // Completed/cancelled tickets go to the ticket result view
-      return ticketId ? `/track/${ticketId}` : `/`;
-    }
-    // Default: go to tenant public page
-    return `/`;
-  }
-  return '/';
-}
-
-/**
- * Build notification options with event-specific configuration.
- */
-function buildNotificationOptions(data) {
-  const event = data.event || '';
-  const options = {
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
-    vibrate: [200, 100, 200],
-    data: {
-      ...data,
-      url: buildNotificationUrl(data),
-    },
-    tag: data.ticketId ? `ticket-${data.ticketId}` : 'queueflow-general',
-    renotify: true,
-    requireInteraction: event === 'TICKET_CALLED',
-    actions: [],
-  };
-
-  // Add contextual actions based on event type
-  if (event === 'TICKET_CALLED') {
-    options.actions = [
-      { action: 'view', title: 'View Ticket' },
-      { action: 'dismiss', title: 'Dismiss' },
-    ];
-  } else if (event === 'TICKET_COMPLETED') {
-    options.actions = [
-      { action: 'view', title: 'View Details' },
-    ];
-  }
-
-  return options;
-}
-
-// Handle push events
+// Handle push notifications
 self.addEventListener('push', (event) => {
-  let data;
-  try {
-    data = event.data?.json() || { title: 'QueueFlow', body: 'You have a queue update' };
-  } catch {
-    data = { title: 'QueueFlow', body: 'You have a queue update' };
-  }
-
-  const title = data.title || 'QueueFlow';
-  const options = buildNotificationOptions(data);
-
+  const data = event.data?.json() || { title: 'QueueFlow', body: 'You have a queue update' };
   event.waitUntil(
-    self.registration.showNotification(title, options)
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      vibrate: [200, 100, 200],
+      data: data.data || {},
+      actions: data.actions || [],
+    })
   );
 });
 
 // Handle notification click
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
-  // Handle action buttons
-  if (event.action === 'dismiss') {
-    return;
-  }
-
   const urlToOpen = event.notification.data?.url || '/';
-
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // Try to focus an existing window that matches the target URL
+    self.clients.matchAll({ type: 'window' }).then((clients) => {
       for (const client of clients) {
-        const clientUrl = new URL(client.url);
-        const targetUrl = new URL(urlToOpen, clientUrl.origin);
-        if (clientUrl.pathname === targetUrl.pathname && 'focus' in client) {
+        if (client.url === urlToOpen && 'focus' in client) {
           return client.focus();
         }
       }
-
-      // If no matching window, try to focus any existing window and navigate
-      for (const client of clients) {
-        if ('focus' in client) {
-          return client.focus().then((focusedClient) => {
-            if (focusedClient) {
-              focusedClient.navigate(urlToOpen);
-            }
-            return focusedClient;
-          });
-        }
-      }
-
-      // No open windows — open a new one
       return self.clients.openWindow(urlToOpen);
     })
   );
-});
-
-// Handle notification close (optional analytics)
-self.addEventListener('notificationclose', (event) => {
-  const data = event.notification.data || {};
-  if (data.event && data.ticketId) {
-    // Could send analytics event here in the future
-    console.log(`[SW] Notification dismissed: ${data.event} for ticket ${data.ticketId}`);
-  }
 });

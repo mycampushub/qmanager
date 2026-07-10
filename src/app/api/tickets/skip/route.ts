@@ -2,8 +2,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
-import { dbNow } from '@/lib/datetime';
-import { getClientIp, toCamel } from '@/lib/utils';
+
+// Helper: convert snake_case DB row to camelCase
+function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result;
+}
+
+// Helper: get client IP
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
 
 interface TicketWithQueue {
   id: string;
@@ -38,7 +56,7 @@ export const POST = withAuth(
       }
 
       const tenantId = user.tenantId!;
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // Find ticket with queue
       const ticket = await d1
@@ -83,16 +101,16 @@ export const POST = withAuth(
 
       const newSerial = queue.current_serial + 1;
       const newNowServing = Math.max(newSerial, queue.now_serving_serial);
-      const nowISO = dbNow();
+      const nowISO = new Date().toISOString();
 
       // A4: Update serial and ticket in transaction
       await d1.batch([
         // Atomic increment queue serial
         d1
           .prepare(
-            "UPDATE queues SET current_serial = ?, updated_at = datetime('now') WHERE id = ?"
+            'UPDATE queues SET current_serial = ?, updated_at = ? WHERE id = ?'
           )
-          .bind(newSerial, ticket.queue_id),
+          .bind(newSerial, nowISO, ticket.queue_id),
 
         // Update ticket: skip and re-queue
         d1
@@ -104,9 +122,9 @@ export const POST = withAuth(
         // Update nowServingSerial
         d1
           .prepare(
-            "UPDATE queues SET now_serving_serial = ?, updated_at = datetime('now') WHERE id = ?"
+            'UPDATE queues SET now_serving_serial = ?, updated_at = ? WHERE id = ?'
           )
-          .bind(newNowServing, ticket.queue_id),
+          .bind(newNowServing, nowISO, ticket.queue_id),
       ]);
 
       const formattedSerial = `${ticket.queue_prefix}${String(newSerial).padStart(3, '0')}`;
@@ -125,8 +143,8 @@ export const POST = withAuth(
       const ip = getClientIp(req);
       await d1
         .prepare(
-          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           crypto.randomUUID(),
@@ -138,7 +156,8 @@ export const POST = withAuth(
             queueId: ticket.queue_id,
             skipCount: newSkipCount,
           }),
-          ip
+          ip,
+          nowISO
         )
         .run();
 

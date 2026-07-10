@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useAppStore } from '@/stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,6 +27,7 @@ import {
   Star,
   ChevronRight,
   ChevronDown,
+  LayoutGrid,
   Send,
   MessageSquare,
   HelpCircle,
@@ -194,6 +195,7 @@ const faqs = [
 /*  Component                                                          */
 /* ================================================================== */
 export default function MarketingView() {
+  const { setCurrentView } = useAppStore();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [contactName, setContactName] = useState('');
@@ -240,14 +242,23 @@ export default function MarketingView() {
           <div className="hidden md:flex items-center gap-3">
             <Button
               variant="ghost"
+              size="sm"
               className="text-gray-600 hover:text-emerald-600"
-              onClick={() => window.location.href = '/dashboard'}
+              onClick={() => setCurrentView('kiosk')}
             >
-              Login
+              <LayoutGrid className="mr-1.5 h-4 w-4" />
+              Kiosk Mode
+            </Button>
+            <Button
+              variant="ghost"
+              className="text-gray-600 hover:text-emerald-600"
+              onClick={() => setCurrentView('dashboard')}
+            >
+              Staff Login
             </Button>
             <Button
               className="bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200"
-              onClick={() => scrollTo('pricing')}
+              onClick={() => useAppStore.getState().setRegistrationOpen(true)}
             >
               Get Started
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -285,14 +296,23 @@ export default function MarketingView() {
               <Separator className="my-2" />
               <Button
                 variant="ghost"
+                size="sm"
                 className="justify-start text-gray-600 hover:text-emerald-600"
-                onClick={() => { setMobileOpen(false); window.location.href = '/dashboard'; }}
+                onClick={() => { setMobileOpen(false); setCurrentView('kiosk'); }}
               >
-                Login
+                <LayoutGrid className="mr-1.5 h-4 w-4" />
+                Kiosk Mode
+              </Button>
+              <Button
+                variant="ghost"
+                className="justify-start text-gray-600 hover:text-emerald-600"
+                onClick={() => { setMobileOpen(false); setCurrentView('dashboard'); }}
+              >
+                Staff Login
               </Button>
               <Button
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
-                onClick={() => { setMobileOpen(false); scrollTo('pricing'); }}
+                onClick={() => { setMobileOpen(false); useAppStore.getState().setRegistrationOpen(true); }}
               >
                 Get Started
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -354,7 +374,7 @@ export default function MarketingView() {
                 <Button
                   size="lg"
                   className="bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg shadow-emerald-900/20 font-semibold text-base px-8 py-6"
-                  onClick={() => scrollTo('pricing')}
+                  onClick={() => useAppStore.getState().setRegistrationOpen(true)}
                 >
                   Get Started Free
                   <ArrowRight className="ml-2 h-5 w-5" />
@@ -451,7 +471,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       <section className="border-b border-gray-100 bg-gray-50/60">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 md:divide-x md:divide-gray-200">
+          <div className="grid grid-cols-2 divide-x divide-gray-200 md:grid-cols-4 md:divide-x">
             {stats.map((stat, i) => (
               <motion.div
                 key={stat.label}
@@ -460,7 +480,7 @@ export default function MarketingView() {
                 viewport={{ once: true, amount: 0.5 }}
                 custom={i}
                 variants={fadeUp}
-                className="flex flex-col items-center gap-1.5 py-8 px-4"
+                className="flex flex-col items-center gap-1.5 py-8 px-4 first:divide-x-0"
               >
                 <stat.icon className="h-5 w-5 text-emerald-600" />
                 <span className="text-2xl font-bold text-gray-900 sm:text-3xl">{stat.value}</span>
@@ -474,7 +494,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  FEATURES                                                     */}
       {/* ============================================================ */}
-      <section id="features" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
+      <section id="features" className="py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -518,7 +538,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  HOW IT WORKS                                                 */}
       {/* ============================================================ */}
-      <section id="how-it-works" style={{ scrollMarginTop: '5rem' }} className="bg-gray-50/60 py-20 sm:py-28">
+      <section id="how-it-works" className="bg-gray-50/60 py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -567,7 +587,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  PRICING                                                      */}
       {/* ============================================================ */}
-      <section id="pricing" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
+      <section id="pricing" className="py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -636,7 +656,7 @@ export default function MarketingView() {
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
                           : 'bg-gray-900 text-white hover:bg-gray-800'
                       }`}
-                      onClick={() => tier.cta === 'Contact Sales' ? scrollTo('contact') : (window.location.href = '/dashboard')}
+                      onClick={() => useAppStore.getState().setRegistrationOpen(true)}
                     >
                       {tier.cta}
                       <ChevronRight className="ml-1 h-4 w-4" />
@@ -652,7 +672,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  FAQ                                                          */}
       {/* ============================================================ */}
-      <section id="faq" style={{ scrollMarginTop: '5rem' }} className="bg-gray-50/60 py-20 sm:py-28">
+      <section id="faq" className="bg-gray-50/60 py-20 sm:py-28">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -679,7 +699,7 @@ export default function MarketingView() {
                 custom={i}
                 variants={fadeUp}
               >
-                <Card className="border-gray-200">
+                <Card className="overflow-hidden border-gray-200">
                   <button
                     className="flex w-full items-center justify-between px-6 py-5 text-left"
                     onClick={() => setOpenFaq(openFaq === i ? null : i)}
@@ -695,21 +715,17 @@ export default function MarketingView() {
                       }`}
                     />
                   </button>
-                  <AnimatePresence mode="wait" initial={false}>
-                    {openFaq === i && (
-                      <motion.div
-                        key={`faq-${i}`}
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2, ease: 'easeInOut' }}
-                      >
-                        <div className="px-6 pb-5 pl-14">
-                          <p className="text-sm leading-relaxed text-gray-600">{faq.a}</p>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  {openFaq === i && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                    >
+                      <div className="px-6 pb-5 pl-14">
+                        <p className="text-sm leading-relaxed text-gray-600">{faq.a}</p>
+                      </div>
+                    </motion.div>
+                  )}
                 </Card>
               </motion.div>
             ))}
@@ -720,7 +736,7 @@ export default function MarketingView() {
       {/* ============================================================ */}
       {/*  CONTACT                                                      */}
       {/* ============================================================ */}
-      <section id="contact" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
+      <section id="contact" className="py-20 sm:py-28">
         <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
           <motion.div
             initial="hidden"
@@ -834,7 +850,7 @@ export default function MarketingView() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
-            className="text-center"
+            className="mx-auto max-w-3xl text-center"
           >
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
               Ready to Transform Your Queue?
@@ -843,27 +859,25 @@ export default function MarketingView() {
               Join hundreds of businesses that have already eliminated chaotic waiting lines.
               Get started in under 2 minutes.
             </p>
-          </motion.div>
-
-          {/* Login Card */}
-          <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-1 max-w-sm mx-auto">
-            <motion.div variants={fadeUp}>
-              <Card
-                className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
-                onClick={() => window.location.href = '/dashboard'}
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <Button
+                size="lg"
+                className="bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg shadow-emerald-900/20 font-semibold text-base px-8 py-6"
+                onClick={() => useAppStore.getState().setRegistrationOpen(true)}
               >
-                <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
-                    <Shield className="h-7 w-7" />
-                  </div>
-                  <h3 className="text-lg font-bold text-white">Login</h3>
-                  <p className="text-sm text-emerald-100/80">
-                    Sign in to manage your queues, branches, or platform.
-                  </p>
-                </CardContent>
-              </Card>
-            </motion.div>
-          </div>
+                Get Started Free
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="border-white/40 text-white bg-white/10 hover:bg-white/20 backdrop-blur-sm font-semibold text-base px-8 py-6"
+                onClick={() => setCurrentView('dashboard')}
+              >
+                Staff Dashboard
+              </Button>
+            </div>
+          </motion.div>
         </div>
       </section>
 
@@ -891,10 +905,28 @@ export default function MarketingView() {
             {/* Navigation links */}
             <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2" aria-label="Footer navigation">
               <button
-                onClick={() => window.location.href = '/dashboard'}
+                onClick={() => setCurrentView('join')}
                 className="text-sm text-gray-500 transition-colors hover:text-emerald-600"
               >
-                Dashboard
+                Join a Queue
+              </button>
+              <button
+                onClick={() => setCurrentView('dashboard')}
+                className="text-sm text-gray-500 transition-colors hover:text-emerald-600"
+              >
+                Staff Dashboard
+              </button>
+              <button
+                onClick={() => setCurrentView('display')}
+                className="text-sm text-gray-500 transition-colors hover:text-emerald-600"
+              >
+                TV Display
+              </button>
+              <button
+                onClick={() => setCurrentView('admin')}
+                className="text-sm text-gray-500 transition-colors hover:text-emerald-600"
+              >
+                Platform Admin
               </button>
               <button
                 onClick={() => scrollTo('faq')}

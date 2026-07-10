@@ -3,13 +3,12 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { verifyToken } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
-import { dbNow } from '@/lib/datetime';
 
 // ─── POST: Submit feedback (public for ticket holders, auth optional) ─
 
 export async function POST(req: NextRequest) {
   try {
-    const d1 = await getD1FromEnv();
+    const d1 = getD1FromEnv();
     const body = await req.json();
     const { ticketId, tenantId, rating, comment } = body as {
       ticketId: string;
@@ -77,11 +76,12 @@ export async function POST(req: NextRequest) {
     }
 
     const newId = crypto.randomUUID();
+    const now = new Date().toISOString();
 
     await d1.prepare(
-      `INSERT INTO feedback (id, tenant_id, ticket_id, rating, comment)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(newId, tenantId, ticketId, Math.round(rating), comment || null).run();
+      `INSERT INTO feedback (id, tenant_id, ticket_id, rating, comment, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(newId, tenantId, ticketId, Math.round(rating), comment || null, now).run();
 
     return NextResponse.json(
       {
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
           ticketId,
           rating: Math.round(rating),
           comment: comment || null,
-          createdAt: dbNow(),
+          createdAt: now,
         },
       },
       { status: 201 }
@@ -109,7 +109,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
       const tenantId = req.nextUrl.searchParams.get('tenantId') || user.tenantId;
       const page = parseInt(req.nextUrl.searchParams.get('page') || '1', 10);
       const limit = Math.min(

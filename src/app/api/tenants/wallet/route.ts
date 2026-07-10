@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import type { JwtPayload } from '@/lib/auth';
-import { dbNow } from '@/lib/datetime';
-import { getClientIp } from '@/lib/utils';
 
 // GET: Wallet balance, usage stats, and transaction history
 // A11: TODO — PLATFORM_ADMIN wallet reads should have an audit trail for sensitive financial data access
@@ -20,7 +18,7 @@ export const GET = withAuth(
         );
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // Read tenant metadata
       const tenant = await d1
@@ -130,9 +128,13 @@ export const POST = withAuth(
         );
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
       const transactionId = crypto.randomUUID();
-      const ip = getClientIp(req);
+      const ip =
+        req.headers.get('cf-connecting-ip') ||
+        req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        req.headers.get('x-real-ip') ||
+        'unknown';
 
       // Transactional: increment balance + create transaction record + audit log
       await d1.batch([
@@ -173,7 +175,7 @@ export const POST = withAuth(
           amountCents,
           description: description || 'Wallet top-up',
           createdBy: user.userId,
-          createdAt: dbNow(),
+          createdAt: new Date().toISOString(),
         },
       });
     } catch (error) {

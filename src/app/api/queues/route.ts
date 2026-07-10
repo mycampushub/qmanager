@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
-import { dbNow } from '@/lib/datetime';
-import { getClientIp, toCamel } from '@/lib/utils';
+
+// Helper: convert snake_case DB row to camelCase
+function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = key.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result;
+}
 
 // Helper: map a queue DB row to the API response shape
 function mapQueue(q: Record<string, unknown>): Record<string, unknown> {
@@ -10,6 +18,16 @@ function mapQueue(q: Record<string, unknown>): Record<string, unknown> {
     ...toCamel(q),
     isActive: q.is_active === 1,
   };
+}
+
+// Helper: get client IP
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
 }
 
 // GET: List queues for user's tenant
@@ -26,7 +44,7 @@ export const GET = withAuth(
         );
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       const queueResult = await d1
         .prepare(
@@ -138,7 +156,7 @@ export const POST = withAuth(
         );
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // A18: Wrap count-check + create in a single batch to prevent race condition
       // Pre-reads for validation
@@ -176,22 +194,23 @@ export const POST = withAuth(
 
       // Create queue
       const id = crypto.randomUUID();
+      const now = new Date().toISOString();
       const svcTime = defaultServiceTimeSec ?? 300;
 
       await d1
         .prepare(
-          `INSERT INTO queues (id, tenant_id, name, description, default_service_time_sec, prefix, current_serial, now_serving_serial, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1)`
+          `INSERT INTO queues (id, tenant_id, name, description, default_service_time_sec, prefix, current_serial, now_serving_serial, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?)`
         )
-        .bind(id, tenantId, name, description || null, svcTime, prefix.toUpperCase())
+        .bind(id, tenantId, name, description || null, svcTime, prefix.toUpperCase(), now, now)
         .run();
 
       // Audit log
       const ip = getClientIp(req);
       await d1
         .prepare(
-          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           crypto.randomUUID(),
@@ -199,7 +218,8 @@ export const POST = withAuth(
           user.type,
           'QUEUE_CREATE',
           JSON.stringify({ queueId: id, name, prefix, tenantId }),
-          ip
+          ip,
+          now
         )
         .run();
 
@@ -213,8 +233,8 @@ export const POST = withAuth(
         currentSerial: 0,
         nowServingSerial: 0,
         isActive: true,
-        createdAt: dbNow(),
-        updatedAt: dbNow(),
+        createdAt: now,
+        updatedAt: now,
       };
 
       return NextResponse.json({ queue }, { status: 201 });
@@ -226,7 +246,7 @@ export const POST = withAuth(
       );
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );
 
 // PUT: Update queue (MANAGER only)
@@ -259,7 +279,7 @@ export const PUT = withAuth(
         );
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // Verify queue belongs to user's tenant
       const existing = await d1
@@ -325,7 +345,8 @@ export const PUT = withAuth(
         );
       }
 
-      setClauses.push("updated_at = datetime('now')");
+      setClauses.push('updated_at = ?');
+      bindValues.push(new Date().toISOString());
       bindValues.push(queueId);
 
       await d1
@@ -352,8 +373,8 @@ export const PUT = withAuth(
 
       await d1
         .prepare(
-          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           crypto.randomUUID(),
@@ -361,7 +382,8 @@ export const PUT = withAuth(
           user.type,
           'QUEUE_UPDATE',
           JSON.stringify({ queueId, updateData }),
-          ip
+          ip,
+          new Date().toISOString()
         )
         .run();
 
@@ -374,7 +396,7 @@ export const PUT = withAuth(
       );
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );
 
 // DELETE: Soft-delete queue (MANAGER only)
@@ -393,7 +415,7 @@ export const DELETE = withAuth(
         );
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // Verify queue belongs to user's tenant
       const queue = await d1
@@ -427,17 +449,18 @@ export const DELETE = withAuth(
         );
       }
 
+      const now = new Date().toISOString();
       await d1
-        .prepare("UPDATE queues SET is_active = 0, updated_at = datetime('now') WHERE id = ?")
-        .bind(queueId)
+        .prepare('UPDATE queues SET is_active = 0, updated_at = ? WHERE id = ?')
+        .bind(now, queueId)
         .run();
 
       // Audit log
       const ip = getClientIp(req);
       await d1
         .prepare(
-          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO audit_logs (id, user_id, user_type, action, details, ip_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           crypto.randomUUID(),
@@ -445,7 +468,8 @@ export const DELETE = withAuth(
           user.type,
           'QUEUE_DELETE',
           JSON.stringify({ queueId, name: queue.name }),
-          ip
+          ip,
+          now
         )
         .run();
 
@@ -458,5 +482,5 @@ export const DELETE = withAuth(
       );
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );

@@ -1,26 +1,25 @@
 // =============================================================================
-// QueueFlow — Local Storage API (file system instead of R2)
+// QueueFlow — R2 Storage API (file upload/download proxy)
+// Route: /api/storage/[...key]
 //
-// GET    — Download a file from local storage
-// POST   — Upload a file to local storage (multipart/form-data)
-// DELETE — Delete a file from local storage
+// GET    — Download a file from R2
+// POST   — Upload a file to R2 (multipart/form-data)
+// DELETE — Delete a file from R2
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-
-const STORAGE_DIR = path.join(process.cwd(), 'db', 'storage');
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
 ]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-function ensureStorageDir(): void {
-  if (!fs.existsSync(STORAGE_DIR)) {
-    fs.mkdirSync(STORAGE_DIR, { recursive: true });
+function getStorageBucket(): R2Bucket {
+  const env = globalThis as unknown as { STORAGE?: R2Bucket };
+  if (!env.STORAGE) {
+    throw new Error('R2 STORAGE binding not found. Ensure STORAGE is bound in wrangler.toml.');
   }
+  return env.STORAGE;
 }
 
 // GET /api/storage/logos/tenant-123/logo.png
@@ -30,32 +29,23 @@ export async function GET(
 ) {
   const { key } = await params;
   const fileKey = key.join('/');
-  const filePath = path.join(STORAGE_DIR, fileKey);
 
   try {
-    if (!fs.existsSync(filePath)) {
+    const bucket = getStorageBucket();
+    const object = await bucket.get(fileKey);
+
+    if (!object) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    const buffer = fs.readFileSync(filePath);
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.webp': 'image/webp',
-      '.svg': 'image/svg+xml',
-    }[ext] || 'application/octet-stream';
-
-    const stat = fs.statSync(filePath);
     const headers = new Headers();
-    headers.set('Content-Type', contentType);
-    headers.set('Content-Length', String(stat.size));
+    headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+    headers.set('Content-Length', String(object.size));
+    headers.set('ETag', object.etag);
     headers.set('Cache-Control', 'public, max-age=86400');
-    headers.set('Last-Modified', stat.mtime.toISOString());
+    headers.set('Last-Modified', object.uploaded.toISOString());
 
-    return new Response(buffer, { headers });
+    return new Response(object.body, { headers });
   } catch (err) {
     console.error('[Storage] GET error:', err);
     return NextResponse.json({ error: 'Failed to retrieve file' }, { status: 500 });
@@ -89,13 +79,12 @@ export async function POST(
     const ext = file.type.split('/')[1]?.replace('svg+xml', 'svg') || 'bin';
     const fileId = crypto.randomUUID();
     const fullKey = `${prefix}/${fileId}.${ext}`;
-    const filePath = path.join(STORAGE_DIR, fullKey);
 
-    ensureStorageDir();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
+    const bucket = getStorageBucket();
+    await bucket.put(fullKey, await file.arrayBuffer(), {
+      httpMetadata: { contentType: file.type },
+      customMetadata: { uploadedAt: new Date().toISOString(), originalName: file.name },
+    });
 
     return NextResponse.json({
       key: fullKey,
@@ -116,12 +105,10 @@ export async function DELETE(
 ) {
   const { key } = await params;
   const fileKey = key.join('/');
-  const filePath = path.join(STORAGE_DIR, fileKey);
 
   try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    const bucket = getStorageBucket();
+    await bucket.delete(fileKey);
     return NextResponse.json({ success: true, key: fileKey });
   } catch (err) {
     console.error('[Storage] DELETE error:', err);

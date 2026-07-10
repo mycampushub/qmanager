@@ -15,7 +15,7 @@ export async function GET(
     return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
   }
 
-  const d1 = await getD1FromEnv();
+  const d1 = getD1FromEnv();
 
   const tenant = await d1
     .prepare('SELECT name, is_active FROM tenants WHERE id = ?')

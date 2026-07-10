@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getD1FromEnv } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
-import { dbNow } from '@/lib/datetime';
-import { getClientIp } from '@/lib/utils';
 
 // A14: Public endpoint with IP rate limiting
 export async function POST(req: NextRequest) {
   try {
     // A14: IP-based rate limit (10/min) with A13 fallback
-    const ip = getClientIp(req);
+    const ip =
+      req.headers.get('cf-connecting-ip') ||
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      'unknown';
 
     const { allowed, retryAfterMs } = await rateLimit('subscribe:' + ip, 10, 60_000);
     if (!allowed) {
@@ -18,7 +20,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const d1 = await getD1FromEnv();
+    const d1 = getD1FromEnv();
     const body = await req.json();
     const { tenantId, ticketId, endpoint, keys } = body as {
       tenantId: string;
@@ -66,11 +68,12 @@ export async function POST(req: NextRequest) {
       .run();
 
     const newId = crypto.randomUUID();
+    const now = new Date().toISOString();
 
     await d1.prepare(
-      `INSERT INTO push_subscriptions (id, tenant_id, ticket_id, endpoint, keys_json)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(newId, tenantId, ticketId || null, endpoint, JSON.stringify(keys)).run();
+      `INSERT INTO push_subscriptions (id, tenant_id, ticket_id, endpoint, keys_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(newId, tenantId, ticketId || null, endpoint, JSON.stringify(keys), now).run();
 
     return NextResponse.json({ success: true, subscriptionId: newId });
   } catch (error) {

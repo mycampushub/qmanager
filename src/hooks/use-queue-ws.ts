@@ -1,30 +1,18 @@
 // =============================================================================
-// QueueFlow — Queue Polling Hook (replaces WebSocket for free-plan CF Workers)
-//
-// Polls a lightweight endpoint to detect queue changes and emits events
-// with the same interface as the previous WebSocket hook.
-//
-// Events emitted on change detection:
-//   TICKET_CALLED   — now_serving_serial changed
-//   TICKET_CREATED  — current_serial changed (new ticket joined)
-//   QUEUE_UPDATE    — any other queue data change
+// QueueFlow — WebSocket Client Hook (Cloudflare Durable Objects compatible)
+// Uses native WebSocket with JSON protocol.
 // =============================================================================
 
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useAppStore } from '@/stores/app-store';
 
-export interface WSEvent {
+interface WSEvent {
   type: string;
   event?: string;
   tenantId?: string;
   payload?: Record<string, unknown>;
-}
-
-interface QueueSnapshot {
-  id: string;
-  now_serving_serial: number;
-  current_serial: number;
 }
 
 interface UseQueueWebSocketResult {
@@ -35,106 +23,81 @@ interface UseQueueWebSocketResult {
   broadcast: (tenantId: string, event: string, payload: Record<string, unknown>) => void;
 }
 
+const MAX_RECONNECT = 10;
+
 export function useQueueWS(tenantId?: string, authToken?: string): UseQueueWebSocketResult {
+  const wsRef = useRef<WebSocket | null>(null);
+  const [connected, setConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<WSEvent | null>(null);
-  const prevSnapRef = useRef<string>(''); // JSON-stringified snapshot for comparison
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mountedRef = useRef(true);
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttempts = useRef(0);
+  const storeAuthToken = useAppStore((s) => s.authToken);
+  const effectiveToken = authToken || storeAuthToken;
 
   const clearLastEvent = useCallback(() => setLastEvent(null), []);
 
-  // No-op: polling cannot broadcast
-  const broadcast = useCallback((_tenantId: string, _event: string, _payload: Record<string, unknown>) => {
-    // no-op — polling is receive-only
-  }, []);
-
   useEffect(() => {
-    if (!tenantId) return;
+    function scheduleReconnect() {
+      if (reconnectAttempts.current >= MAX_RECONNECT) return;
+      const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts.current), 30000);
+      reconnectAttempts.current++;
+      reconnectTimeout.current = setTimeout(doConnect, delay);
+    }
 
-    mountedRef.current = true;
-
-    async function poll() {
-      if (!mountedRef.current) return;
+    function doConnect() {
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
       try {
-        const headers: Record<string, string> = {};
-        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${window.location.host}/?XTransformPort=3003`);
+        wsRef.current = ws;
 
-        const res = await fetch(`/api/tenants/${tenantId}/poll`, { headers, signal: AbortSignal.timeout(8000) });
-        if (!res.ok || !mountedRef.current) return;
-
-        const data = await res.json() as { queues: QueueSnapshot[] };
-        const snapshot = JSON.stringify(data.queues);
-
-        // First poll — just store, don't emit
-        if (!prevSnapRef.current) {
-          prevSnapRef.current = snapshot;
-          return;
-        }
-
-        if (snapshot !== prevSnapRef.current) {
-          const prev: QueueSnapshot[] = JSON.parse(prevSnapRef.current);
-          const curr: QueueSnapshot[] = data.queues;
-
-          // Compare to detect what changed
-          for (const c of curr) {
-            const p = prev.find((q) => q.id === c.id);
-            if (!p) continue;
-
-            if (c.now_serving_serial !== p.now_serving_serial) {
-              // A ticket was called — highest priority event
-              if (mountedRef.current) {
-                setLastEvent({
-                  type: 'TICKET_CALLED',
-                  event: 'TICKET_CALLED',
-                  tenantId,
-                  payload: {
-                    queueId: c.id,
-                    serialNumber: c.now_serving_serial,
-                    prevSerial: p.now_serving_serial,
-                  },
-                });
-              }
-              prevSnapRef.current = snapshot;
-              return; // emit one event per poll cycle
-            }
-
-            if (c.current_serial !== p.current_serial) {
-              // New ticket joined queue
-              if (mountedRef.current) {
-                setLastEvent({
-                  type: 'TICKET_CREATED',
-                  event: 'TICKET_CREATED',
-                  tenantId,
-                  payload: { queueId: c.id, serialNumber: c.current_serial },
-                });
-              }
-              prevSnapRef.current = snapshot;
-              return;
-            }
+        ws.onopen = () => {
+          setConnected(true);
+          reconnectAttempts.current = 0;
+          // Subscribe to tenant updates
+          if (tenantId) {
+            ws.send(JSON.stringify({ action: 'subscribe', tenantId }));
           }
-
-          // Generic update (queue added/removed, etc.)
-          if (mountedRef.current) {
-            setLastEvent({ type: 'QUEUE_UPDATE', event: 'QUEUE_UPDATE', tenantId, payload: {} });
+        };
+        ws.onmessage = (e) => {
+          try {
+            const event: WSEvent = JSON.parse(e.data);
+            setLastEvent(event);
+          } catch {
+            /* ignore malformed messages */
           }
-          prevSnapRef.current = snapshot;
-        }
+        };
+        ws.onclose = () => {
+          setConnected(false);
+          wsRef.current = null;
+          scheduleReconnect();
+        };
+        ws.onerror = () => ws.close();
       } catch {
-        // Network error — silently retry next interval
+        scheduleReconnect();
       }
     }
 
-    // Poll immediately, then every 3 seconds
-    poll();
-    timerRef.current = setInterval(poll, 3000);
+    if (effectiveToken) {
+      doConnect();
+    } else {
+      wsRef.current?.close();
+    }
 
     return () => {
-      mountedRef.current = false;
-      if (timerRef.current) clearInterval(timerRef.current);
+      wsRef.current?.close();
+      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
     };
-  }, [tenantId, authToken]);
+  }, [effectiveToken, tenantId]);
 
-  return { connected: true, isConnected: true, lastEvent, clearLastEvent, broadcast };
+  const broadcast = useCallback((tid: string, event: string, payload: Record<string, unknown>) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'broadcast', tenantId: tid, event, payload }));
+    }
+  }, []);
+
+  return { connected, isConnected: connected, lastEvent, clearLastEvent, broadcast };
 }
 
+// Alias for backward compatibility
 export const useQueueWebSocket = useQueueWS;

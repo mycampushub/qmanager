@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api-auth';
-import { getD1FromEnv, type D1Database, type BoundStatement } from '@/lib/db';
+import { getD1FromEnv } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
-import { dbNow } from '@/lib/datetime';
-import { getClientIp } from '@/lib/utils';
 
 // =============================================================================
 // Row types for D1 raw SQL results (snake_case)
@@ -21,7 +19,15 @@ interface TenantManageRow {
   ticket_count?: number;
 }
 
-
+// Helper: extract client IP
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
 
 // Helper: create audit log entry
 async function createAuditLog(
@@ -43,7 +49,7 @@ export const GET = withAuth(
     const { user } = ctx;
 
     try {
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
       const url = req.nextUrl;
 
       // Pagination
@@ -176,7 +182,7 @@ export const POST = withAuth(
         }
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
       const tenantId = crypto.randomUUID();
 
       // Validate master tenant if provided
@@ -224,17 +230,18 @@ export const POST = withAuth(
       }
 
       // Create tenant (+ manager if provided) in a batch
-      const statements: BoundStatement[] = [
+      const now = new Date().toISOString();
+      const statements: D1PreparedStatement[] = [
         d1.prepare(
-          `INSERT INTO tenants (id, name, plan_tier, master_tenant_id, wallet_balance, is_active) VALUES (?, ?, ?, ?, ?, 1)`
-        ).bind(tenantId, name, tier, masterTenantId || null, walletBalance ?? 50000),
+          `INSERT INTO tenants (id, name, plan_tier, master_tenant_id, wallet_balance, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
+        ).bind(tenantId, name, tier, masterTenantId || null, walletBalance ?? 50000, now, now),
       ];
 
       if (managerId && passwordHash) {
         statements.push(
           d1.prepare(
-            `INSERT INTO users (id, tenant_id, email, name, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?, 'MANAGER', 1)`
-          ).bind(managerId, tenantId, managerEmail!, managerName!, passwordHash)
+            `INSERT INTO users (id, tenant_id, email, name, password_hash, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'MANAGER', 1, ?, ?)`
+          ).bind(managerId, tenantId, managerEmail!, managerName!, passwordHash, now, now)
         );
       }
 
@@ -270,8 +277,8 @@ export const POST = withAuth(
         planTier: tier,
         masterTenantId: masterTenantId || null,
         isActive: true,
-        createdAt: dbNow(),
-        updatedAt: dbNow(),
+        createdAt: now,
+        updatedAt: now,
       };
 
       return NextResponse.json({ tenant: safeTenant }, { status: 201 });
@@ -314,7 +321,7 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // MANAGER can only update own tenant
       if (user.role === 'MANAGER') {
@@ -426,7 +433,7 @@ export const DELETE = withAuth(
         return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       const tenant = await d1
         .prepare(`SELECT id, name FROM tenants WHERE id = ?`)

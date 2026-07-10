@@ -6,15 +6,13 @@
 //   Both work in Next.js, but Response is the universal Web API.
 // =============================================================================
 
-import { NextResponse } from 'next/server';
-
 /**
- * Convert analytics data to CSV and return a downloadable NextResponse.
+ * Convert analytics data to CSV and return a downloadable Response.
  */
 export function analyticsToCSV(
   data: Record<string, unknown>,
   filename: string = 'analytics.csv'
-): NextResponse {
+): Response {
   const rows: string[][] = [];
 
   // ── Summary Section ──────────────────────────────────────────────────
@@ -75,7 +73,7 @@ export function analyticsToCSV(
     )
     .join('\n');
 
-  return new NextResponse(csvContent, {
+  return new Response(csvContent, {
     status: 200,
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',

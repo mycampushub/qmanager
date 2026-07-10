@@ -3,7 +3,6 @@ import { withAuth } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { hashPassword, signToken, rateLimit, generateCsrfToken } from '@/lib/auth';
 import type { JwtPayload } from '@/lib/auth';
-import { getClientIp } from '@/lib/utils';
 
 // =============================================================================
 // Row types for D1 raw SQL results (snake_case)
@@ -32,7 +31,7 @@ interface TenantRow {
 // GET: List all active tenants (PUBLIC — needed for join page, TV display, kiosk)
 export async function GET() {
   try {
-    const d1 = await getD1FromEnv();
+    const d1 = getD1FromEnv();
 
     const result = await d1.prepare(`
       SELECT
@@ -122,7 +121,11 @@ export async function POST(req: NextRequest) {
     const tier = 'FREE';
 
     // Rate limit: 3 per hour per IP
-    const ip = getClientIp(req);
+    const ip =
+      req.headers.get('cf-connecting-ip') ||
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      'unknown';
 
     const { allowed, retryAfterMs } = await rateLimit('register:' + ip, 3, 3_600_000);
     if (!allowed) {
@@ -135,7 +138,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const d1 = await getD1FromEnv();
+    const d1 = getD1FromEnv();
     const passwordHash = await hashPassword(password);
     const tenantId = crypto.randomUUID();
     const staffId = crypto.randomUUID();
@@ -240,13 +243,13 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'You can only access your own tenant' }, { status: 403 });
       }
 
-      const d1 = await getD1FromEnv();
+      const d1 = getD1FromEnv();
 
       // Fetch tenant with master tenant
       const tenantRow = await d1.prepare(`
         SELECT
           t.id, t.name, t.plan_tier, t.master_tenant_id, t.welcome_message, t.logo_url,
-          t.is_active, t.created_at, t.contact_email, t.contact_phone, t.address,
+          t.is_active, t.created_at,
           mt.id AS master_id, mt.corporate_name
         FROM tenants t
         LEFT JOIN master_tenants mt ON t.master_tenant_id = mt.id
@@ -319,9 +322,6 @@ export const PUT = withAuth(
         masterTenantId: tenantRow.master_tenant_id,
         welcomeMessage: tenantRow.welcome_message,
         logoUrl: tenantRow.logo_url,
-        contactEmail: tenantRow.contact_email,
-        contactPhone: tenantRow.contact_phone,
-        address: tenantRow.address,
         isActive: tenantRow.is_active === 1,
         createdAt: tenantRow.created_at,
         masterTenant: tenantRow.master_id
@@ -336,5 +336,5 @@ export const PUT = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['PLATFORM_ADMIN', 'MANAGER'], csrf: true }
+  { roles: ['PLATFORM_ADMIN', 'MANAGER'] }
 );
