@@ -46,7 +46,7 @@ export default function QueueSelector({
       toast.error('Please enter your name');
       return;
     }
-    const phone = customerPhone.trim() ? `+880${customerPhone.trim().replace(/^\\+?880/, '')}` : undefined;
+    const phone = customerPhone.trim() ? `+880${customerPhone.trim().replace(/^880/, '')}` : undefined;
     onJoin(selectedQueue, customerName.trim(), phone);
   };
 

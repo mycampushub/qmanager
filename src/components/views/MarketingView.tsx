@@ -247,7 +247,7 @@ export default function MarketingView() {
             </Button>
             <Button
               className="bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200"
-              onClick={() => scrollTo('pricing')}
+              onClick={() => useAppStore.getState().setCurrentView('signup')}
             >
               Get Started
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -292,7 +292,7 @@ export default function MarketingView() {
               </Button>
               <Button
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
-                onClick={() => { setMobileOpen(false); scrollTo('pricing'); }}
+                onClick={() => { setMobileOpen(false); useAppStore.getState().setCurrentView('signup'); }}
               >
                 Get Started
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -354,7 +354,7 @@ export default function MarketingView() {
                 <Button
                   size="lg"
                   className="bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg shadow-emerald-900/20 font-semibold text-base px-8 py-6"
-                  onClick={() => scrollTo('pricing')}
+                  onClick={() => useAppStore.getState().setCurrentView('signup')}
                 >
                   Get Started Free
                   <ArrowRight className="ml-2 h-5 w-5" />
@@ -636,7 +636,7 @@ export default function MarketingView() {
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
                           : 'bg-gray-900 text-white hover:bg-gray-800'
                       }`}
-                      onClick={() => tier.cta === 'Contact Sales' ? scrollTo('contact') : (window.location.href = '/dashboard')}
+                      onClick={() => tier.cta === 'Contact Sales' ? scrollTo('contact') : useAppStore.getState().setCurrentView('signup')}
                     >
                       {tier.cta}
                       <ChevronRight className="ml-1 h-4 w-4" />
@@ -845,8 +845,24 @@ export default function MarketingView() {
             </p>
           </motion.div>
 
-          {/* Login Card */}
-          <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-1 max-w-sm mx-auto">
+          {/* Login & Signup Cards */}
+          <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-2 max-w-md mx-auto">
+            <motion.div variants={fadeUp}>
+              <Card
+                className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
+                onClick={() => useAppStore.getState().setCurrentView('signup')}
+              >
+                <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
+                    <Zap className="h-7 w-7" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white">Sign Up</h3>
+                  <p className="text-sm text-emerald-100/80">
+                    Create a free account and start managing queues in minutes.
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
             <motion.div variants={fadeUp}>
               <Card
                 className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"

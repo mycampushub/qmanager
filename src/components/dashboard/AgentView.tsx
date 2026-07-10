@@ -232,6 +232,8 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      // Send client timezone so server can check service windows in local time
+      try { headers['X-Timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* ignore */ }
       const res = await fetch('/api/queues/join', {
         method: 'POST',
         headers,

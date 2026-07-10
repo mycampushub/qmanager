@@ -146,9 +146,12 @@ export default function JoinView() {
       if (!joinTenantId) return;
       setJoining(true);
       try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        // Send client timezone so server can check service windows in local time
+        try { headers['X-Timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* ignore */ }
         const res = await fetch('/api/queues/join', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             tenantId: joinTenantId,
             queueId,

@@ -128,6 +128,10 @@ export async function ensureDemoData(d1: D1Database): Promise<void> {
   const agentHash = await hashPassword('Agent@2024!Secure');
 
   await d1.batch([
+    // Safety: seed plan_limits in case schema.sql seed was not applied
+    d1.prepare(`INSERT OR IGNORE INTO plan_limits (id, plan_tier, max_queues, max_staff, max_tickets_per_day, price_monthly_cents) VALUES ('plan-free', 'FREE', 2, 3, 50, 0)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO plan_limits (id, plan_tier, max_queues, max_staff, max_tickets_per_day, price_monthly_cents) VALUES ('plan-pro', 'PRO', 10, 15, 500, 50000)`).bind(),
+    d1.prepare(`INSERT OR IGNORE INTO plan_limits (id, plan_tier, max_queues, max_staff, max_tickets_per_day, price_monthly_cents) VALUES ('plan-enterprise', 'ENTERPRISE', 50, 100, 5000, 200000)`).bind(),
     d1.prepare(`INSERT OR IGNORE INTO platform_admins (id, email, name, password_hash) VALUES ('admin-001', 'admin@yourqueueapp.com', 'System Admin', ?)`).bind(adminHash),
     d1.prepare(`INSERT OR IGNORE INTO master_tenants (id, corporate_name, billing_status) VALUES ('master-001', 'CityHealth Medical Group', 'ACTIVE')`).bind(),
     d1.prepare(`INSERT OR IGNORE INTO master_tenant_admins (id, master_tenant_id, email, name, password_hash) VALUES ('mt-admin-001', 'master-001', 'hq@cityhealthgroup.com', 'CityHealth HQ Admin', ?)`).bind(managerHash),

@@ -9,6 +9,7 @@ import JoinView from '@/components/views/JoinView';
 import DisplayView from '@/components/views/DisplayView';
 import PlatformAdminView from '@/components/views/PlatformAdminView';
 import MasterTenantView from '@/components/views/MasterTenantView';
+import SignupView from '@/components/views/SignupView';
 import { Toaster } from 'sonner';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -178,9 +179,9 @@ function HomeContent() {
     const state = useAppStore.getState();
     if (window.location.pathname !== '/dashboard') {
       if (state.adminUser) {
-        state.setCurrentView('admin');
+        window.location.href = '/dashboard';
       } else if (state.mtUser) {
-        state.setCurrentView('masterTenant');
+        window.location.href = '/dashboard';
       } else if (state.authUser) {
         window.location.href = '/dashboard';
       }
@@ -194,6 +195,7 @@ function HomeContent() {
       {currentView === 'display' && <DisplayView />}
       {currentView === 'admin' && <PlatformAdminView />}
       {currentView === 'masterTenant' && <MasterTenantView />}
+      {currentView === 'signup' && <SignupView />}
     </div>
   );
 

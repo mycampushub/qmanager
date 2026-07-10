@@ -104,6 +104,9 @@ export const useAppStore = create<AppState>((set) => ({
       localStorage.removeItem('qms_admin_user');
     }
     set({ adminUser: null, adminToken: null, currentView: 'marketing' });
+    if (typeof window !== 'undefined' && window.location.pathname === '/dashboard') {
+      window.location.href = '/';
+    }
   },
 
   // Master Tenant Admin Auth
@@ -122,6 +125,9 @@ export const useAppStore = create<AppState>((set) => ({
       localStorage.removeItem('qms_mt_user');
     }
     set({ mtUser: null, mtToken: null, currentView: 'marketing' });
+    if (typeof window !== 'undefined' && window.location.pathname === '/dashboard') {
+      window.location.href = '/';
+    }
   },
 
   // Dashboard tabs

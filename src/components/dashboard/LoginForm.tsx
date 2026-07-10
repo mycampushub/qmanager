@@ -34,17 +34,17 @@ export function LoginScreen() {
       if (data.csrfToken) {
         localStorage.setItem('qms_csrf', data.csrfToken);
       }
-      // Platform admin → store admin auth + redirect to root
+      // Platform admin → store admin auth, stay on /dashboard
       if (data.user.type === 'platform_admin' || data.user.role === 'PLATFORM_ADMIN') {
         useAppStore.getState().setAdminAuth(
           { id: data.user.id, email: data.user.email, name: data.user.name },
           data.token
         );
         toast.success(`Welcome back, ${data.user.name}!`);
-        window.location.href = '/';
+        // Dashboard page now handles all auth types
         return;
       }
-      // Master tenant admin → store MT auth + redirect to root
+      // Master tenant admin → store MT auth, stay on /dashboard
       if (data.user.type === 'master_tenant_admin' || data.user.role === 'MASTER_TENANT_ADMIN') {
         useAppStore.getState().setMtAuth(
           {
@@ -57,7 +57,7 @@ export function LoginScreen() {
           data.token
         );
         toast.success(`Welcome back, ${data.user.name}!`);
-        window.location.href = '/';
+        // Dashboard page now handles all auth types
         return;
       }
       // Staff/Manager/Agent → stay on dashboard

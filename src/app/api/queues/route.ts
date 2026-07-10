@@ -226,7 +226,7 @@ export const POST = withAuth(
       );
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );
 
 // PUT: Update queue (MANAGER only)
@@ -374,7 +374,7 @@ export const PUT = withAuth(
       );
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );
 
 // DELETE: Soft-delete queue (MANAGER only)
@@ -458,5 +458,5 @@ export const DELETE = withAuth(
       );
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );

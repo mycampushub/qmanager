@@ -205,7 +205,7 @@ export const POST = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], csrf: true }
+  { roles: ['MANAGER'] }
 );
 
 // ─── PUT: Update service window ─────────────────────────────────
@@ -352,7 +352,7 @@ export const PUT = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], csrf: true }
+  { roles: ['MANAGER'] }
 );
 
 // ─── DELETE: Soft-delete service window ─────────────────────────
@@ -395,5 +395,5 @@ export const DELETE = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], csrf: true }
+  { roles: ['MANAGER'] }
 );

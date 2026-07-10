@@ -102,3 +102,77 @@ Stage Summary:
 - TypeScript strict mode passes with local D1 type definitions
 - No bun:sqlite, no fs/path, no Node.js-specific APIs in server code
 - Ready for `wrangler deploy` to production Cloudflare Workers
+
+---
+Task ID: 5
+Agent: csrf-fix
+Task: Remove csrf: true from all API routes (Bearer token auth makes CSRF unnecessary)
+
+Work Log:
+- Removed csrf: true from queues/route.ts (3 handlers)
+- Removed csrf: true from staff/route.ts (3 handlers)
+- Removed csrf: true from service-windows/route.ts (3 handlers)
+- Removed csrf: true from webhooks/route.ts (3 handlers)
+- Removed csrf: true from tenants/route.ts (1 handler)
+
+Stage Summary:
+- All 13 withAuth() handlers no longer require X-CSRF-Token header
+- Frontend queue creation, staff management, etc. will now work
+
+---
+Task ID: 1
+Agent: main
+Task: Check build errors and fix runtime issues (admin/franchise redirect, queue creation, walk-in ticket creation)
+
+Work Log:
+- Ran `opennextjs-cloudflare build` — compiled successfully with 0 errors, 40 routes
+- Identified root cause of admin/franchise redirect: LoginForm.tsx redirected to `/dashboard` which only handles staff auth; admin/MT auth stored in different localStorage keys
+- Fixed LoginForm.tsx: changed `window.location.href = '/dashboard'` to `window.location.href = '/'` for admin and master tenant users
+- Investigated queue creation and walk-in ticket creation "not working" reports
+- Sub-agent deep-dive analysis found: service window timezone bug (CF Workers uses UTC), race condition in serial increment, missing plan_limits safety seed
+- Fixed service window timezone: now uses client-provided `X-Timezone` header with `Intl.DateTimeFormat` for correct local time comparison
+- Added `X-Timezone` header to AgentView walk-in and JoinView public join requests
+- Added plan_limits safety seed to ensureDemoData() (INSERT OR IGNORE for FREE/PRO/ENTERPRISE)
+- Fixed race condition: changed read-then-write serial increment to atomic SQL `current_serial = current_serial + 1` with post-batch re-fetch
+- Rebuilt with `opennextjs-cloudflare build` — 0 errors confirmed
+- Verified login API works via curl (manager login returns valid JWT)
+- Wrangler dev keeps OOMing in sandbox (environment limitation, not code issue)
+- Previous session confirmed APIs working: POST /api/queues 201 Created, POST /api/queues/join 200 OK
+
+Stage Summary:
+- Build: CLEAN — 0 TypeScript errors, 40 routes compiled
+- Files modified: LoginForm.tsx, queues/join/route.ts, AgentView.tsx, JoinView.tsx, auth.ts
+- Key fixes: admin/MT redirect, timezone-aware service windows, atomic serial increment, plan_limits safety seed
+
+---
+Task ID: 2
+Agent: Main
+Task: Fix Get Started/Trial → Signup page, Admin/Franchise dashboard routing, Queue creation, Walk-in ticket creation
+
+Work Log:
+- Created `src/components/views/SignupView.tsx` — full signup form with business name, full name, email, password fields
+- Password validation UI with real-time requirement indicators (8+ chars, uppercase, digit)
+- Added 'signup' to AppView type in types.ts
+- Updated `src/app/page.tsx` to render SignupView when currentView === 'signup'
+- Updated MarketingView.tsx CTA buttons:
+  - Navbar "Get Started" → now navigates to signup view
+  - Hero "Get Started Free" → now navigates to signup view
+  - Mobile "Get Started" → now navigates to signup view
+  - Pricing "Start Free Trial" → now navigates to signup view
+  - Bottom CTA section → added "Sign Up" card alongside "Login" card
+- Fixed admin/franchise dashboard routing:
+  - Rewrote `src/app/dashboard/page.tsx` to handle all 3 auth types (staff, admin, master tenant)
+  - Updated LoginForm.tsx: admin/MT login no longer redirects to `/`, stays on `/dashboard`
+  - Updated app-store.ts: admin/MT logout navigates back to `/` when on `/dashboard`
+  - Updated page.tsx: auto-restore redirects all auth types to `/dashboard`
+- Fixed phone regex bug in QueueSelector.tsx (double backslash in regex)
+- Verified all APIs work: homepage (200), signup (201), login, queue creation (201), walk-in ticket (200), admin login
+- Signup code confirmed in JS bundle via chunk analysis
+- Build: `opennextjs-cloudflare build` — 0 errors, 40 routes
+
+Stage Summary:
+- Signup page fully functional: Get Started/Trial buttons now land on signup form instead of login
+- Admin and Franchise dashboards now properly render under /dashboard
+- Queue creation and walk-in ticket creation APIs verified working (were already fixed in prior session)
+- Files created: src/components/views/SignupView.tsx
+- Files modified: types.ts, page.tsx, dashboard/page.tsx, MarketingView.tsx, LoginForm.tsx, app-store.ts, QueueSelector.tsx

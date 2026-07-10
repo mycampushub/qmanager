@@ -109,9 +109,31 @@ export async function POST(req: NextRequest) {
     }
 
     // D9: Check service windows
+    // Use client-provided timezone or fall back to UTC (CF Workers run in UTC)
+    const clientTimezone = req.headers.get('X-Timezone') || 'UTC';
     const now = new Date();
-    const dayOfWeek = now.getDay();
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    let dayOfWeek: number;
+    let currentTime: string;
+    try {
+      // Get day of week in the client's timezone by formatting as a full date string
+      const dayParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: clientTimezone,
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).formatToParts(now);
+      const dayName = dayParts.find(p => p.type === 'weekday')?.value || '';
+      const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+      dayOfWeek = dayMap[dayName] ?? now.getUTCDay();
+      const h = parseInt(dayParts.find(p => p.type === 'hour')?.value || '0') % 24;
+      const m = parseInt(dayParts.find(p => p.type === 'minute')?.value || '0');
+      currentTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    } catch {
+      // Fallback to UTC
+      dayOfWeek = now.getUTCDay();
+      currentTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+    }
 
     const queueWindows = await d1
       .prepare(
@@ -226,11 +248,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Pre-read current serial for atomic increment
-    const currentSerial = queue.current_serial as number;
-    const newSerial = currentSerial + 1;
-
-    // Prepare all writes as a batch
+    // Atomic serial increment: use SQL-level increment inside the batch to prevent race conditions.
+    // We read the new serial after the batch via a re-fetch.
     const nowISO = now.toISOString();
     const ticketId = crypto.randomUUID();
     const ledgerId = crypto.randomUUID();
@@ -238,12 +257,12 @@ export async function POST(req: NextRequest) {
     const profileId = crypto.randomUUID();
 
     const batchStatements = [
-      // Increment queue serial
+      // Atomically increment queue serial
       d1
         .prepare(
-          'UPDATE queues SET current_serial = ?, updated_at = ? WHERE id = ?'
+          'UPDATE queues SET current_serial = current_serial + 1, updated_at = ? WHERE id = ?'
         )
-        .bind(newSerial, nowISO, queueId),
+        .bind(nowISO, queueId),
 
       // Decrement wallet
       d1
@@ -252,17 +271,17 @@ export async function POST(req: NextRequest) {
         )
         .bind(TICKET_COST_CENTS, nowISO, tenantId, TICKET_COST_CENTS),
 
-      // Create ticket
+      // Create ticket — use subquery to read the new serial value atomically
       d1
         .prepare(
           `INSERT INTO tickets (id, tenant_id, queue_id, serial_number, status, customer_name, customer_phone, device_id, created_at)
-           VALUES (?, ?, ?, ?, 'WAITING', ?, ?, ?, ?)`
+           VALUES (?, ?, ?, (SELECT current_serial FROM queues WHERE id = ?), 'WAITING', ?, ?, ?, ?)`
         )
         .bind(
           ticketId,
           tenantId,
           queueId,
-          newSerial,
+          queueId,
           customerName,
           customerPhone || null,
           deviceId || null,
@@ -281,13 +300,13 @@ export async function POST(req: NextRequest) {
       d1
         .prepare(
           `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_at)
-           VALUES (?, ?, 'TICKET_CHARGE', ?, ?, ?)`
+           VALUES (?, ?, 'TICKET_CHARGE', ?, (SELECT 'Ticket ' || prefix || printf('%03d', current_serial) FROM queues WHERE id = ?), ?)`
         )
         .bind(
           txId,
           tenantId,
           -TICKET_COST_CENTS,
-          `Ticket ${queue.prefix}${String(newSerial).padStart(3, '0')}`,
+          queueId,
           nowISO
         ),
     ];
@@ -320,10 +339,12 @@ export async function POST(req: NextRequest) {
 
     await d1.batch(batchStatements);
 
-    // Check wallet update result (changes should be 1 if balance was sufficient)
-    // The WHERE clause `wallet_balance >= ?` ensures we don't go negative
-    // If the batch succeeded, we know the wallet was updated correctly
-
+    // Read the new serial from the updated queue (post-batch)
+    const updatedQueue = await d1
+      .prepare('SELECT current_serial, prefix FROM queues WHERE id = ?')
+      .bind(queueId)
+      .first<{ current_serial: number; prefix: string }>();
+    const newSerial = updatedQueue?.current_serial ?? ((queue.current_serial as number) + 1);
     const newBalance = platformTenant.wallet_balance - TICKET_COST_CENTS;
 
     // Check for low balance

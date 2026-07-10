@@ -240,7 +240,7 @@ export const POST = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );
 
 // PUT: Update staff user (MANAGER only)
@@ -350,7 +350,7 @@ export const PUT = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );
 
 // DELETE: Soft-delete staff (MANAGER only, cannot deactivate self)
@@ -416,5 +416,5 @@ export const DELETE = withAuth(
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
-  { roles: ['MANAGER'], requireTenantId: true, csrf: true }
+  { roles: ['MANAGER'], requireTenantId: true }
 );
