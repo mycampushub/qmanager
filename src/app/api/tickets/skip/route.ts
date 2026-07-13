@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
+import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
 import { dbNow } from '@/lib/datetime';
 import { getClientIp, toCamel } from '@/lib/utils';
+
+const TICKET_COST_CENTS = 100;
 
 interface TicketWithQueue {
   id: string;
@@ -17,7 +20,6 @@ interface TicketWithQueue {
   served_at: string | null;
   served_by_agent: string | null;
   created_at: string;
-  // Joined queue fields
   queue_name: string;
   queue_prefix: string;
 }
@@ -40,7 +42,7 @@ export const POST = withAuth(
       const tenantId = user.tenantId!;
       const d1 = await getD1FromEnv();
 
-      // Find ticket with queue
+      // Find ticket with queue — enforce tenant isolation
       const ticket = await d1
         .prepare(
           `SELECT t.*, q.name as queue_name, q.prefix as queue_prefix
@@ -58,8 +60,8 @@ export const POST = withAuth(
         );
       }
 
-      // D2: Only SERVING tickets can be skipped
-      if (ticket.status !== 'SERVING') {
+      // Validate transition: only SERVING tickets can be skipped
+      if (!canTransition(ticket.status, 'SKIPPED')) {
         return NextResponse.json(
           {
             error: `Cannot skip ticket with status: ${ticket.status}. Only SERVING tickets can be skipped.`,
@@ -68,51 +70,60 @@ export const POST = withAuth(
         );
       }
 
-      // Get queue for current serial and now_serving_serial
-      const queue = await d1
-        .prepare('SELECT current_serial, now_serving_serial FROM queues WHERE id = ?')
-        .bind(ticket.queue_id)
-        .first<{ current_serial: number; now_serving_serial: number }>();
+      const nowISO = dbNow();
+      const newSkipCount = ticket.skip_count + 1;
+      const formattedSerial = `${ticket.queue_prefix}${String(ticket.serial_number).padStart(3, '0')}`;
 
-      if (!queue) {
+      // Build batch: set SKIPPED status, clear serving fields, refund wallet
+      const statements = [
+        // Update ticket to SKIPPED — keep original serial_number intact
+        d1
+          .prepare(
+            `UPDATE tickets SET status = 'SKIPPED', skip_count = ?, skipped_at = ?,
+             served_by_agent = NULL, served_at = NULL
+             WHERE id = ? AND status = 'SERVING'`
+          )
+          .bind(newSkipCount, nowISO, ticketId),
+
+        // Remove usage ledger so skip costs nothing
+        d1
+          .prepare('DELETE FROM usage_ledgers WHERE ticket_id = ?')
+          .bind(ticketId),
+
+        // Refund wallet
+        d1
+          .prepare(
+            "UPDATE tenants SET wallet_balance = wallet_balance + ?, updated_at = datetime('now') WHERE id = ?"
+          )
+          .bind(TICKET_COST_CENTS, tenantId),
+
+        // Record REFUND transaction
+        d1
+          .prepare(
+            `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by, created_at)
+             VALUES (?, ?, 'SKIP_REFUND', ?, ?, ?, ?)`
+          )
+          .bind(
+            crypto.randomUUID(),
+            tenantId,
+            TICKET_COST_CENTS,
+            `Refund for skipped ticket ${formattedSerial}`,
+            user.userId,
+            nowISO
+          ),
+      ];
+
+      const batchResult = await d1.batch(statements);
+
+      // Verify the ticket was actually updated (race condition guard)
+      if ((batchResult[0].meta?.changes ?? 0) === 0) {
         return NextResponse.json(
-          { error: 'Queue not found' },
-          { status: 404 }
+          { error: 'Ticket status changed concurrently. Please try again.' },
+          { status: 409 }
         );
       }
 
-      const newSerial = queue.current_serial + 1;
-      const newNowServing = Math.max(newSerial, queue.now_serving_serial);
-      const nowISO = dbNow();
-
-      // A4: Update serial and ticket in transaction
-      await d1.batch([
-        // Atomic increment queue serial
-        d1
-          .prepare(
-            "UPDATE queues SET current_serial = ?, updated_at = datetime('now') WHERE id = ?"
-          )
-          .bind(newSerial, ticket.queue_id),
-
-        // Update ticket: skip and re-queue
-        d1
-          .prepare(
-            `UPDATE tickets SET status = 'WAITING', serial_number = ?, skip_count = skip_count + 1, skipped_at = ?, served_by_agent = NULL, served_at = NULL WHERE id = ?`
-          )
-          .bind(newSerial, nowISO, ticketId),
-
-        // Update nowServingSerial
-        d1
-          .prepare(
-            "UPDATE queues SET now_serving_serial = ?, updated_at = datetime('now') WHERE id = ?"
-          )
-          .bind(newNowServing, ticket.queue_id),
-      ]);
-
-      const formattedSerial = `${ticket.queue_prefix}${String(newSerial).padStart(3, '0')}`;
-      const newSkipCount = ticket.skip_count + 1;
-
-      // Fire webhooks (fire-and-forget)
+      // Fire webhooks
       dispatchWebhooks(tenantId, 'TICKET_SKIPPED', {
         ticketId,
         serialNumber: formattedSerial,
@@ -137,12 +148,13 @@ export const POST = withAuth(
             ticketId,
             queueId: ticket.queue_id,
             skipCount: newSkipCount,
+            serialNumber: ticket.serial_number,
           }),
           ip
         )
         .run();
 
-      // Count remaining
+      // Count remaining WAITING tickets (excluding SKIPPED)
       const remainingResult = await d1
         .prepare(
           'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
@@ -150,25 +162,30 @@ export const POST = withAuth(
         .bind(ticket.queue_id, 'WAITING')
         .first<{ cnt: number }>();
 
-      const remainingWaiting = remainingResult?.cnt ?? 0;
-
-      // Build ticket response
-      const ticketResponse: Record<string, unknown> = {
-        ...toCamel(ticket as unknown as Record<string, unknown>),
-        status: 'WAITING',
-        serialNumber: newSerial,
-        skipCount: newSkipCount,
-        skippedAt: nowISO,
-        servedByAgent: null,
-        servedAt: null,
-        formattedSerial,
-        queueName: ticket.queue_name,
-      };
+      // Count SKIPPED tickets available for recall
+      const skippedResult = await d1
+        .prepare(
+          'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
+        )
+        .bind(ticket.queue_id, 'SKIPPED')
+        .first<{ cnt: number }>();
 
       return NextResponse.json({
         success: true,
-        ticket: ticketResponse,
-        remainingWaiting,
+        ticket: {
+          id: ticketId,
+          status: 'SKIPPED',
+          serialNumber: ticket.serial_number,
+          skipCount: newSkipCount,
+          skippedAt: nowISO,
+          servedByAgent: null,
+          servedAt: null,
+          _formattedSerial: formattedSerial,
+          queueName: ticket.queue_name,
+          customerName: ticket.customer_name,
+        },
+        remainingWaiting: remainingResult?.cnt ?? 0,
+        skippedAvailable: skippedResult?.cnt ?? 0,
         _event: {
           type: 'TICKET_SKIPPED',
           tenantId,
@@ -179,7 +196,6 @@ export const POST = withAuth(
             customerName: ticket.customer_name,
             queueName: ticket.queue_name,
             skipCount: newSkipCount,
-            newPosition: remainingWaiting,
           },
         },
       });

@@ -16,6 +16,7 @@ export interface D1ResultMeta {
 
 export interface D1Result<T = Record<string, unknown>> {
   results: T[];
+  meta?: D1ResultMeta;
 }
 
 /** Result of .prepare().bind() — has the actual query execution methods. */

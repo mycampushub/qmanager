@@ -1,15 +1,18 @@
 'use client';
 
-import { User, Phone, Loader2, TicketIcon, ArrowLeft } from 'lucide-react';
+import { User, Phone, Loader2, TicketIcon, ArrowLeft, StickyNote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 interface JoinFormProps {
   customerName: string;
   setCustomerName: (v: string) => void;
   customerPhone: string;
   setCustomerPhone: (v: string) => void;
+  customerNotes: string;
+  setCustomerNotes: (v: string) => void;
   primaryColor: string;
   joining: boolean;
   selectedQueue: string | null;
@@ -22,6 +25,8 @@ export default function JoinForm({
   setCustomerName,
   customerPhone,
   setCustomerPhone,
+  customerNotes,
+  setCustomerNotes,
   primaryColor,
   joining,
   selectedQueue,
@@ -63,6 +68,23 @@ export default function JoinForm({
         </div>
         <p className="text-xs text-muted-foreground">
           Add your phone to look up all your tickets later
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="relative">
+          <StickyNote className="absolute left-3 top-3 size-4 text-muted-foreground" />
+          <Textarea
+            placeholder="Add a note for the agent (optional)"
+            className="pl-10 text-base resize-none"
+            value={customerNotes}
+            onChange={(e) => setCustomerNotes(e.target.value.slice(0, 500))}
+            rows={2}
+            maxLength={500}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground text-right">
+          {customerNotes.length}/500
         </p>
       </div>
 

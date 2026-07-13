@@ -110,65 +110,104 @@ export const GET = withAuth(
       }
       const peakHour = hourBuckets.indexOf(Math.max(...hourBuckets));
 
-      // ── Queue stats with per-queue EWT ─────────────────────────────────
+      // ── Queue stats with per-queue EWT (optimized: 3 queries instead of N*4) ──
       const queues = await d1
         .prepare(`SELECT id, name, prefix, default_service_time_sec FROM queues WHERE tenant_id = ? AND is_active = 1`)
         .bind(tenantId)
         .all<{ id: string; name: string; prefix: string; default_service_time_sec: number }>();
 
-      const queueStats = await Promise.all(
-        queues.results.map(async (queue) => {
-          // Waiting and serving counts (no date filter — these are live counts)
-          const [waitingResult, servingResult, completedQResult] = await Promise.all([
-            d1
-              .prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'WAITING'`)
-              .bind(queue.id)
-              .first<{ cnt: number }>(),
-            d1
-              .prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'SERVING'`)
-              .bind(queue.id)
-              .first<{ cnt: number }>(),
-            // Completed count respects date filter
-            d1
-              .prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'COMPLETED' ${dateWhere}`)
-              .bind(queue.id, ...dateBinds)
-              .first<{ cnt: number }>(),
-          ]);
+      const queueIds = queues.results.map((q) => q.id);
 
-          // FIX A3: Per-queue EWT using per-queue service logs
-          const logsResult = await d1
+      // Single query for live counts (waiting, serving) — no date filter
+      let liveCounts: { queue_id: string; waiting: number; serving: number }[] = [];
+      // Single query for completed counts — with date filter
+      let completedCounts: { queue_id: string; completed: number }[] = [];
+
+      if (queueIds.length > 0) {
+        const placeholders = queueIds.map(() => '?').join(', ');
+
+        const [liveResult, completedResult] = await d1.batch([
+          d1
             .prepare(
-              `SELECT duration_seconds FROM service_logs
-               WHERE tenant_id = ? AND queue_id = ? AND duration_seconds IS NOT NULL
-               ORDER BY created_at DESC LIMIT 20`
+              `SELECT queue_id,
+                SUM(CASE WHEN status = 'WAITING' THEN 1 ELSE 0 END) as waiting,
+                SUM(CASE WHEN status = 'SERVING' THEN 1 ELSE 0 END) as serving
+               FROM tickets
+               WHERE tenant_id = ? AND queue_id IN (${placeholders})
+               GROUP BY queue_id`
             )
-            .bind(tenantId, queue.id)
-            .all<{ duration_seconds: number }>();
+            .bind(tenantId, ...queueIds),
+          d1
+            .prepare(
+              `SELECT queue_id, count(*) as completed
+               FROM tickets
+               WHERE tenant_id = ? AND queue_id IN (${placeholders}) AND status = 'COMPLETED' ${dateWhere}
+               GROUP BY queue_id`
+            )
+            .bind(tenantId, ...queueIds, ...dateBinds),
+        ]);
 
-          const queueAvgServiceTime =
-            logsResult.results.length > 0
-              ? Math.round(
-                  logsResult.results.reduce(
-                    (sum, s) => sum + s.duration_seconds,
-                    0
-                  ) / logsResult.results.length
-                )
-              : queue.default_service_time_sec;
+        liveCounts = liveResult.results as { queue_id: string; waiting: number; serving: number }[];
+        completedCounts = completedResult.results as { queue_id: string; completed: number }[];
+      }
 
-          const ewt = (waitingResult?.cnt ?? 0) * queueAvgServiceTime;
+      // Build maps for quick lookup
+      const liveMap = new Map<string, { waiting: number; serving: number }>();
+      for (const c of liveCounts) {
+        liveMap.set(c.queue_id, { waiting: c.waiting, serving: c.serving });
+      }
+      const completedMap = new Map<string, number>();
+      for (const c of completedCounts) {
+        completedMap.set(c.queue_id, c.completed);
+      }
 
-          return {
-            queueId: queue.id,
-            queueName: queue.name,
-            prefix: queue.prefix,
-            waiting: waitingResult?.cnt ?? 0,
-            serving: servingResult?.cnt ?? 0,
-            completed: completedQResult?.cnt ?? 0,
-            avgServiceTime: queueAvgServiceTime,
-            ewt,
-          };
-        })
-      );
+      // Single query for all service logs across queues
+      const logsResult = await d1
+        .prepare(
+          `SELECT queue_id, duration_seconds
+           FROM service_logs
+           WHERE tenant_id = ? AND duration_seconds IS NOT NULL
+           ORDER BY created_at DESC LIMIT 200`
+        )
+        .bind(tenantId)
+        .all<{ queue_id: string; duration_seconds: number }>();
+
+      // Group durations by queue_id
+      const durationsByQueue = new Map<string, number[]>();
+      for (const log of logsResult.results) {
+        const arr = durationsByQueue.get(log.queue_id);
+        if (arr) {
+          arr.push(log.duration_seconds);
+        } else {
+          durationsByQueue.set(log.queue_id, [log.duration_seconds]);
+        }
+      }
+
+      function getAvgServiceTime(queueId: string, defaultTime: number): number {
+        const durations = durationsByQueue.get(queueId);
+        if (!durations || durations.length === 0) return defaultTime;
+        return Math.round(durations.reduce((sum, d) => sum + d, 0) / durations.length);
+      }
+
+      const queueStats = queues.results.map((queue) => {
+        const live = liveMap.get(queue.id);
+        const waiting = live?.waiting ?? 0;
+        const serving = live?.serving ?? 0;
+        const completed = completedMap.get(queue.id) ?? 0;
+        const queueAvgServiceTime = getAvgServiceTime(queue.id, queue.default_service_time_sec);
+        const ewt = waiting * queueAvgServiceTime;
+
+        return {
+          queueId: queue.id,
+          queueName: queue.name,
+          prefix: queue.prefix,
+          waiting,
+          serving,
+          completed,
+          avgServiceTime: queueAvgServiceTime,
+          ewt,
+        };
+      });
 
       // ── M-13: Recent activity (respects date filter) ───────────────────
       const recentTickets = await d1

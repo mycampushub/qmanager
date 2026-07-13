@@ -15,12 +15,14 @@ export async function POST(req: NextRequest) {
       customerName,
       customerPhone,
       deviceId,
+      notes,
     } = body as {
       tenantId: string;
       queueId: string;
       customerName: string;
       customerPhone?: string;
       deviceId?: string;
+      notes?: string;
     };
 
     if (!tenantId || !queueId || !customerName) {
@@ -42,6 +44,12 @@ export async function POST(req: NextRequest) {
     if (customerName.length > 200) {
       return NextResponse.json(
         { error: 'Customer name must be at most 200 characters' },
+        { status: 400 }
+      );
+    }
+    if (notes && notes.length > 1000) {
+      return NextResponse.json(
+        { error: 'Notes must be at most 1000 characters' },
         { status: 400 }
       );
     }
@@ -274,8 +282,8 @@ export async function POST(req: NextRequest) {
       // Create ticket — use subquery to read the new serial value atomically
       d1
         .prepare(
-          `INSERT INTO tickets (id, tenant_id, queue_id, serial_number, status, customer_name, customer_phone, device_id, created_at)
-           VALUES (?, ?, ?, (SELECT current_serial FROM queues WHERE id = ?), 'WAITING', ?, ?, ?, ?)`
+          `INSERT INTO tickets (id, tenant_id, queue_id, serial_number, status, customer_name, customer_phone, device_id, notes, created_at)
+           VALUES (?, ?, ?, (SELECT current_serial FROM queues WHERE id = ?), 'WAITING', ?, ?, ?, ?, ?)`
         )
         .bind(
           ticketId,
@@ -285,6 +293,7 @@ export async function POST(req: NextRequest) {
           customerName,
           customerPhone || null,
           deviceId || null,
+          notes || null,
           nowISO
         ),
 
@@ -374,6 +383,28 @@ export async function POST(req: NextRequest) {
 
     const formattedSerial = `${queue.prefix}${String(newSerial).padStart(3, '0')}`;
 
+    // Calculate people ahead (WAITING tickets with lower serial, excluding SKIPPED)
+    const [aheadResult, avgServiceResult] = await Promise.all([
+      d1
+        .prepare(
+          'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ? AND serial_number < ?'
+        )
+        .bind(queueId, 'WAITING', newSerial)
+        .first<{ cnt: number }>(),
+      d1
+        .prepare(
+          'SELECT duration_seconds FROM service_logs WHERE tenant_id = ? AND queue_id = ? AND duration_seconds IS NOT NULL ORDER BY created_at DESC LIMIT 20'
+        )
+        .bind(tenantId, queueId)
+        .all<{ duration_seconds: number }>(),
+    ]);
+
+    const peopleAhead = aheadResult?.cnt ?? 0;
+    const avgServiceSec = avgServiceResult.results.length > 0
+      ? Math.round(avgServiceResult.results.reduce((sum, s) => sum + s.duration_seconds, 0) / avgServiceResult.results.length)
+      : (queue.default_service_time_sec as number);
+    const ewt = (peopleAhead + 1) * avgServiceSec;
+
     // Fire webhooks (fire-and-forget)
     dispatchWebhooks(tenantId, 'TICKET_CREATED', {
       ticketId,
@@ -393,7 +424,7 @@ export async function POST(req: NextRequest) {
         customerName,
         customerPhone: customerPhone || null,
         deviceId: deviceId || null,
-        notes: null,
+        notes: notes || null,
         createdAt: nowISO,
         servedAt: null,
         completedAt: null,
@@ -402,8 +433,8 @@ export async function POST(req: NextRequest) {
         servedByAgent: null,
         skipCount: 0,
         _formattedSerial: formattedSerial,
-        _peopleAhead: 0,
-        _ewt: 0,
+        _peopleAhead: peopleAhead,
+        _ewt: ewt,
       },
       queueName: queue.name as string,
       tenantName: platformTenant.name,

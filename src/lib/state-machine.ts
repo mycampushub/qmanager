@@ -12,7 +12,7 @@ type TicketStatus =
   | 'SKIPPED'
   | 'CANCELLED';
 
-type TransitionAction = 'call' | 'complete' | 'skip' | 'cancel';
+type TransitionAction = 'call' | 'complete' | 'skip' | 'cancel' | 'recall';
 
 interface Transition {
   to: TicketStatus;
@@ -22,6 +22,9 @@ interface Transition {
 /**
  * VALID_TRANSITIONS maps every source status to the list of
  * allowed destination states (and the action that triggers it).
+ *
+ * Key change: SKIPPED → SERVING (recall) allows calling back
+ * a skipped ticket at any time.
  */
 const VALID_TRANSITIONS: Record<TicketStatus, Transition[]> = {
   WAITING: [
@@ -33,8 +36,11 @@ const VALID_TRANSITIONS: Record<TicketStatus, Transition[]> = {
     { to: 'SKIPPED', action: 'skip' },
     { to: 'CANCELLED', action: 'cancel' },
   ],
+  SKIPPED: [
+    { to: 'SERVING', action: 'recall' },
+    { to: 'CANCELLED', action: 'cancel' },
+  ],
   COMPLETED: [],
-  SKIPPED: [],
   CANCELLED: [],
 };
 

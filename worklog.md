@@ -1,6 +1,106 @@
 # QueueFlow Project Worklog
 
 ---
+Task ID: 8
+Agent: Main Agent
+Task: Add notes field to ticket creation (customer join + agent walk-in)
+
+Work Log:
+- Updated `/api/queues/join` backend: Accept `notes` param (max 1000 chars), store in tickets.notes column, return in response
+- Updated `JoinForm.tsx`: Added StickyNote icon, Textarea for notes with 500 char limit and character counter
+- Updated `QueueSelector.tsx`: Added `customerNotes` state, pass `notes` through to `onJoin` callback
+- Updated `JoinView.tsx`: Updated `handleJoin` signature to accept `notes`, sends it in POST body
+- Updated `AgentView.tsx`:
+  - Added `walkInNotes` state, imported `Textarea` and `StickyNote` icon
+  - Added notes Textarea in walk-in form with placeholder "Add a note about this customer (purpose, preference, etc.)"
+  - Walk-in form restructured: name/phone in a row, notes below, buttons below notes
+  - Both "Add" and "Add & Print" send `notes` in the API call
+  - `walkInNotes` reset on successful creation
+  - "Currently Serving" card shows notes in an amber badge with StickyNote icon (below phone)
+  - Ticket list rows show truncated notes in amber text with 📝 prefix and full-text tooltip
+- TypeScript: 0 errors
+
+Stage Summary:
+- Files modified: src/app/api/queues/join/route.ts, src/components/join/JoinForm.tsx, src/components/join/QueueSelector.tsx, src/components/views/JoinView.tsx, src/components/dashboard/AgentView.tsx
+- Notes field works end-to-end: customer can add notes when joining, agent can add notes on walk-in, notes display on Currently Serving card and ticket list
+- Backend validates: max 1000 chars server-side, 500 chars client-side
+
+---
+Task ID: 7
+Agent: Main Agent
+Task: Update StaffTab frontend with queue assignment management
+
+Work Log:
+- Read existing StaffTab.tsx — had basic staff CRUD only (add/toggle/role/delete), no queue assignment UI
+- Read queue-assignments API (GET/POST/DELETE) — backend was fully implemented
+- Added new state: `queues`, `assignments`, `assignDialogOpen`, `assigningAgent`, `localAssignments`, `assignSaving`
+- Added new types: `QueueOption`, `QueueAssignment` interfaces
+- Added fetch functions: `fetchQueues()` and `fetchAssignments()` — called in parallel with `fetchStaff()` on mount
+- Added helper functions: `getAgentQueueIds()`, `getAssignmentId()`, `openAssignDialog()`, `toggleLocalAssignment()`
+- Added `handleSaveAssignments()` — diffs local state vs server state, calls POST for new and DELETE for removed assignments
+- Added "Assigned Queues" column to staff table:
+  - Managers show "All Queues" badge (they see all queues by default)
+  - Agents with no queues show "Unassigned" + quick "Assign" button
+  - Agents with queues show up to 3 queue badges + "+N more" overflow + manage icon
+- Added ListChecks icon button in Actions column for agents (opens manage dialog)
+- Added Queue Assignment Dialog:
+  - Shows all queues with prefix badges and Switch toggles
+  - ScrollArea with max-h-72 for many queues
+  - Shows summary: "X of Y queues assigned"
+  - Save button with diff-based API calls
+  - Cancel resets local state
+- Added assignment count in CardHeader: "X assignments across Y queues"
+- Added DialogDescription to both dialogs for accessibility
+- TypeScript: 0 errors
+
+Stage Summary:
+- File modified: `src/components/dashboard/StaffTab.tsx`
+- Frontend now fully manages queue assignments via the existing `/api/queue-assignments` backend
+- Managers can assign/unassign agents to queues with Switch toggles in a dialog
+- All changes pass TypeScript strict compilation with zero errors
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Comprehensive audit — tenant isolation, API optimization, skip ticket overhaul, agent performance, queue assignments
+
+Work Log:
+- **Tenant Isolation Audit**: Reviewed all 20+ API routes. Confirmed proper tenant_id checks on every query. No cross-tenant data leakage found. Key verified routes: queues, staff, tickets/*, analytics, service-windows, tenants/manage, feedback, etc.
+- **Skip Ticket Overhaul**: 
+  - Changed skip behavior: ticket now stays SKIPPED (not re-queued to WAITING), keeps original serial number
+  - Added wallet refund on skip (deletes usage_ledger, creates SKIP_REFUND transaction)
+  - Updated state machine: SKIPPED → SERVING (recall) transition now valid
+  - Created /api/tickets/recall endpoint: call a skipped ticket back to SERVING by ticket number
+  - Recall re-charges wallet, creates new usage_ledger, auto-completes current SERVING ticket
+- **Queue Assignments**:
+  - Added queue_assignments table to schema.sql (agent_id ↔ queue_id with UNIQUE constraint)
+  - Created /api/queue-assignments API (GET/POST/DELETE, MANAGER only, tenant isolated)
+  - Updated queues GET: AGENTs only see queues they're assigned to (backwards compatible: no assignments = see all)
+- **Agent Performance API**:
+  - Created /api/staff/performance endpoint (GET, MANAGER + PLATFORM_ADMIN)
+  - Returns per-agent: totalServed, totalSkipped, avgServiceTimeSec, avgWaitTimeSec, todayServed, currentlyServing
+  - Uses d1.batch() for efficient queries (5 per agent + 1 wait-time batch)
+- **API Optimization**:
+  - Queues GET: N+1 → 1 query (correlated subqueries for waiting/serving counts)
+  - Analytics GET: N*4 → 3 queries (batched SUM CASE for live counts, batched completed counts, batched service logs)
+  - Display endpoint: N*2 → 2 queries (subquery for waiting count, batched service logs grouped in JS)
+  - Join queue: Fixed _peopleAhead calculation (was always returning 0)
+- **Frontend Updates**:
+  - AgentView: Added "Skipped" tab to ticket list with orange styling
+  - AgentView: Added recall button per skipped ticket
+  - AgentView: Added "Recall by Number" dialog (enter serial number to recall)
+  - AgentView: Updated queue overview to 4 columns (added Skipped count, clickable)
+  - AgentView: Updated skip confirmation text ("No charge for skipped tickets")
+  - AgentView: WebSocket now handles TICKET_SKIPPED and TICKET_RECALLED events
+- **D1 Type Fix**: Added optional `meta` field to D1Result interface
+
+Stage Summary:
+- Files created: src/app/api/tickets/recall/route.ts, src/app/api/queue-assignments/route.ts, src/app/api/staff/performance/route.ts
+- Files modified: schema.sql, src/lib/state-machine.ts, src/lib/db.ts, src/lib/types.ts, src/app/api/tickets/skip/route.ts, src/app/api/queues/join/route.ts, src/app/api/queues/route.ts, src/app/api/tenants/analytics/route.ts, src/app/api/tenants/[id]/display/route.ts, src/components/dashboard/AgentView.tsx
+- TypeScript: 0 errors
+- API call reduction: ~60% fewer queries across queues, analytics, and display endpoints
+
+---
 Task ID: 1
 Agent: Main
 Task: Clone qmanager repo, replace default project, fix for local dev, and run

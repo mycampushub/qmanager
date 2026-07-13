@@ -28,37 +28,43 @@ export const GET = withAuth(
 
       const d1 = await getD1FromEnv();
 
+      let sql: string;
+      const binds: unknown[] = [];
+
+      if (user.role === 'AGENT') {
+        // AGENT: only show assigned queues, unless agent has NO assignments (backwards compatible)
+        sql = `SELECT q.*,
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'WAITING') as waiting_count,
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SERVING') as serving_count
+        FROM queues q
+        LEFT JOIN queue_assignments qa ON qa.queue_id = q.id AND qa.agent_id = ? AND qa.is_active = 1
+        WHERE q.tenant_id = ? AND q.is_active = 1
+        AND (qa.id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM queue_assignments WHERE agent_id = ? AND is_active = 1 AND tenant_id = ?))
+        ORDER BY q.name ASC`;
+        binds.push(user.userId, tenantId, user.userId, tenantId);
+      } else {
+        // MANAGER: see all queues (single query with subqueries, no N+1)
+        sql = `SELECT q.*,
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'WAITING') as waiting_count,
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SERVING') as serving_count
+        FROM queues q
+        WHERE q.tenant_id = ? AND q.is_active = 1
+        ORDER BY q.name ASC`;
+        binds.push(tenantId);
+      }
+
       const queueResult = await d1
-        .prepare(
-          'SELECT * FROM queues WHERE tenant_id = ? AND is_active = 1 ORDER BY name ASC'
-        )
-        .bind(tenantId)
+        .prepare(sql)
+        .bind(...binds)
         .all();
 
-      const queues = await Promise.all(
-        queueResult.results.map(async (q) => {
-          const qRec = q as Record<string, unknown>;
-          const [waitingResult, servingResult] = await Promise.all([
-            d1
-              .prepare(
-                'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
-              )
-              .bind(qRec.id, 'WAITING')
-              .first<{ cnt: number }>(),
-            d1
-              .prepare(
-                'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
-              )
-              .bind(qRec.id, 'SERVING')
-              .first<{ cnt: number }>(),
-          ]);
-
-          const mapped = mapQueue(qRec);
-          mapped.waitingCount = waitingResult?.cnt ?? 0;
-          mapped.servingCount = servingResult?.cnt ?? 0;
-          return mapped;
-        })
-      );
+      const queues = queueResult.results.map((q) => {
+        const qRec = q as Record<string, unknown>;
+        const mapped = mapQueue(qRec);
+        mapped.waitingCount = (qRec.waiting_count as number) ?? 0;
+        mapped.servingCount = (qRec.serving_count as number) ?? 0;
+        return mapped;
+      });
 
       return NextResponse.json({ queues });
     } catch (error) {

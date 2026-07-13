@@ -237,6 +237,21 @@ CREATE TABLE IF NOT EXISTS webhooks (
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 
+-- ─── Queue Assignments (Agent → Queue mapping) ───────────────────────────
+CREATE TABLE IF NOT EXISTS queue_assignments (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL,
+  queue_id    TEXT NOT NULL,
+  agent_id    TEXT NOT NULL,
+  is_active   INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(agent_id, queue_id),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  FOREIGN KEY (queue_id) REFERENCES queues(id) ON DELETE CASCADE,
+  FOREIGN KEY (agent_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- ─── Customer Profiles (repeat customer recognition) ─────────────────────────
 CREATE TABLE IF NOT EXISTS customer_profiles (
   id                TEXT PRIMARY KEY,
@@ -273,6 +288,9 @@ CREATE INDEX IF NOT EXISTS idx_feedback_tenant_created ON feedback(tenant_id, cr
 CREATE INDEX IF NOT EXISTS idx_appointments_tenant_date_status ON appointments(tenant_id, scheduled_date, status);
 CREATE INDEX IF NOT EXISTS idx_appointments_phone_tenant ON appointments(customer_phone, tenant_id);
 CREATE INDEX IF NOT EXISTS idx_customer_profiles_tenant_visits ON customer_profiles(tenant_id, total_visits);
+CREATE INDEX IF NOT EXISTS idx_queue_assignments_agent ON queue_assignments(agent_id);
+CREATE INDEX IF NOT EXISTS idx_queue_assignments_queue ON queue_assignments(queue_id);
+CREATE INDEX IF NOT EXISTS idx_queue_assignments_tenant ON queue_assignments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_master ON tenants(master_tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_active ON tenants(is_active);
 CREATE INDEX IF NOT EXISTS idx_mt_admins_master ON master_tenant_admins(master_tenant_id);
@@ -359,4 +377,11 @@ CREATE TRIGGER IF NOT EXISTS trg_customer_profiles_updated
   FOR EACH ROW
   BEGIN
     UPDATE customer_profiles SET updated_at = datetime('now') WHERE id = OLD.id;
+  END;
+
+CREATE TRIGGER IF NOT EXISTS trg_queue_assignments_updated
+  AFTER UPDATE ON queue_assignments
+  FOR EACH ROW
+  BEGIN
+    UPDATE queue_assignments SET updated_at = datetime('now') WHERE id = OLD.id;
   END;

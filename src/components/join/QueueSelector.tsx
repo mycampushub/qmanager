@@ -18,7 +18,7 @@ interface QueueSelectorProps {
   loading: boolean;
   joining: boolean;
   initialQueueId?: string | null;
-  onJoin: (queueId: string, name: string, phone: string | undefined) => void;
+  onJoin: (queueId: string, name: string, phone: string | undefined, notes: string | undefined) => void;
   onBack: () => void;
 }
 
@@ -34,6 +34,7 @@ export default function QueueSelector({
   const [selectedQueue, setSelectedQueue] = useState<string | null>(initialQueueId ?? null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerNotes, setCustomerNotes] = useState('');
 
   const branding = parseBranding(tenant.brandingConfig);
   const welcomeMsg = branding?.welcomeMessage || tenant.welcomeMessage;
@@ -49,7 +50,8 @@ export default function QueueSelector({
       return;
     }
     const phone = customerPhone.trim() ? `+880${customerPhone.trim().replace(/^880/, '')}` : undefined;
-    onJoin(selectedQueue, customerName.trim(), phone);
+    const notes = customerNotes.trim() || undefined;
+    onJoin(selectedQueue, customerName.trim(), phone, notes);
   };
 
   return (
@@ -138,6 +140,8 @@ export default function QueueSelector({
         setCustomerName={setCustomerName}
         customerPhone={customerPhone}
         setCustomerPhone={setCustomerPhone}
+        customerNotes={customerNotes}
+        setCustomerNotes={setCustomerNotes}
         primaryColor={primaryColor}
         joining={joining}
         selectedQueue={selectedQueue}

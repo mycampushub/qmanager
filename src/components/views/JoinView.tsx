@@ -144,7 +144,7 @@ export default function JoinView() {
   );
 
   const handleJoin = useCallback(
-    async (queueId: string, name: string, phone: string | undefined) => {
+    async (queueId: string, name: string, phone: string | undefined, notes: string | undefined) => {
       if (!joinTenantId) return;
       setJoining(true);
       try {
@@ -159,6 +159,7 @@ export default function JoinView() {
             queueId,
             customerName: name,
             customerPhone: phone,
+            notes,
           }),
         });
         const data = await res.json();

@@ -38,10 +38,14 @@ export async function GET(
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
 
-    // Fetch active queues with stats
+    // Fetch active queues with waiting counts in a single query
     const queuesResult = await d1
       .prepare(
-        `SELECT * FROM queues WHERE tenant_id = ? AND is_active = 1 ORDER BY name ASC`
+        `SELECT q.*,
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'WAITING') as waiting_count
+         FROM queues q
+         WHERE q.tenant_id = ? AND q.is_active = 1
+         ORDER BY q.name ASC`
       )
       .bind(tenantId)
       .all<{
@@ -55,52 +59,56 @@ export async function GET(
         now_serving_serial: number;
         is_active: number;
         created_at: string;
+        waiting_count: number;
       }>();
 
-    // Compute stats for each queue
-    const queuesWithStats = await Promise.all(
-      queuesResult.results.map(async (queue) => {
-        const [waitingResult, logsResult] = await Promise.all([
-          d1
-            .prepare(
-              `SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'WAITING'`
-            )
-            .bind(queue.id)
-            .first<{ cnt: number }>(),
-          d1
-            .prepare(
-              `SELECT duration_seconds FROM service_logs WHERE tenant_id = ? AND queue_id = ? AND duration_seconds IS NOT NULL ORDER BY created_at DESC LIMIT 20`
-            )
-            .bind(tenantId, queue.id)
-            .all<{ duration_seconds: number }>(),
-        ]);
+    // Batch: fetch all service logs for this tenant in a single query
+    const logsResult = await d1
+      .prepare(
+        `SELECT queue_id, duration_seconds
+         FROM service_logs
+         WHERE tenant_id = ? AND duration_seconds IS NOT NULL
+         ORDER BY created_at DESC LIMIT 200`
+      )
+      .bind(tenantId)
+      .all<{ queue_id: string; duration_seconds: number }>();
 
-        const waiting = waitingResult?.cnt ?? 0;
-        const logs = logsResult.results;
+    // Group service logs by queue_id and compute avg per queue
+    const durationsByQueue = new Map<string, number[]>();
+    for (const log of logsResult.results) {
+      const arr = durationsByQueue.get(log.queue_id);
+      if (arr) {
+        arr.push(log.duration_seconds);
+      } else {
+        durationsByQueue.set(log.queue_id, [log.duration_seconds]);
+      }
+    }
 
-        const avgServiceTime =
-          logs.length > 0
-            ? Math.round(
-                logs.reduce((sum, s) => sum + s.duration_seconds, 0) / logs.length
-              )
-            : queue.default_service_time_sec;
+    function getAvgServiceTime(queueId: string, defaultTime: number): number {
+      const durations = durationsByQueue.get(queueId);
+      if (!durations || durations.length === 0) return defaultTime;
+      return Math.round(durations.reduce((sum, d) => sum + d, 0) / durations.length);
+    }
 
-        return {
-          id: queue.id,
-          tenantId: queue.tenant_id,
-          name: queue.name,
-          description: queue.description,
-          defaultServiceTimeSec: queue.default_service_time_sec,
-          prefix: queue.prefix,
-          currentSerial: queue.current_serial,
-          nowServingSerial: queue.now_serving_serial,
-          isActive: queue.is_active === 1,
-          _waitingCount: waiting,
-          _avgServiceTime: avgServiceTime,
-          _ewt: waiting * avgServiceTime,
-        };
-      })
-    );
+    const queuesWithStats = queuesResult.results.map((queue) => {
+      const avgServiceTime = getAvgServiceTime(queue.id, queue.default_service_time_sec);
+      const waiting = queue.waiting_count ?? 0;
+
+      return {
+        id: queue.id,
+        tenantId: queue.tenant_id,
+        name: queue.name,
+        description: queue.description,
+        defaultServiceTimeSec: queue.default_service_time_sec,
+        prefix: queue.prefix,
+        currentSerial: queue.current_serial,
+        nowServingSerial: queue.now_serving_serial,
+        isActive: queue.is_active === 1,
+        _waitingCount: waiting,
+        _avgServiceTime: avgServiceTime,
+        _ewt: waiting * avgServiceTime,
+      };
+    });
 
     return NextResponse.json({
       tenant: {
