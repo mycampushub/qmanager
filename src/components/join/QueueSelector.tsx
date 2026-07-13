@@ -17,6 +17,7 @@ interface QueueSelectorProps {
   queues: Queue[];
   loading: boolean;
   joining: boolean;
+  initialQueueId?: string | null;
   onJoin: (queueId: string, name: string, phone: string | undefined) => void;
   onBack: () => void;
 }
@@ -26,10 +27,11 @@ export default function QueueSelector({
   queues,
   loading,
   joining,
+  initialQueueId,
   onJoin,
   onBack,
 }: QueueSelectorProps) {
-  const [selectedQueue, setSelectedQueue] = useState<string | null>(null);
+  const [selectedQueue, setSelectedQueue] = useState<string | null>(initialQueueId ?? null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
 

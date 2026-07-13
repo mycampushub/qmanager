@@ -373,12 +373,16 @@ export async function GET(req: NextRequest) {
 
         return {
           id: t.id,
+          tenantId,
           queueId: t.queue_id,
           serialNumber: t.serial_number,
           status: t.status,
-          formattedSerial,
-          position,
-          ewt,
+          customerName: null,
+          customerPhone: phone,
+          _formattedSerial: formattedSerial,
+          _peopleAhead: position,
+          _ewt: ewt,
+          createdAt: t.created_at,
         };
       })
     );

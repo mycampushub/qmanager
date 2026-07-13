@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, Upload, Globe, Download, Languages, CreditCard, Info } from 'lucide-react';
+import { Loader2, Upload, Globe, Download, Languages, CreditCard, Info, Monitor, Copy, ExternalLink, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import { useLocale, type Locale } from '@/lib/i18n';
+import { QRCodeDisplay } from '@/components/QRCode';
 
 export default function SettingsTab({ tenantId }: { tenantId: string }) {
   const authToken = useAppStore((s) => s.authToken);
@@ -35,6 +36,25 @@ export default function SettingsTab({ tenantId }: { tenantId: string }) {
   // ── Payment Gateway State ──
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentProcessing, setPaymentProcessing] = useState(false);
+
+  // ── TV Display URL ──
+  const [copied, setCopied] = useState(false);
+  const displayUrl = typeof window !== 'undefined' ? `${window.location.origin}/?display=${tenantId}` : '';
+
+  const handleCopyDisplayUrl = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(displayUrl);
+      setCopied(true);
+      toast.success('Display URL copied to clipboard');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Failed to copy URL');
+    }
+  }, [displayUrl]);
+
+  const handleOpenDisplay = useCallback(() => {
+    window.open(displayUrl, '_blank');
+  }, [displayUrl]);
 
   const authHeaders = useCallback((): Record<string, string> => {
     const h: Record<string, string> = {};
@@ -176,6 +196,67 @@ export default function SettingsTab({ tenantId }: { tenantId: string }) {
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold">Settings</h2>
+
+      {/* ── TV Display ── */}
+      <Card className="border-emerald-200 bg-emerald-50/30">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Monitor className="w-4 h-4 text-emerald-600" /> TV Display
+          </CardTitle>
+          <CardDescription>Set up a real-time queue display on a TV or monitor in your waiting area</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* URL + Copy + Open */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-white border border-slate-200">
+                <Globe className="w-4 h-4 text-muted-foreground shrink-0" />
+                <input
+                  type="text"
+                  readOnly
+                  value={displayUrl}
+                  className="flex-1 min-w-0 bg-transparent text-sm font-mono text-foreground outline-none truncate"
+                />
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCopyDisplayUrl}
+              className="shrink-0"
+            >
+              {copied ? <Check className="w-4 h-4 mr-1 text-emerald-600" /> : <Copy className="w-4 h-4 mr-1" />}
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleOpenDisplay}
+              className="shrink-0 bg-emerald-600 hover:bg-emerald-700"
+            >
+              <ExternalLink className="w-4 h-4 mr-1" /> Open
+            </Button>
+          </div>
+
+          {/* QR Code + Instructions */}
+          <div className="flex flex-col sm:flex-row gap-4 items-start">
+            <div className="shrink-0 p-3 bg-white rounded-xl border border-slate-200">
+              <QRCodeDisplay value={displayUrl} size={120} />
+            </div>
+            <div className="flex-1 space-y-2">
+              <p className="text-sm font-medium text-foreground">How to set up:</p>
+              <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
+                <li>Open the URL above on your TV or smart display&apos;s browser</li>
+                <li>Or scan the QR code from a tablet/phone connected to the TV</li>
+                <li>The display auto-updates in real-time — no refresh needed</li>
+                <li>For best results, use fullscreen mode (F11) on the TV browser</li>
+              </ol>
+              <p className="text-xs text-muted-foreground pt-1">
+                The display shows: current ticket being served, queue status, estimated wait times, and a QR code for customers to join.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Logo Upload ── */}
       <Card>

@@ -81,6 +81,8 @@ export default function JoinView() {
   const {
     joinTenantId,
     setJoinTenantId,
+    joinQueueId,
+    setJoinQueueId,
     activeTicket,
     setActiveTicket,
     myTickets,
@@ -285,19 +287,21 @@ export default function JoinView() {
   const handleBackToHome = useCallback(() => {
     stopPolling();
     setJoinTenantId(null);
+    setJoinQueueId(null);
     setTenantWithQueues(null);
     setQueues([]);
     setTicket(null);
     setActiveTicket(null);
     setCurrentView('marketing');
-  }, [setJoinTenantId, setActiveTicket, setCurrentView, stopPolling]);
+  }, [setJoinTenantId, setJoinQueueId, setActiveTicket, setCurrentView, stopPolling]);
 
   const handleNewTicket = useCallback(() => {
     stopPolling();
     setTicket(null);
     setActiveTicket(null);
+    setJoinQueueId(null);
     goTo('queue', -1);
-  }, [setActiveTicket, goTo, stopPolling]);
+  }, [setActiveTicket, setJoinQueueId, goTo, stopPolling]);
 
   const handleLeaveQueue = useCallback(async () => {
     if (!ticket) return;
@@ -321,12 +325,13 @@ export default function JoinView() {
   const handleHome = useCallback(() => {
     stopPolling();
     setJoinTenantId(null);
+    setJoinQueueId(null);
     setTenantWithQueues(null);
     setQueues([]);
     setTicket(null);
     setActiveTicket(null);
     setCurrentView('marketing');
-  }, [setJoinTenantId, setActiveTicket, setCurrentView, stopPolling]);
+  }, [setJoinTenantId, setJoinQueueId, setActiveTicket, setCurrentView, stopPolling]);
 
   // --- Effects ---
 
@@ -463,6 +468,7 @@ export default function JoinView() {
                 queues={queues}
                 loading={loadingTenantDetail}
                 joining={joining}
+                initialQueueId={joinQueueId}
                 onJoin={handleJoin}
                 onBack={handleBackToHome}
               />

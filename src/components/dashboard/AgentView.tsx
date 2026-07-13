@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Phone, Plus, Clock, CheckCircle2, SkipForward, XCircle,
-  ListOrdered, RefreshCw, UserPlus, Loader2
+  ListOrdered, RefreshCw, UserPlus, Printer
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,12 +19,14 @@ import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import { useQueueWebSocket } from '@/hooks/use-queue-ws';
 import type { StaffUser, Queue, Ticket } from '@/lib/types';
+import { printTicket } from '@/lib/print-ticket';
 
-export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; tenantData: { queues: Queue[] } | null; onRefresh: () => void }) {
+export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: StaffUser; tenantData: { queues: Queue[] } | null; tenantName: string; onRefresh: () => void }) {
   const [selectedQueueId, setSelectedQueueId] = useState<string>('');
   const [currentTicket, setCurrentTicket] = useState<Ticket | null>(null);
   const [servingTime, setServingTime] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [callingNext, setCallingNext] = useState(false);
   const [walkInName, setWalkInName] = useState('');
   const [walkInPhone, setWalkInPhone] = useState('');
   const [showWalkIn, setShowWalkIn] = useState(false);
@@ -120,8 +122,8 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
   }, [lastEvent, enhancedRefresh, clearLastEvent]);
 
   const handleCallNext = async () => {
-    if (!selectedQueueId) return;
-    setLoading(true);
+    if (!selectedQueueId || callingNext) return;
+    setCallingNext(true);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
@@ -144,7 +146,7 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
     } catch {
       toast.error('Failed to call next ticket');
     } finally {
-      setLoading(false);
+      setCallingNext(false);
     }
   };
 
@@ -246,7 +248,7 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
       });
       const data = await res.json();
       if (res.ok) {
-        toast.success(`Ticket ${data.ticket.formattedSerial} created for ${walkInName}`);
+        toast.success(`Ticket ${data.ticket._formattedSerial} created for ${walkInName}`);
         setWalkInName('');
         setWalkInPhone('');
         setShowWalkIn(false);
@@ -261,6 +263,22 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
     }
   };
 
+  // ── Thermal print helper ─────────────────────────────────────
+  const handlePrintTicket = useCallback(
+    (t: Ticket) => {
+      const q = queues.find((q) => q.id === t.queueId);
+      if (!q) return;
+      printTicket({
+        ticket: t,
+        queue: q,
+        tenantName,
+        peopleAhead: t._peopleAhead,
+        ewtSeconds: t._ewt,
+      });
+    },
+    [queues, tenantName],
+  );
+
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
@@ -268,19 +286,14 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
   };
 
   return (
-    <div className="space-y-6">
-      {/* Queue Selector – List View */}
+    <div className="space-y-4">
+      {/* Queue Selector */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label className="text-sm font-medium">Select Queue</Label>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowWalkIn(!showWalkIn)}>
-              <UserPlus className="w-4 h-4 mr-1" /> Walk-in
-            </Button>
-            <Button variant="outline" size="sm" onClick={onRefresh}>
-              <RefreshCw className="w-4 h-4 mr-1" /> Refresh
-            </Button>
-          </div>
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
         </div>
         <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
           {queues.map((q) => {
@@ -322,7 +335,7 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
         </div>
       </div>
 
-      {/* Walk-in Form */}
+      {/* Walk-in Form (expandable) */}
       <AnimatePresence>
         {showWalkIn && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
@@ -340,6 +353,47 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
                   <Button onClick={handleWalkIn} className="bg-emerald-600 hover:bg-emerald-700" disabled={!walkInName.trim() || walkInLoading}>
                     <Plus className="w-4 h-4 mr-1" /> Add
                   </Button>
+                  <Button
+                    onClick={async () => {
+                      if (!walkInName.trim() || !selectedQueueId) return;
+                      setWalkInLoading(true);
+                      try {
+                        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+                        try { headers['X-Timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* ignore */ }
+                        const res = await fetch('/api/queues/join', {
+                          method: 'POST',
+                          headers,
+                          body: JSON.stringify({
+                            tenantId: user.tenantId,
+                            queueId: selectedQueueId,
+                            customerName: walkInName.trim(),
+                            customerPhone: walkInPhone.trim() || undefined,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          toast.success(`Ticket ${data.ticket._formattedSerial} created for ${walkInName}`);
+                          setWalkInName('');
+                          setWalkInPhone('');
+                          setShowWalkIn(false);
+                          enhancedRefresh();
+                          handlePrintTicket(data.ticket);
+                        } else {
+                          toast.error(data.error || 'Failed to create ticket');
+                        }
+                      } catch {
+                        toast.error('Failed to create walk-in ticket');
+                      } finally {
+                        setWalkInLoading(false);
+                      }
+                    }}
+                    variant="outline"
+                    className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    disabled={!walkInName.trim() || walkInLoading}
+                  >
+                    <Printer className="w-4 h-4 mr-1" /> Add & Print
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -347,23 +401,26 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
         )}
       </AnimatePresence>
 
-      {/* Call Next Button */}
-      <motion.div className="flex justify-center" whileTap={{ scale: 0.95 }}>
+      {/* Walk-in + Call Next – Side by Side */}
+      <div className="flex gap-3">
+        <Button
+          variant="outline"
+          onClick={() => setShowWalkIn(!showWalkIn)}
+          className="flex-1 h-14 text-base font-semibold"
+        >
+          <UserPlus className="w-5 h-5 mr-2" /> Walk-in
+        </Button>
         <Button
           onClick={handleCallNext}
-          disabled={loading || !selectedQueueId}
-          className="w-full sm:w-64 h-24 text-2xl font-bold bg-emerald-600 hover:bg-emerald-700 rounded-2xl shadow-lg shadow-emerald-200 transition-all"
+          disabled={callingNext || !selectedQueueId}
+          className="flex-1 h-14 text-base font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-200 transition-all"
         >
-          {loading ? <Loader2 className="w-8 h-8 animate-spin" /> : (
-            <>
-              <Phone className="w-8 h-8 mr-3" />
-              CALL NEXT
-            </>
-          )}
+          <Phone className="w-5 h-5 mr-2" />
+          CALL NEXT
         </Button>
-      </motion.div>
+      </div>
 
-      {/* Currently Serving */}
+      {/* Currently Serving Overlay */}
       <AnimatePresence mode="wait">
         {recentlyCalled && (
           <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 pointer-events-none">
@@ -376,9 +433,10 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
         )}
       </AnimatePresence>
 
-      <div className="grid lg:grid-cols-5 gap-4">
+      {/* Now Serving + Tickets – Side by Side */}
+      <div className="grid lg:grid-cols-2 gap-4">
         {/* Currently Serving / Empty State */}
-        <div className="lg:col-span-3">
+        <div>
           {currentTicket ? (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={currentTicket.id}>
               <Card className="border-emerald-200 shadow-md" aria-live="polite">
@@ -404,7 +462,7 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
                       <span className="text-lg font-mono">{formatTime(servingTime)}</span>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 mt-4">
+                  <div className="grid grid-cols-4 gap-3 mt-4">
                     <Button onClick={handleComplete} className="bg-emerald-600 hover:bg-emerald-700 h-14" disabled={loading}>
                       <CheckCircle2 className="w-5 h-5 mr-1" /> Complete
                     </Button>
@@ -413,6 +471,13 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
                     </Button>
                     <Button onClick={() => setCancelConfirm(true)} variant="outline" className="border-red-300 text-red-700 hover:bg-red-50 h-14" disabled={loading}>
                       <XCircle className="w-5 h-5 mr-1" /> Cancel
+                    </Button>
+                    <Button
+                      onClick={() => currentTicket && handlePrintTicket(currentTicket)}
+                      variant="outline"
+                      className="border-slate-300 text-slate-700 hover:bg-slate-50 h-14"
+                    >
+                      <Printer className="w-5 h-5" />
                     </Button>
                   </div>
                 </CardContent>
@@ -452,7 +517,7 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
             </motion.div>
           ) : (
             <Card className="border-dashed border-slate-300 h-full">
-              <CardContent className="py-12 text-center">
+              <CardContent className="py-12 text-center flex items-center justify-center h-full">
                 <div className="text-muted-foreground">
                   <ListOrdered className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p className="text-lg">No ticket currently being served</p>
@@ -463,37 +528,10 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
           )}
         </div>
 
-        {/* Queue Overview */}
-        <div className="lg:col-span-2">
-          {selectedQueue && (
-            <Card aria-live="polite" className="h-full">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Queue Overview</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 gap-6 text-center">
-                  <div>
-                    <p className="text-3xl font-bold text-emerald-600">{selectedQueue.nowServingSerial}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Now Serving</p>
-                  </div>
-                  <div>
-                    <p className="text-3xl font-bold text-amber-600">{selectedQueue._waitingCount || 0}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Waiting</p>
-                  </div>
-                  <div>
-                    <p className="text-3xl font-bold">{selectedQueue._ewt ? Math.ceil(selectedQueue._ewt / 60) : 0}<span className="text-sm font-normal"> min</span></p>
-                    <p className="text-xs text-muted-foreground mt-1">Est. Wait</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
-
-      {/* Ticket List – Waiting / Served */}
-      {selectedQueueId && (
-        <Card>
+        {/* Ticket List – Waiting / Served */}
+        <div className="h-full">
+          {selectedQueueId && (
+        <Card className="h-full flex flex-col">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium text-muted-foreground">Tickets</CardTitle>
@@ -523,16 +561,16 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
               </div>
             </div>
           </CardHeader>
-          <CardContent className="pt-0">
+          <CardContent className="pt-0 flex-1 flex flex-col min-h-0">
             {ticketListLoading ? (
-              <div className="space-y-2">
+              <div className="space-y-2 flex-1">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="h-14 bg-muted/40 rounded-lg animate-pulse" />
                 ))}
               </div>
             ) : ticketList.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                <ListOrdered className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <div className="py-8 text-center text-sm text-muted-foreground flex-1 flex flex-col items-center justify-center">
+                <ListOrdered className="w-8 h-8 mb-2 opacity-30" />
                 {ticketListTab === 'waiting' ? 'No tickets waiting' : 'No served tickets yet'}
               </div>
             ) : (
@@ -561,30 +599,68 @@ export function AgentView({ user, tenantData, onRefresh }: { user: StaffUser; te
                         )}
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      {ticketListTab === 'served' && t.completedAt ? (
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(t.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      ) : t.createdAt ? (
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      ) : null}
-                      {ticketListTab === 'served' ? (
-                        <Badge variant="outline" className="mt-1 text-green-600 border-green-200 bg-green-50 text-[10px]">
-                          <CheckCircle2 className="w-3 h-3 mr-0.5" /> Served
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="mt-1 text-amber-600 border-amber-200 bg-amber-50 text-[10px]">
-                          <Clock className="w-3 h-3 mr-0.5" /> Waiting
-                        </Badge>
-                      )}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handlePrintTicket(t)}
+                        className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                        aria-label={`Print ticket ${t._formattedSerial}`}
+                        title="Print ticket"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="text-right">
+                        {ticketListTab === 'served' && t.completedAt ? (
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(t.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        ) : t.createdAt ? (
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        ) : null}
+                        {ticketListTab === 'served' ? (
+                          <Badge variant="outline" className="mt-1 text-green-600 border-green-200 bg-green-50 text-[10px]">
+                            <CheckCircle2 className="w-3 h-3 mr-0.5" /> Served
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="mt-1 text-amber-600 border-amber-200 bg-amber-50 text-[10px]">
+                            <Clock className="w-3 h-3 mr-0.5" /> Waiting
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+            </CardContent>
+          </Card>
+          )}
+        </div>
+      </div>
+
+      {/* Queue Overview – Below */}
+      {selectedQueue && (
+        <Card aria-live="polite">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Queue Overview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-2xl sm:text-3xl font-bold text-emerald-600">{selectedQueue.nowServingSerial}</p>
+                <p className="text-xs text-muted-foreground mt-1">Now Serving</p>
+              </div>
+              <div>
+                <p className="text-2xl sm:text-3xl font-bold text-amber-600">{selectedQueue._waitingCount || 0}</p>
+                <p className="text-xs text-muted-foreground mt-1">Waiting</p>
+              </div>
+              <div>
+                <p className="text-2xl sm:text-3xl font-bold">{selectedQueue._ewt ? Math.ceil(selectedQueue._ewt / 60) : 0}<span className="text-sm font-normal"> min</span></p>
+                <p className="text-xs text-muted-foreground mt-1">Est. Wait</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

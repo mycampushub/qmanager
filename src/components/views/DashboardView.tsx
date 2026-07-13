@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LogOut, Users, BarChart3, Wallet, Palette, ListOrdered,
   Phone, CalendarClock, Star, Webhook, Settings,
-  Menu, MoreHorizontal, KeyRound
+  Menu, MoreHorizontal, KeyRound, Monitor
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -106,14 +106,17 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   );
 }
 
-function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, logout }: {
+function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, logout, tenantId }: {
   navItems: Array<{ id: string; label: string; icon: typeof Phone }>;
   dashboardTab: string;
   setDashboardTab: (id: string) => void;
   authUser: StaffUser;
   logout: () => void;
+  tenantId: string;
 }) {
   const [changePwdOpen, setChangePwdOpen] = useState(false);
+
+  const displayUrl = typeof window !== 'undefined' ? `${window.location.origin}/?display=${tenantId}` : '';
 
   return (
     <div className="flex flex-col h-full">
@@ -155,6 +158,14 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
         </div>
         <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => setChangePwdOpen(true)}>
           <KeyRound className="w-4 h-4 mr-2" /> Change Password
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+          onClick={() => displayUrl && window.open(displayUrl, '_blank')}
+        >
+          <Monitor className="w-4 h-4 mr-2" /> TV Display
         </Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={logout}>
           <LogOut className="w-4 h-4 mr-2" /> Sign Out
@@ -256,7 +267,7 @@ export default function DashboardView() {
     <div className="h-screen flex flex-row overflow-hidden bg-slate-50">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 border-r bg-white shrink-0 h-full">
-        <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} />
+        <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} tenantId={authUser.tenantId} />
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -265,7 +276,7 @@ export default function DashboardView() {
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
             <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed left-0 top-0 bottom-0 w-64 bg-white z-50 shadow-xl md:hidden">
-              <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} />
+              <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} tenantId={authUser.tenantId} />
             </motion.aside>
           </>
         )}
@@ -295,7 +306,7 @@ export default function DashboardView() {
           <AnimatePresence mode="wait">
             <motion.div key={dashboardTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.15 }}>
               {dashboardTab === 'agent' && (
-                <AgentView user={authUser} tenantData={tenantData} onRefresh={fetchTenantData} />
+                <AgentView user={authUser} tenantData={tenantData} tenantName={authUser.tenant?.name || ''} onRefresh={fetchTenantData} />
               )}
               {dashboardTab === 'queues' && (
                 <QueuesTab user={authUser} tenantData={tenantData} onRefresh={fetchTenantData} />

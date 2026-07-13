@@ -47,6 +47,8 @@ interface AppState {
   // Join page state
   joinTenantId: string | null;
   setJoinTenantId: (id: string | null) => void;
+  joinQueueId: string | null;
+  setJoinQueueId: (id: string | null) => void;
   activeTicket: Ticket | null;
   setActiveTicket: (ticket: Ticket | null) => void;
   myTickets: Ticket[];
@@ -141,6 +143,8 @@ export const useAppStore = create<AppState>((set) => ({
   // Join page
   joinTenantId: null,
   setJoinTenantId: (id) => set({ joinTenantId: id }),
+  joinQueueId: null,
+  setJoinQueueId: (id) => set({ joinQueueId: id }),
   activeTicket: null,
   setActiveTicket: (ticket) => set({ activeTicket: ticket }),
   myTickets: [],

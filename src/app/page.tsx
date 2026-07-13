@@ -92,17 +92,23 @@ function HomeContent() {
     }
   }, []);
 
-  // Handle URL params: ?tenant=xxx, ?display=xxx, ?ticket=xxx
+  // Handle URL params: ?tenant=xxx, ?display=xxx, ?ticket=xxx, ?queue=xxx
   useEffect(() => {
     const tenantId = searchParams.get('tenant');
     const displayId = searchParams.get('display');
     const ticketId = searchParams.get('ticket');
+    const queueId = searchParams.get('queue');
 
     if (ticketId && !tenantId) {
       loadTicketFromUrl(ticketId);
     } else if (tenantId) {
-      useAppStore.getState().setCurrentView('join');
-      useAppStore.getState().setJoinTenantId(tenantId);
+      const store = useAppStore.getState();
+      store.setCurrentView('join');
+      store.setJoinTenantId(tenantId);
+      // Pre-select a specific queue if ?queue= is provided (per-queue QR code)
+      if (queueId) {
+        store.setJoinQueueId(queueId);
+      }
     } else if (displayId) {
       useAppStore.getState().setCurrentView('display');
       useAppStore.getState().setDisplayTenantId(displayId);
@@ -176,8 +182,11 @@ function HomeContent() {
     }
 
     // Auto-navigate based on restored auth
+    // BUT: never redirect away from QR code / display / ticket URLs
+    const url = new URL(window.location.href);
+    const hasPublicParams = url.searchParams.has('tenant') || url.searchParams.has('display') || url.searchParams.has('ticket');
     const state = useAppStore.getState();
-    if (window.location.pathname !== '/dashboard') {
+    if (!hasPublicParams && window.location.pathname !== '/dashboard') {
       if (state.adminUser) {
         window.location.href = '/dashboard';
       } else if (state.mtUser) {
