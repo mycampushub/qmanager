@@ -20,6 +20,7 @@ import {
   Check,
   Zap,
   Shield,
+  ShieldCheck,
   Users,
   Ticket,
   Bell,
@@ -30,6 +31,25 @@ import {
   Send,
   MessageSquare,
   HelpCircle,
+  DollarSign,
+  Lock,
+  FileText,
+  Activity,
+  Plus,
+  RefreshCw,
+  Search,
+  Database,
+  BarChart3,
+  Heart,
+  Landmark,
+  Building,
+  GraduationCap,
+  ShoppingCart,
+  Stethoscope,
+  Wrench,
+  Plane,
+  FlaskConical,
+  TrendingUp,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -116,6 +136,133 @@ const steps = [
   },
 ];
 
+const noItems = [
+  'No monthly subscription required',
+  'No annual contract',
+  'No hidden fees',
+  'No per-location fees',
+  'No per-counter fees',
+  'No per-agent fees',
+  'No per-room fees',
+  'No ticket expiration',
+];
+
+const comparisonRows = [
+  { feature: 'Monthly Subscription', traditional: '$29–$499/mo', queueflow: 'None' },
+  { feature: 'Annual Contract', traditional: '1–3 year lock-in', queueflow: 'None' },
+  { feature: 'Per Branch Pricing', traditional: 'Per location fee', queueflow: 'Unlimited' },
+  { feature: 'Per Counter Pricing', traditional: 'Per counter fee', queueflow: 'Unlimited' },
+  { feature: 'Per User Pricing', traditional: 'Per agent fee', queueflow: 'Unlimited' },
+  { feature: 'Hardware Lock-in', traditional: 'Required', queueflow: 'Cloud & QR' },
+  { feature: 'Feature Restrictions', traditional: 'Tiers & paywalls', queueflow: 'Everything Included' },
+  { feature: 'Expiring Credits', traditional: 'Monthly reset', queueflow: 'Never' },
+  { feature: 'Hidden Charges', traditional: 'Setup & add-ons', queueflow: 'None' },
+  { feature: 'Upgrade Fees', traditional: '$50–$200/upgrade', queueflow: 'None' },
+  { feature: 'Setup Fees', traditional: '$100–$500', queueflow: 'None' },
+  { feature: 'Pay As You Grow', traditional: 'No', queueflow: 'Yes' },
+];
+
+const benefits = [
+  {
+    icon: Zap,
+    title: 'Faster Customer Service',
+    desc: 'Serve customers faster with smart queue routing and real-time status updates.',
+  },
+  {
+    icon: Clock,
+    title: 'Shorter Waiting Times',
+    desc: 'Accurate EWT calculations keep customers informed and reduce perceived wait times.',
+  },
+  {
+    icon: Star,
+    title: 'Better Customer Experience',
+    desc: 'QR-based entry means zero friction — customers join from their phone in seconds.',
+  },
+  {
+    icon: Building2,
+    title: 'More Organized Operations',
+    desc: 'Multi-queue support, agent assignments, and service windows keep everything running smoothly.',
+  },
+  {
+    icon: Users,
+    title: 'Increased Staff Productivity',
+    desc: 'Agents focus on serving, not managing chaos. One-click call next, complete, skip.',
+  },
+  {
+    icon: Check,
+    title: 'Happier Customers',
+    desc: 'No more standing in line. Customers wait comfortably and arrive just in time.',
+  },
+];
+
+const whyChooseUs = [
+  { icon: Smartphone, label: 'Phone-first' },
+  { icon: QrCode, label: 'QR-based' },
+  { icon: X, label: 'No App Installation' },
+  { icon: Building2, label: 'Unlimited Locations' },
+  { icon: Monitor, label: 'Unlimited Rooms' },
+  { icon: Ticket, label: 'Unlimited Counters' },
+  { icon: Radio, label: 'Cloud-native' },
+  { icon: Coins, label: '300 Free Tickets' },
+  { icon: Shield, label: 'No Contracts' },
+  { icon: DollarSign, label: '$0.01 Per Ticket' },
+  { icon: Clock, label: 'Tickets Never Expire' },
+  { icon: TrendingUp, label: 'Pay As You Grow' },
+];
+
+const industries = [
+  { icon: Heart, name: 'Hospitals', color: 'bg-rose-50 text-rose-600' },
+  { icon: Landmark, name: 'Banks', color: 'bg-amber-50 text-amber-600' },
+  { icon: Building, name: 'Government', color: 'bg-slate-50 text-slate-600' },
+  { icon: GraduationCap, name: 'Universities', color: 'bg-violet-50 text-violet-600' },
+  { icon: ShoppingCart, name: 'Retail', color: 'bg-orange-50 text-orange-600' },
+  { icon: Stethoscope, name: 'Clinics', color: 'bg-teal-50 text-teal-600' },
+  { icon: Radio, name: 'Telecom', color: 'bg-cyan-50 text-cyan-600' },
+  { icon: Wrench, name: 'Service Centers', color: 'bg-gray-100 text-gray-600' },
+  { icon: Building2, name: 'Municipal Offices', color: 'bg-emerald-50 text-emerald-600' },
+  { icon: Shield, name: 'Immigration', color: 'bg-sky-50 text-sky-600' },
+  { icon: Plane, name: 'Airports', color: 'bg-indigo-50 text-indigo-500' },
+  { icon: FlaskConical, name: 'Diagnostic Labs', color: 'bg-purple-50 text-purple-600' },
+];
+
+const infrastructureSteps = [
+  { icon: Plus, label: 'Create Ticket' },
+  { icon: RefreshCw, label: 'Update Queue Status' },
+  { icon: Search, label: 'Read Queue Position' },
+  { icon: Bell, label: 'Call Next Customer' },
+  { icon: Database, label: 'Store Logs' },
+  { icon: BarChart3, label: 'Read Dashboard' },
+  { icon: QrCode, label: 'QR Code Lookup' },
+];
+
+const securityFeatures = [
+  {
+    icon: Lock,
+    title: 'End-to-End Encryption',
+    desc: 'All data encrypted in transit and at rest with industry-standard protocols.',
+  },
+  {
+    icon: Users,
+    title: 'Role-Based Access',
+    desc: 'Granular permissions ensure staff only see what they need.',
+  },
+  {
+    icon: FileText,
+    title: 'Audit Logs',
+    desc: 'Every action is logged and auditable for compliance.',
+  },
+  {
+    icon: Activity,
+    title: 'High Availability',
+    desc: 'Cloudflare\'s global edge network ensures 99.9% uptime.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Secure Authentication',
+    desc: 'JWT-based auth with multi-factor support.',
+  },
+];
+
 const pricing = [
   {
     name: 'Free',
@@ -190,6 +337,8 @@ const faqs = [
   },
 ];
 
+const navLinks = ['Features', 'How It Works', 'Pricing', 'Industries', 'Compare', 'Security', 'FAQ', 'Contact'];
+
 /* ================================================================== */
 /*  Component                                                          */
 /* ================================================================== */
@@ -224,8 +373,8 @@ export default function MarketingView() {
           </button>
 
           {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-8" aria-label="Main navigation">
-            {['Features', 'How It Works', 'Pricing', 'FAQ', 'Contact'].map((item) => (
+          <nav className="hidden lg:flex items-center gap-6" aria-label="Main navigation">
+            {navLinks.map((item) => (
               <button
                 key={item}
                 onClick={() => scrollTo(item.toLowerCase().replace(/ /g, '-'))}
@@ -237,7 +386,7 @@ export default function MarketingView() {
           </nav>
 
           {/* Desktop CTA */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3">
             <Button
               variant="ghost"
               className="text-gray-600 hover:text-emerald-600"
@@ -256,7 +405,7 @@ export default function MarketingView() {
 
           {/* Mobile hamburger */}
           <button
-            className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle menu"
           >
@@ -265,623 +414,1095 @@ export default function MarketingView() {
         </div>
 
         {/* Mobile menu */}
-        {mobileOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="md:hidden border-t border-gray-100 bg-white"
-          >
-            <div className="flex flex-col gap-1 px-4 py-4">
-              {['Features', 'How It Works', 'Pricing', 'FAQ', 'Contact'].map((item) => (
-                <button
-                  key={item}
-                  onClick={() => scrollTo(item.toLowerCase().replace(/ /g, '-'))}
-                  className="rounded-lg px-3 py-2.5 text-left text-sm font-medium text-gray-600 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+        <AnimatePresence>
+          {mobileOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="lg:hidden border-t border-gray-100 bg-white overflow-hidden"
+            >
+              <div className="flex flex-col gap-1 px-4 py-4">
+                {navLinks.map((item) => (
+                  <button
+                    key={item}
+                    onClick={() => scrollTo(item.toLowerCase().replace(/ /g, '-'))}
+                    className="rounded-lg px-3 py-2.5 text-left text-sm font-medium text-gray-600 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+                  >
+                    {item}
+                  </button>
+                ))}
+                <Separator className="my-2" />
+                <Button
+                  variant="ghost"
+                  className="justify-start text-gray-600 hover:text-emerald-600"
+                  onClick={() => { setMobileOpen(false); window.location.href = '/dashboard'; }}
                 >
-                  {item}
-                </button>
-              ))}
-              <Separator className="my-2" />
-              <Button
-                variant="ghost"
-                className="justify-start text-gray-600 hover:text-emerald-600"
-                onClick={() => { setMobileOpen(false); window.location.href = '/dashboard'; }}
-              >
-                Login
-              </Button>
-              <Button
-                className="bg-emerald-600 text-white hover:bg-emerald-700"
-                onClick={() => { setMobileOpen(false); useAppStore.getState().setCurrentView('signup'); }}
-              >
-                Get Started
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </div>
-          </motion.div>
-        )}
+                  Login
+                </Button>
+                <Button
+                  className="bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={() => { setMobileOpen(false); useAppStore.getState().setCurrentView('signup'); }}
+                >
+                  Get Started
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
-      {/* ============================================================ */}
-      {/*  HERO                                                         */}
-      {/* ============================================================ */}
-      <section
-        id="hero"
-        className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-400"
-      >
-        {/* Decorative blobs */}
-        <div className="pointer-events-none absolute -top-40 -right-40 h-[500px] w-[500px] rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-40 -left-40 h-[400px] w-[400px] rounded-full bg-teal-300/20 blur-3xl" />
+      <main className="flex-1">
+        {/* ============================================================ */}
+        {/*  HERO                                                         */}
+        {/* ============================================================ */}
+        <section
+          id="hero"
+          className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-400"
+        >
+          {/* Decorative blobs */}
+          <div className="pointer-events-none absolute -top-40 -right-40 h-[500px] w-[500px] rounded-full bg-white/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-40 -left-40 h-[400px] w-[400px] rounded-full bg-teal-300/20 blur-3xl" />
 
-        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8 lg:py-36">
-          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-            {/* Text */}
+          <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8 lg:py-36">
+            <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+              {/* Text */}
+              <motion.div
+                initial="hidden"
+                animate="visible"
+                variants={stagger}
+                className="text-center lg:text-left"
+              >
+                <motion.div variants={fadeUp}>
+                  <Badge className="mb-6 bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-sm px-4 py-1.5 text-sm">
+                    <Star className="mr-1.5 h-3.5 w-3.5" />
+                    Trusted by 500+ businesses
+                  </Badge>
+                </motion.div>
+
+                <motion.h1
+                  variants={fadeUp}
+                  className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl leading-tight"
+                >
+                  Eliminate Waiting Lines with{' '}
+                  <span className="underline decoration-emerald-300/60 decoration-4 underline-offset-4">
+                    Smart Queue Management
+                  </span>
+                </motion.h1>
+
+                <motion.p
+                  variants={fadeUp}
+                  className="mx-auto mt-6 max-w-xl text-lg text-emerald-50/90 sm:text-xl lg:mx-0"
+                >
+                  A zero-friction, QR-based queue system that lets your customers wait
+                  comfortably and arrive just in time. Set up in 2 minutes.
+                </motion.p>
+
+                <motion.div
+                  variants={fadeUp}
+                  className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center lg:justify-start"
+                >
+                  <Button
+                    size="lg"
+                    className="bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg shadow-emerald-900/20 font-semibold text-base px-8 py-6"
+                    onClick={() => useAppStore.getState().setCurrentView('signup')}
+                  >
+                    Get Started Free
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="border-white/40 text-white bg-white/10 hover:bg-white/20 backdrop-blur-sm font-semibold text-base px-8 py-6"
+                    onClick={() => scrollTo('how-it-works')}
+                  >
+                    See How It Works
+                  </Button>
+                </motion.div>
+              </motion.div>
+
+              {/* Phone mockup */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 30 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ duration: 0.7, delay: 0.3, ease: 'easeOut' }}
+                className="flex justify-center lg:justify-end"
+              >
+                <div className="relative">
+                  {/* Glow */}
+                  <div className="absolute inset-0 rounded-[2.5rem] bg-emerald-400/30 blur-2xl scale-110" />
+
+                  {/* Phone frame */}
+                  <div className="relative w-[280px] sm:w-[300px] rounded-[2.5rem] border-4 border-gray-800 bg-gray-900 p-3 shadow-2xl">
+                    {/* Notch */}
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 h-6 w-28 rounded-b-2xl bg-gray-800" />
+
+                    {/* Screen */}
+                    <div className="mt-2 rounded-[2rem] bg-white overflow-hidden">
+                      {/* Status bar */}
+                      <div className="flex items-center justify-between px-6 pt-4 pb-2">
+                        <span className="text-xs font-medium text-gray-500">9:41</span>
+                        <div className="flex gap-1">
+                          <div className="h-2.5 w-2.5 rounded-sm bg-gray-300" />
+                          <div className="h-2.5 w-2.5 rounded-sm bg-gray-300" />
+                          <div className="h-3 w-5 rounded-sm bg-gray-300" />
+                        </div>
+                      </div>
+
+                      {/* Ticket content */}
+                      <div className="px-5 pb-6 pt-2">
+                        <div className="text-center">
+                          <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 mb-3">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            In Queue
+                          </div>
+                          <p className="text-xs text-gray-400 mb-1">Your Position</p>
+                          <p className="text-5xl font-extrabold text-gray-900">#7</p>
+                          <p className="text-sm text-gray-500 mt-1">of 12 in line</p>
+                        </div>
+
+                        <div className="mt-5 rounded-xl bg-emerald-50 p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs font-medium text-gray-500">Estimated Wait</span>
+                            <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-xs">
+                              ~14 min
+                            </Badge>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-emerald-100 overflow-hidden">
+                            <motion.div
+                              className="h-full rounded-full bg-emerald-500"
+                              initial={{ width: '0%' }}
+                              animate={{ width: '42%' }}
+                              transition={{ duration: 1.5, delay: 1, ease: 'easeOut' }}
+                            />
+                          </div>
+                          <p className="text-xs text-gray-400 mt-2">You're next after 6 people</p>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between rounded-xl border border-gray-100 px-4 py-3">
+                          <div>
+                            <p className="text-xs text-gray-400">Serving Now</p>
+                            <p className="text-sm font-bold text-gray-900">Ticket #1</p>
+                          </div>
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100">
+                            <Bell className="h-4 w-4 text-emerald-600" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  STATS BAR                                                    */}
+        {/* ============================================================ */}
+        <section className="border-b border-gray-100 bg-gray-50/60">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 md:divide-x md:divide-gray-200">
+              {stats.map((stat, i) => (
+                <motion.div
+                  key={stat.label}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, amount: 0.5 }}
+                  custom={i}
+                  variants={fadeUp}
+                  className="flex flex-col items-center gap-1.5 py-8 px-4"
+                >
+                  <stat.icon className="h-5 w-5 text-emerald-600" />
+                  <span className="text-2xl font-bold text-gray-900 sm:text-3xl">{stat.value}</span>
+                  <span className="text-sm text-gray-500">{stat.label}</span>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  CORE VALUE PROPOSITION                                       */}
+        {/* ============================================================ */}
+        <section
+          id="value-proposition"
+          style={{ scrollMarginTop: '5rem' }}
+          className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-900 to-emerald-900 py-20 sm:py-28"
+        >
+          <div className="pointer-events-none absolute -top-40 -right-40 h-[400px] w-[400px] rounded-full bg-emerald-600/10 blur-3xl" />
+
+          <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <motion.div
               initial="hidden"
-              animate="visible"
+              whileInView="visible"
+              viewport={{ once: true }}
               variants={stagger}
-              className="text-center lg:text-left"
+              className="mx-auto max-w-3xl text-center"
             >
               <motion.div variants={fadeUp}>
-                <Badge className="mb-6 bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-sm px-4 py-1.5 text-sm">
-                  <Star className="mr-1.5 h-3.5 w-3.5" />
-                  Trusted by 500+ businesses
+                <Badge className="mb-6 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-4 py-1.5 text-sm">
+                  <Zap className="mr-1.5 h-3.5 w-3.5" />
+                  Revolutionary Pricing
                 </Badge>
               </motion.div>
 
-              <motion.h1
+              <motion.h2
                 variants={fadeUp}
-                className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl leading-tight"
+                className="text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl"
               >
-                Eliminate Waiting Lines with{' '}
-                <span className="underline decoration-emerald-300/60 decoration-4 underline-offset-4">
-                  Smart Queue Management
-                </span>
-              </motion.h1>
+                The World&apos;s Fairest Queue Management Pricing
+              </motion.h2>
+
+              <motion.div
+                variants={stagger}
+                className="mt-10 grid gap-3 sm:grid-cols-2 max-w-2xl mx-auto"
+              >
+                {noItems.map((item, i) => (
+                  <motion.div
+                    key={item}
+                    variants={fadeUp}
+                    custom={i}
+                    className="flex items-center gap-3 rounded-xl bg-white/5 border border-white/10 px-4 py-3 backdrop-blur-sm"
+                  >
+                    <X className="h-5 w-5 flex-shrink-0 text-red-500" />
+                    <span className="text-sm text-gray-300">{item}</span>
+                  </motion.div>
+                ))}
+              </motion.div>
+
+              <motion.div
+                variants={fadeUp}
+                className="mt-12 flex flex-col items-center gap-4"
+              >
+                <div className="flex items-center gap-3">
+                  <Check className="h-8 w-8 text-emerald-400" />
+                  <span className="text-3xl font-extrabold text-white sm:text-4xl">
+                    Just $0.01 per ticket
+                  </span>
+                  <Check className="h-8 w-8 text-emerald-400" />
+                </div>
+                <p className="text-lg text-gray-400">
+                  300 free tickets to start. Pay only when you grow.
+                </p>
+                <Button
+                  size="lg"
+                  className="mt-2 bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-900/30 font-semibold text-base px-8 py-6"
+                  onClick={() => useAppStore.getState().setCurrentView('signup')}
+                >
+                  Start Free — No Card Required
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              </motion.div>
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  COMPARISON TABLE                                             */}
+        {/* ============================================================ */}
+        <section
+          id="compare"
+          style={{ scrollMarginTop: '5rem' }}
+          className="py-20 sm:py-28"
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                How We Compare
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Traditional queue software charges for everything. We don&apos;t.
+              </motion.p>
+            </motion.div>
+
+            {/* Desktop Table (md+) */}
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={fadeUp}
+              className="mt-12 hidden md:block"
+            >
+              <div className="overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-gray-500 w-1/3">Feature</th>
+                      <th className="px-6 py-4 text-center text-sm font-semibold text-gray-500 w-1/3">Traditional Queue Software</th>
+                      <th className="px-6 py-4 text-center text-sm font-bold text-emerald-600 w-1/3">QueueFlow</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparisonRows.map((row, i) => (
+                      <tr
+                        key={row.feature}
+                        className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                      >
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900 border-t border-gray-100">
+                          {row.feature}
+                        </td>
+                        <td className="px-6 py-4 text-center border-t border-gray-100">
+                          <span className="text-sm">
+                            <span className="text-red-500 font-semibold mr-1.5">❌</span>
+                            <span className="text-gray-500">{row.traditional}</span>
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center border-t border-gray-100">
+                          {row.feature === 'Pay As You Grow' ? (
+                            <span className="text-sm">
+                              <span className="text-emerald-600 font-semibold mr-1.5">✅</span>
+                              <span className="text-emerald-600 font-semibold">{row.queueflow}</span>
+                            </span>
+                          ) : (
+                            <span className="text-sm text-gray-900 font-medium">{row.queueflow}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+
+            {/* Mobile Cards (below md) */}
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mt-8 flex flex-col gap-3 md:hidden"
+            >
+              {comparisonRows.map((row, i) => (
+                <motion.div key={row.feature} variants={fadeUp} custom={i}>
+                  <Card className="border-gray-200">
+                    <CardContent className="p-4">
+                      <p className="text-sm font-semibold text-gray-900 mb-3">{row.feature}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-lg bg-red-50 px-3 py-2">
+                          <p className="text-xs text-gray-500 mb-1">Traditional</p>
+                          <p className="text-sm">
+                            <span className="text-red-500 font-semibold mr-1">❌</span>
+                            <span className="text-gray-600 text-xs">{row.traditional}</span>
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-emerald-50 px-3 py-2">
+                          <p className="text-xs text-emerald-600 mb-1 font-semibold">QueueFlow</p>
+                          <p className="text-sm text-emerald-700 font-medium text-xs">
+                            {row.feature === 'Pay As You Grow' && (
+                              <span className="text-emerald-600 font-semibold mr-1">✅</span>
+                            )}
+                            {row.queueflow}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  FEATURES                                                     */}
+        {/* ============================================================ */}
+        <section id="features" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Everything You Need to Manage Queues
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                From QR code entry to TV display, QueueFlow covers every aspect of modern queue management.
+              </motion.p>
+            </motion.div>
+
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
+            >
+              {features.map((f) => (
+                <motion.div key={f.title} variants={fadeUp}>
+                  <Card className="group h-full border-gray-200 bg-white transition-all hover:shadow-lg hover:shadow-emerald-100/50 hover:border-emerald-200">
+                    <CardContent className="p-6">
+                      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 transition-colors group-hover:bg-emerald-600 group-hover:text-white">
+                        <f.icon className="h-6 w-6" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900">{f.title}</h3>
+                      <p className="mt-2 text-sm leading-relaxed text-gray-500">{f.desc}</p>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  HOW IT WORKS                                                 */}
+        {/* ============================================================ */}
+        <section id="how-it-works" style={{ scrollMarginTop: '5rem' }} className="bg-gray-50/60 py-20 sm:py-28">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                How It Works
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Three simple steps from scan to service.
+              </motion.p>
+            </motion.div>
+
+            <div className="mt-16 grid gap-8 md:grid-cols-3 md:gap-12">
+              {steps.map((step, i) => (
+                <motion.div
+                  key={step.num}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  custom={i}
+                  variants={fadeUp}
+                  className="relative flex flex-col items-center text-center"
+                >
+                  {/* Connector line (desktop) */}
+                  {i < steps.length - 1 && (
+                    <div className="hidden md:block absolute top-8 left-[calc(50%+2rem)] w-[calc(100%-4rem)] h-px border-t-2 border-dashed border-emerald-200" />
+                  )}
+
+                  {/* Number circle */}
+                  <div className="relative z-10 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white text-xl font-bold shadow-lg shadow-emerald-200">
+                    {step.num}
+                  </div>
+
+                  <h3 className="mt-6 text-lg font-semibold text-gray-900">{step.title}</h3>
+                  <p className="mt-2 max-w-xs text-sm leading-relaxed text-gray-500">{step.desc}</p>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  BENEFITS                                                     */}
+        {/* ============================================================ */}
+        <section
+          id="benefits"
+          style={{ scrollMarginTop: '5rem' }}
+          className="bg-gray-50/60 py-20 sm:py-28"
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Transform Your Customer Experience
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Real results from businesses that switched to QueueFlow.
+              </motion.p>
+            </motion.div>
+
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-3"
+            >
+              {benefits.map((b, i) => (
+                <motion.div key={b.title} variants={fadeUp} custom={i} className="flex gap-4">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                    <b.icon className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-900">{b.title}</h3>
+                    <p className="mt-1.5 text-sm leading-relaxed text-gray-500">{b.desc}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  WHY CHOOSE US                                                */}
+        {/* ============================================================ */}
+        <section
+          id="why-choose-us"
+          style={{ scrollMarginTop: '5rem' }}
+          className="py-20 sm:py-28"
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Why Choose QueueFlow
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Built different from the ground up.
+              </motion.p>
+            </motion.div>
+
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mt-16 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6"
+            >
+              {whyChooseUs.map((item, i) => (
+                <motion.div
+                  key={item.label}
+                  variants={fadeUp}
+                  custom={i}
+                  className="flex flex-col items-center gap-3 rounded-2xl border border-gray-100 bg-white p-6 transition-all hover:shadow-md hover:border-emerald-100"
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                    <item.icon className="h-5 w-5" />
+                  </div>
+                  <span className="text-sm font-semibold text-gray-700 text-center">{item.label}</span>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  INDUSTRY SOLUTIONS                                           */}
+        {/* ============================================================ */}
+        <section
+          id="industries"
+          style={{ scrollMarginTop: '5rem' }}
+          className="bg-gray-50/60 py-20 sm:py-28"
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Built for Every Industry
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                From healthcare to government — QueueFlow adapts to your workflow.
+              </motion.p>
+            </motion.div>
+
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mt-16 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6"
+            >
+              {industries.map((ind, i) => (
+                <motion.div key={ind.name} variants={fadeUp} custom={i}>
+                  <Card className="group h-full border-gray-200 bg-white transition-all hover:shadow-md hover:border-emerald-200 cursor-pointer">
+                    <CardContent className="flex flex-col items-center gap-3 p-6 text-center">
+                      <div className={`flex h-14 w-14 items-center justify-center rounded-full ${ind.color} transition-transform group-hover:scale-110`}>
+                        <ind.icon className="h-6 w-6" />
+                      </div>
+                      <h3 className="text-sm font-semibold text-gray-900">{ind.name}</h3>
+                      <span className="text-xs text-emerald-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                        Learn more →
+                      </span>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  INFRASTRUCTURE                                               */}
+        {/* ============================================================ */}
+        <section
+          id="infrastructure"
+          style={{ scrollMarginTop: '5rem' }}
+          className="py-20 sm:py-28"
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Enterprise-Grade Infrastructure
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Every ticket flows through a robust, cloud-native pipeline.
+              </motion.p>
+            </motion.div>
+
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mt-16"
+            >
+              {/* Desktop horizontal flow */}
+              <div className="hidden lg:flex items-center justify-center gap-2">
+                {infrastructureSteps.map((step, i) => (
+                  <motion.div key={step.label} variants={fadeUp} custom={i} className="flex items-center gap-2">
+                    <div className="flex flex-col items-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm min-w-[120px]">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                        <step.icon className="h-5 w-5" />
+                      </div>
+                      <span className="text-xs font-medium text-gray-700 text-center leading-tight">{step.label}</span>
+                    </div>
+                    {i < infrastructureSteps.length - 1 && (
+                      <ArrowRight className="h-4 w-4 flex-shrink-0 text-emerald-400" />
+                    )}
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Mobile vertical flow */}
+              <div className="flex flex-col gap-3 lg:hidden">
+                {infrastructureSteps.map((step, i) => (
+                  <motion.div key={step.label} variants={fadeUp} custom={i} className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm flex-1">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                        <step.icon className="h-5 w-5" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-700">{step.label}</span>
+                    </div>
+                    {i < infrastructureSteps.length - 1 && (
+                      <ArrowRight className="h-4 w-4 flex-shrink-0 text-emerald-400 rotate-90 sm:rotate-0" />
+                    )}
+                  </motion.div>
+                ))}
+              </div>
 
               <motion.p
                 variants={fadeUp}
-                className="mx-auto mt-6 max-w-xl text-lg text-emerald-50/90 sm:text-xl lg:mx-0"
+                className="mt-10 text-center text-sm text-gray-500"
               >
-                A zero-friction, QR-based queue system that lets your customers wait
-                comfortably and arrive just in time. Set up in 2 minutes.
+                Powered by <span className="font-semibold text-gray-700">Cloudflare Workers</span> — edge-deployed for sub-50ms response times globally.
               </motion.p>
-
-              <motion.div
-                variants={fadeUp}
-                className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center lg:justify-start"
-              >
-                <Button
-                  size="lg"
-                  className="bg-white text-emerald-700 hover:bg-emerald-50 shadow-lg shadow-emerald-900/20 font-semibold text-base px-8 py-6"
-                  onClick={() => useAppStore.getState().setCurrentView('signup')}
-                >
-                  Get Started Free
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="border-white/40 text-white bg-white/10 hover:bg-white/20 backdrop-blur-sm font-semibold text-base px-8 py-6"
-                  onClick={() => scrollTo('how-it-works')}
-                >
-                  See How It Works
-                </Button>
-              </motion.div>
             </motion.div>
+          </div>
+        </section>
 
-            {/* Phone mockup */}
+        {/* ============================================================ */}
+        {/*  SECURITY                                                     */}
+        {/* ============================================================ */}
+        <section
+          id="security"
+          style={{ scrollMarginTop: '5rem' }}
+          className="bg-gray-50/60 py-20 sm:py-28"
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.3, ease: 'easeOut' }}
-              className="flex justify-center lg:justify-end"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
             >
-              <div className="relative">
-                {/* Glow */}
-                <div className="absolute inset-0 rounded-[2.5rem] bg-emerald-400/30 blur-2xl scale-110" />
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Bank-Grade Security
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Your data is protected at every layer.
+              </motion.p>
+            </motion.div>
 
-                {/* Phone frame */}
-                <div className="relative w-[280px] sm:w-[300px] rounded-[2.5rem] border-4 border-gray-800 bg-gray-900 p-3 shadow-2xl">
-                  {/* Notch */}
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 h-6 w-28 rounded-b-2xl bg-gray-800" />
-
-                  {/* Screen */}
-                  <div className="mt-2 rounded-[2rem] bg-white overflow-hidden">
-                    {/* Status bar */}
-                    <div className="flex items-center justify-between px-6 pt-4 pb-2">
-                      <span className="text-xs font-medium text-gray-500">9:41</span>
-                      <div className="flex gap-1">
-                        <div className="h-2.5 w-2.5 rounded-sm bg-gray-300" />
-                        <div className="h-2.5 w-2.5 rounded-sm bg-gray-300" />
-                        <div className="h-3 w-5 rounded-sm bg-gray-300" />
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+            >
+              {securityFeatures.map((feat, i) => (
+                <motion.div key={feat.title} variants={fadeUp} custom={i}>
+                  <Card className="h-full border-gray-200 bg-white text-center transition-all hover:shadow-md hover:border-emerald-200">
+                    <CardContent className="flex flex-col items-center gap-4 p-6">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                        <feat.icon className="h-7 w-7" />
                       </div>
-                    </div>
-
-                    {/* Ticket content */}
-                    <div className="px-5 pb-6 pt-2">
-                      <div className="text-center">
-                        <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 mb-3">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          In Queue
-                        </div>
-                        <p className="text-xs text-gray-400 mb-1">Your Position</p>
-                        <p className="text-5xl font-extrabold text-gray-900">#7</p>
-                        <p className="text-sm text-gray-500 mt-1">of 12 in line</p>
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">{feat.title}</h3>
+                        <p className="mt-1.5 text-xs leading-relaxed text-gray-500">{feat.desc}</p>
                       </div>
-
-                      <div className="mt-5 rounded-xl bg-emerald-50 p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-xs font-medium text-gray-500">Estimated Wait</span>
-                          <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-xs">
-                            ~14 min
-                          </Badge>
-                        </div>
-                        <div className="w-full h-2 rounded-full bg-emerald-100 overflow-hidden">
-                          <motion.div
-                            className="h-full rounded-full bg-emerald-500"
-                            initial={{ width: '0%' }}
-                            animate={{ width: '42%' }}
-                            transition={{ duration: 1.5, delay: 1, ease: 'easeOut' }}
-                          />
-                        </div>
-                        <p className="text-xs text-gray-400 mt-2">You're next after 6 people</p>
-                      </div>
-
-                      <div className="mt-4 flex items-center justify-between rounded-xl border border-gray-100 px-4 py-3">
-                        <div>
-                          <p className="text-xs text-gray-400">Serving Now</p>
-                          <p className="text-sm font-bold text-gray-900">Ticket #1</p>
-                        </div>
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100">
-                          <Bell className="h-4 w-4 text-emerald-600" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
             </motion.div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ============================================================ */}
-      {/*  STATS BAR                                                    */}
-      {/* ============================================================ */}
-      <section className="border-b border-gray-100 bg-gray-50/60">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 md:divide-x md:divide-gray-200">
-            {stats.map((stat, i) => (
-              <motion.div
-                key={stat.label}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true, amount: 0.5 }}
-                custom={i}
-                variants={fadeUp}
-                className="flex flex-col items-center gap-1.5 py-8 px-4"
-              >
-                <stat.icon className="h-5 w-5 text-emerald-600" />
-                <span className="text-2xl font-bold text-gray-900 sm:text-3xl">{stat.value}</span>
-                <span className="text-sm text-gray-500">{stat.label}</span>
-              </motion.div>
-            ))}
+        {/* ============================================================ */}
+        {/*  PRICING                                                      */}
+        {/* ============================================================ */}
+        <section id="pricing" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Simple, Transparent Pricing
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Start free, scale as you grow. No credit card required.
+              </motion.p>
+            </motion.div>
+
+            <div className="mt-16 grid gap-8 lg:grid-cols-3">
+              {pricing.map((tier, i) => (
+                <motion.div
+                  key={tier.name}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  custom={i}
+                  variants={fadeUp}
+                >
+                  <Card
+                    className={`relative h-full flex flex-col ${
+                      tier.highlighted
+                        ? 'border-2 border-emerald-600 shadow-xl shadow-emerald-100/60 scale-[1.02]'
+                        : 'border-gray-200'
+                    }`}
+                  >
+                    {tier.badge && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                        <Badge className="bg-emerald-600 text-white px-3 py-1 shadow-sm">{tier.badge}</Badge>
+                      </div>
+                    )}
+
+                    <CardContent className="flex flex-1 flex-col p-6 sm:p-8">
+                      <h3 className="text-lg font-semibold text-gray-900">{tier.name}</h3>
+                      <div className="mt-4 flex items-baseline">
+                        <span className="text-sm font-medium text-gray-500">৳</span>
+                        <span className="text-4xl font-extrabold text-gray-900">{tier.price}</span>
+                        {tier.period && (
+                          <span className="ml-1 text-sm text-gray-500">{tier.period}</span>
+                        )}
+                      </div>
+
+                      <Separator className="my-6" />
+
+                      <ul className="flex-1 space-y-3">
+                        {tier.features.map((feature) => (
+                          <li key={feature} className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                              <Check className="h-3 w-3 text-emerald-600" />
+                            </div>
+                            <span className="text-sm text-gray-600">{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+
+                      <Button
+                        className={`mt-8 w-full font-semibold py-5 ${
+                          tier.highlighted
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
+                            : 'bg-gray-900 text-white hover:bg-gray-800'
+                        }`}
+                        onClick={() => tier.cta === 'Contact Sales' ? scrollTo('contact') : useAppStore.getState().setCurrentView('signup')}
+                      >
+                        {tier.cta}
+                        <ChevronRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ============================================================ */}
-      {/*  FEATURES                                                     */}
-      {/* ============================================================ */}
-      <section id="features" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            variants={stagger}
-            className="mx-auto max-w-2xl text-center"
-          >
-            <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-              Everything You Need to Manage Queues
-            </motion.h2>
-            <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
-              From QR code entry to TV display, QueueFlow covers every aspect of modern queue management.
-            </motion.p>
-          </motion.div>
+        {/* ============================================================ */}
+        {/*  FAQ                                                          */}
+        {/* ============================================================ */}
+        <section id="faq" style={{ scrollMarginTop: '5rem' }} className="bg-gray-50/60 py-20 sm:py-28">
+          <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Frequently Asked Questions
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Everything you need to know about QueueFlow.
+              </motion.p>
+            </motion.div>
 
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            variants={stagger}
-            className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
-          >
-            {features.map((f) => (
-              <motion.div key={f.title} variants={fadeUp}>
-                <Card className="group h-full border-gray-200 bg-white transition-all hover:shadow-lg hover:shadow-emerald-100/50 hover:border-emerald-200">
-                  <CardContent className="p-6">
-                    <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 transition-colors group-hover:bg-emerald-600 group-hover:text-white">
-                      <f.icon className="h-6 w-6" />
+            <div className="mt-12 flex flex-col gap-3">
+              {faqs.map((faq, i) => (
+                <motion.div
+                  key={i}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  custom={i}
+                  variants={fadeUp}
+                >
+                  <Card className="border-gray-200">
+                    <button
+                      className="flex w-full items-center justify-between px-6 py-5 text-left"
+                      onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                      aria-expanded={openFaq === i}
+                    >
+                      <div className="flex items-center gap-3">
+                        <HelpCircle className="h-5 w-5 shrink-0 text-emerald-600" />
+                        <span className="font-semibold text-gray-900 text-sm sm:text-base">{faq.q}</span>
+                      </div>
+                      <ChevronDown
+                        className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-200 ${
+                          openFaq === i ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+                    <AnimatePresence mode="wait" initial={false}>
+                      {openFaq === i && (
+                        <motion.div
+                          key={`faq-${i}`}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.2, ease: 'easeInOut' }}
+                        >
+                          <div className="px-6 pb-5 pl-14">
+                            <p className="text-sm leading-relaxed text-gray-600">{faq.a}</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/*  CONTACT                                                      */}
+        {/* ============================================================ */}
+        <section id="contact" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
+          <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Get in Touch
+              </motion.h2>
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
+                Have a question or want a demo? We&apos;d love to hear from you.
+              </motion.p>
+            </motion.div>
+
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={stagger}
+            >
+              <Card className="mt-10 border-gray-200">
+                <CardContent className="p-6 sm:p-8">
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!contactName.trim() || !contactEmail.trim() || !contactMessage.trim()) {
+                        toast.error('Please fill in all fields');
+                        return;
+                      }
+                      setContactSubmitting(true);
+                      // Simulate submission delay
+                      await new Promise((resolve) => setTimeout(resolve, 800));
+                      setContactSubmitting(false);
+                      toast.success('Thank you! We\'ll get back to you soon.');
+                      setContactName('');
+                      setContactEmail('');
+                      setContactMessage('');
+                    }}
+                    className="flex flex-col gap-5"
+                  >
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <div className="flex flex-col gap-2">
+                        <label htmlFor="contact-name" className="text-sm font-medium text-gray-700">Name</label>
+                        <Input
+                          id="contact-name"
+                          placeholder="Your name"
+                          value={contactName}
+                          onChange={(e) => setContactName(e.target.value)}
+                          required
+                          className="h-11"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <label htmlFor="contact-email" className="text-sm font-medium text-gray-700">Email</label>
+                        <Input
+                          id="contact-email"
+                          type="email"
+                          placeholder="you@example.com"
+                          value={contactEmail}
+                          onChange={(e) => setContactEmail(e.target.value)}
+                          required
+                          className="h-11"
+                        />
+                      </div>
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900">{f.title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-gray-500">{f.desc}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  HOW IT WORKS                                                 */}
-      {/* ============================================================ */}
-      <section id="how-it-works" style={{ scrollMarginTop: '5rem' }} className="bg-gray-50/60 py-20 sm:py-28">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            variants={stagger}
-            className="mx-auto max-w-2xl text-center"
-          >
-            <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-              How It Works
-            </motion.h2>
-            <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
-              Three simple steps from scan to service.
-            </motion.p>
-          </motion.div>
-
-          <div className="mt-16 grid gap-8 md:grid-cols-3 md:gap-12">
-            {steps.map((step, i) => (
-              <motion.div
-                key={step.num}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-                custom={i}
-                variants={fadeUp}
-                className="relative flex flex-col items-center text-center"
-              >
-                {/* Connector line (desktop) */}
-                {i < steps.length - 1 && (
-                  <div className="hidden md:block absolute top-8 left-[calc(50%+2rem)] w-[calc(100%-4rem)] h-px border-t-2 border-dashed border-emerald-200" />
-                )}
-
-                {/* Number circle */}
-                <div className="relative z-10 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white text-xl font-bold shadow-lg shadow-emerald-200">
-                  {step.num}
-                </div>
-
-                <h3 className="mt-6 text-lg font-semibold text-gray-900">{step.title}</h3>
-                <p className="mt-2 max-w-xs text-sm leading-relaxed text-gray-500">{step.desc}</p>
-              </motion.div>
-            ))}
+                    <div className="flex flex-col gap-2">
+                      <label htmlFor="contact-message" className="text-sm font-medium text-gray-700">Message</label>
+                      <Textarea
+                        id="contact-message"
+                        placeholder="Tell us how we can help..."
+                        value={contactMessage}
+                        onChange={(e) => setContactMessage(e.target.value)}
+                        required
+                        rows={4}
+                        className="resize-none"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      disabled={contactSubmitting}
+                      className="w-full h-12 font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
+                    >
+                      {contactSubmitting ? (
+                        <>
+                          <Send className="mr-2 h-4 w-4 animate-pulse" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <MessageSquare className="mr-2 h-4 w-4" />
+                          Send Message
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </motion.div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ============================================================ */}
-      {/*  PRICING                                                      */}
-      {/* ============================================================ */}
-      <section id="pricing" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            variants={stagger}
-            className="mx-auto max-w-2xl text-center"
-          >
-            <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-              Simple, Transparent Pricing
-            </motion.h2>
-            <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
-              Start free, scale as you grow. No credit card required.
-            </motion.p>
-          </motion.div>
+        {/* ============================================================ */}
+        {/*  CTA SECTION                                                  */}
+        {/* ============================================================ */}
+        <section className="bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-400 py-20 sm:py-24">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+              className="text-center"
+            >
+              <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                Ready to Transform Your Queue?
+              </h2>
+              <p className="mt-4 text-lg text-emerald-50/90">
+                Join hundreds of businesses that have already eliminated chaotic waiting lines.
+                Get started in under 2 minutes.
+              </p>
+            </motion.div>
 
-          <div className="mt-16 grid gap-8 lg:grid-cols-3">
-            {pricing.map((tier, i) => (
+            {/* Login & Signup Cards */}
+            <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-2 max-w-md mx-auto">
               <motion.div
-                key={tier.name}
-                initial="hidden"
-                whileInView="visible"
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                custom={i}
-                variants={fadeUp}
+                transition={{ duration: 0.5, delay: 0.1 }}
               >
                 <Card
-                  className={`relative h-full flex flex-col ${
-                    tier.highlighted
-                      ? 'border-2 border-emerald-600 shadow-xl shadow-emerald-100/60 scale-[1.02]'
-                      : 'border-gray-200'
-                  }`}
+                  className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
+                  onClick={() => useAppStore.getState().setCurrentView('signup')}
                 >
-                  {tier.badge && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <Badge className="bg-emerald-600 text-white px-3 py-1 shadow-sm">{tier.badge}</Badge>
+                  <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
+                      <Zap className="h-7 w-7" />
                     </div>
-                  )}
-
-                  <CardContent className="flex flex-1 flex-col p-6 sm:p-8">
-                    <h3 className="text-lg font-semibold text-gray-900">{tier.name}</h3>
-                    <div className="mt-4 flex items-baseline">
-                      <span className="text-sm font-medium text-gray-500">৳</span>
-                      <span className="text-4xl font-extrabold text-gray-900">{tier.price}</span>
-                      {tier.period && (
-                        <span className="ml-1 text-sm text-gray-500">{tier.period}</span>
-                      )}
-                    </div>
-
-                    <Separator className="my-6" />
-
-                    <ul className="flex-1 space-y-3">
-                      {tier.features.map((feature) => (
-                        <li key={feature} className="flex items-start gap-3">
-                          <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                            <Check className="h-3 w-3 text-emerald-600" />
-                          </div>
-                          <span className="text-sm text-gray-600">{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
-
-                    <Button
-                      className={`mt-8 w-full font-semibold py-5 ${
-                        tier.highlighted
-                          ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-200'
-                          : 'bg-gray-900 text-white hover:bg-gray-800'
-                      }`}
-                      onClick={() => tier.cta === 'Contact Sales' ? scrollTo('contact') : useAppStore.getState().setCurrentView('signup')}
-                    >
-                      {tier.cta}
-                      <ChevronRight className="ml-1 h-4 w-4" />
-                    </Button>
+                    <h3 className="text-lg font-bold text-white">Sign Up</h3>
+                    <p className="text-sm text-emerald-100/80">
+                      Create a free account and start managing queues in minutes.
+                    </p>
                   </CardContent>
                 </Card>
               </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  FAQ                                                          */}
-      {/* ============================================================ */}
-      <section id="faq" style={{ scrollMarginTop: '5rem' }} className="bg-gray-50/60 py-20 sm:py-28">
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            variants={stagger}
-            className="mx-auto max-w-2xl text-center"
-          >
-            <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-              Frequently Asked Questions
-            </motion.h2>
-            <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
-              Everything you need to know about QueueFlow.
-            </motion.p>
-          </motion.div>
-
-          <div className="mt-12 flex flex-col gap-3">
-            {faqs.map((faq, i) => (
               <motion.div
-                key={i}
-                initial="hidden"
-                whileInView="visible"
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                custom={i}
-                variants={fadeUp}
+                transition={{ duration: 0.5, delay: 0.2 }}
               >
-                <Card className="border-gray-200">
-                  <button
-                    className="flex w-full items-center justify-between px-6 py-5 text-left"
-                    onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                    aria-expanded={openFaq === i}
-                  >
-                    <div className="flex items-center gap-3">
-                      <HelpCircle className="h-5 w-5 shrink-0 text-emerald-600" />
-                      <span className="font-semibold text-gray-900 text-sm sm:text-base">{faq.q}</span>
+                <Card
+                  className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
+                  onClick={() => window.location.href = '/dashboard'}
+                >
+                  <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
+                      <Shield className="h-7 w-7" />
                     </div>
-                    <ChevronDown
-                      className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-200 ${
-                        openFaq === i ? 'rotate-180' : ''
-                      }`}
-                    />
-                  </button>
-                  <AnimatePresence mode="wait" initial={false}>
-                    {openFaq === i && (
-                      <motion.div
-                        key={`faq-${i}`}
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2, ease: 'easeInOut' }}
-                      >
-                        <div className="px-6 pb-5 pl-14">
-                          <p className="text-sm leading-relaxed text-gray-600">{faq.a}</p>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                    <h3 className="text-lg font-bold text-white">Login</h3>
+                    <p className="text-sm text-emerald-100/80">
+                      Sign in to manage your queues, branches, or platform.
+                    </p>
+                  </CardContent>
                 </Card>
               </motion.div>
-            ))}
+            </div>
           </div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  CONTACT                                                      */}
-      {/* ============================================================ */}
-      <section id="contact" style={{ scrollMarginTop: '5rem' }} className="py-20 sm:py-28">
-        <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            variants={stagger}
-            className="mx-auto max-w-2xl text-center"
-          >
-            <motion.h2 variants={fadeUp} className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-              Get in Touch
-            </motion.h2>
-            <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
-              Have a question or want a demo? We'd love to hear from you.
-            </motion.p>
-          </motion.div>
-
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            variants={stagger}
-          >
-            <Card className="mt-10 border-gray-200">
-              <CardContent className="p-6 sm:p-8">
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!contactName.trim() || !contactEmail.trim() || !contactMessage.trim()) {
-                      toast.error('Please fill in all fields');
-                      return;
-                    }
-                    setContactSubmitting(true);
-                    // Simulate submission delay
-                    await new Promise((resolve) => setTimeout(resolve, 800));
-                    setContactSubmitting(false);
-                    toast.success('Thank you! We\'ll get back to you soon.');
-                    setContactName('');
-                    setContactEmail('');
-                    setContactMessage('');
-                  }}
-                  className="flex flex-col gap-5"
-                >
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <div className="flex flex-col gap-2">
-                      <label htmlFor="contact-name" className="text-sm font-medium text-gray-700">Name</label>
-                      <Input
-                        id="contact-name"
-                        placeholder="Your name"
-                        value={contactName}
-                        onChange={(e) => setContactName(e.target.value)}
-                        required
-                        className="h-11"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label htmlFor="contact-email" className="text-sm font-medium text-gray-700">Email</label>
-                      <Input
-                        id="contact-email"
-                        type="email"
-                        placeholder="you@example.com"
-                        value={contactEmail}
-                        onChange={(e) => setContactEmail(e.target.value)}
-                        required
-                        className="h-11"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <label htmlFor="contact-message" className="text-sm font-medium text-gray-700">Message</label>
-                    <Textarea
-                      id="contact-message"
-                      placeholder="Tell us how we can help..."
-                      value={contactMessage}
-                      onChange={(e) => setContactMessage(e.target.value)}
-                      required
-                      rows={4}
-                      className="resize-none"
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    disabled={contactSubmitting}
-                    className="w-full h-12 font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
-                  >
-                    {contactSubmitting ? (
-                      <>
-                        <Send className="mr-2 h-4 w-4 animate-pulse" />
-                        Sending...
-                      </>
-                    ) : (
-                      <>
-                        <MessageSquare className="mr-2 h-4 w-4" />
-                        Send Message
-                      </>
-                    )}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  CTA SECTION                                                  */}
-      {/* ============================================================ */}
-      <section className="bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-400 py-20 sm:py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-            className="text-center"
-          >
-            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              Ready to Transform Your Queue?
-            </h2>
-            <p className="mt-4 text-lg text-emerald-50/90">
-              Join hundreds of businesses that have already eliminated chaotic waiting lines.
-              Get started in under 2 minutes.
-            </p>
-          </motion.div>
-
-          {/* Login & Signup Cards */}
-          <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-2 max-w-md mx-auto">
-            <motion.div variants={fadeUp}>
-              <Card
-                className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
-                onClick={() => useAppStore.getState().setCurrentView('signup')}
-              >
-                <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
-                    <Zap className="h-7 w-7" />
-                  </div>
-                  <h3 className="text-lg font-bold text-white">Sign Up</h3>
-                  <p className="text-sm text-emerald-100/80">
-                    Create a free account and start managing queues in minutes.
-                  </p>
-                </CardContent>
-              </Card>
-            </motion.div>
-            <motion.div variants={fadeUp}>
-              <Card
-                className="group h-full border-2 border-white/20 bg-white/10 backdrop-blur-md transition-all duration-300 hover:border-white/40 hover:bg-white/15 hover:shadow-xl hover:shadow-emerald-900/10 cursor-pointer"
-                onClick={() => window.location.href = '/dashboard'}
-              >
-                <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-400/20 text-emerald-100 transition-transform duration-300 group-hover:scale-110">
-                    <Shield className="h-7 w-7" />
-                  </div>
-                  <h3 className="text-lg font-bold text-white">Login</h3>
-                  <p className="text-sm text-emerald-100/80">
-                    Sign in to manage your queues, branches, or platform.
-                  </p>
-                </CardContent>
-              </Card>
-            </motion.div>
-          </div>
-        </div>
-      </section>
+        </section>
+      </main>
 
       {/* ============================================================ */}
       {/*  FOOTER                                                       */}

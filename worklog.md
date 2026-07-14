@@ -1,6 +1,36 @@
 # QueueFlow Project Worklog
 
 ---
+Task ID: 12
+Agent: Main Agent
+Task: Redesign homepage with comparison table, value proposition, industry solutions, and SEO sections
+
+Work Log:
+- Analyzed existing MarketingView.tsx (940 lines, 10 sections: Nav, Hero, Stats, Features, How It Works, Pricing, FAQ, Contact, CTA, Footer)
+- Planned 7 new sections with optimal SEO section ordering
+- Completely rewrote MarketingView.tsx (1560 lines, 17 sections)
+
+New sections added (in order):
+1. **Core Value Proposition** (id: value-proposition) — Dark gradient section with "The World's Fairest Queue Management Pricing" heading, 8-item "No..." fee list with X icons, "Just $0.01 per ticket" CTA
+2. **Comparison Table** (id: compare) — 12-row Traditional vs QueueFlow comparison. Card-based layout on mobile, proper table on desktop+. Traditional column shows actual competitor prices ($29-$499/mo, 1-3 year lock-in, etc.). QueueFlow column highlights "None", "Unlimited", "Yes" in emerald.
+3. **Benefits** (id: benefits) — 6 benefit cards (Faster Service, Shorter Waits, Better CX, Organized Ops, Staff Productivity, Happier Customers)
+4. **Why Choose Us** (id: why-choose-us) — 12 differentiator badges (Phone-first, QR-based, No App Install, Unlimited Locations/Rooms/Counters, Cloud-native, 300 Free Tickets, No Contracts, $0.01/ticket, Tickets Never Expire, Pay As You Grow)
+5. **Industry Solutions** (id: industries) — 12 industry cards (Hospitals, Banks, Government, Universities, Retail, Clinics, Telecom, Service Centers, Municipal Offices, Immigration, Airports, Diagnostic Labs) with pastel-colored icons
+6. **Infrastructure** (id: infrastructure) — 7-step ticket lifecycle flow (Create → Update → Read → Call → Logs → Dashboard → QR Lookup). Horizontal on desktop, vertical on mobile. Cloudflare Workers note.
+7. **Security** (id: security) — 5 security feature cards (E2E Encryption, Role-Based Access, Audit Logs, High Availability, Secure Authentication)
+
+Updated nav bar: added Industries, Compare, Security links (shows more links at lg breakpoint)
+All sections use framer-motion whileInView animations with fadeUp/stagger variants
+All sections mobile-first responsive
+All sections have scrollMarginTop: 5rem for sticky nav offset
+
+Stage Summary:
+- File modified: src/components/views/MarketingView.tsx (940 → 1560 lines)
+- 7 new SEO-optimized sections added
+- TypeScript: 0 errors
+- All existing content preserved (Hero, Stats, Features, How It Works, Pricing, FAQ, Contact, CTA, Footer)
+
+---
 Task ID: 11
 Agent: Main Agent
 Task: Mobile-optimize ALL dashboard components for super mobile-friendly UX
