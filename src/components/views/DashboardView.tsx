@@ -135,7 +135,7 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
             key={item.id}
             onClick={() => setDashboardTab(item.id)}
             aria-current={dashboardTab === item.id ? 'page' : undefined}
-            className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors ${
+            className={`w-full flex items-center gap-3 px-3 py-3.5 sm:py-3 rounded-lg text-sm transition-colors ${
               dashboardTab === item.id
                 ? 'bg-emerald-50 text-emerald-700 font-medium'
                 : 'text-muted-foreground hover:bg-slate-100 hover:text-foreground'
@@ -156,18 +156,18 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
             <p className="text-xs text-muted-foreground truncate">{authUser.role === 'MANAGER' ? (authUser.tenant?.masterTenantId ? 'Branch Manager' : 'Admin (Tenant Admin)') : 'Agent'}</p>
           </div>
         </div>
-        <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={() => setChangePwdOpen(true)}>
+        <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground h-10" onClick={() => setChangePwdOpen(true)}>
           <KeyRound className="w-4 h-4 mr-2" /> Change Password
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+          className="w-full justify-start text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 h-10"
           onClick={() => displayUrl && window.open(displayUrl, '_blank')}
         >
           <Monitor className="w-4 h-4 mr-2" /> TV Display
         </Button>
-        <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={logout}>
+        <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground h-10" onClick={logout}>
           <LogOut className="w-4 h-4 mr-2" /> Sign Out
         </Button>
       </div>
@@ -275,7 +275,7 @@ export default function DashboardView() {
         {sidebarOpen && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
-            <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed left-0 top-0 bottom-0 w-64 bg-white z-50 shadow-xl md:hidden">
+            <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed left-0 top-0 bottom-0 w-72 sm:w-80 bg-white z-50 shadow-xl md:hidden">
               <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} tenantId={authUser.tenantId} />
             </motion.aside>
           </>
@@ -285,24 +285,24 @@ export default function DashboardView() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
-        <header className="h-14 border-b bg-white flex items-center px-4 gap-3 shrink-0">
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Open navigation menu">
+        <header className="h-12 sm:h-14 border-b bg-white flex items-center px-4 gap-3 shrink-0">
+          <Button variant="ghost" size="icon" className="md:hidden h-10 w-10" onClick={() => setSidebarOpen(true)} aria-label="Open navigation menu">
             <Menu className="w-5 h-5" />
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-sm font-semibold truncate">{authUser.tenant?.name || 'Dashboard'}</h1>
             <p className="text-xs text-muted-foreground hidden sm:block">{authUser.email}</p>
           </div>
-          <Badge variant={isManager ? 'default' : 'secondary'} className={isManager ? 'bg-emerald-100 text-emerald-700' : ''}>
+          <Badge variant={isManager ? 'default' : 'secondary'} className={`text-[10px] sm:text-xs px-1.5 sm:px-2.5 ${isManager ? 'bg-emerald-100 text-emerald-700' : ''}`}>
             {isManager ? (authUser?.tenant?.masterTenantId ? 'Branch Manager' : 'Admin (Tenant Admin)') : 'Agent'}
           </Badge>
-          <Avatar className="w-8 h-8">
+          <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
             <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs">{authUser.name.charAt(0)}</AvatarFallback>
           </Avatar>
         </header>
 
         {/* Page Content */}
-        <main id="main-content" className="flex-1 p-4 sm:p-6 overflow-auto">
+        <main id="main-content" className="flex-1 p-3 sm:p-5 lg:p-6 overflow-auto overscroll-y-contain">
           <AnimatePresence mode="wait">
             <motion.div key={dashboardTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.15 }}>
               {dashboardTab === 'agent' && (
@@ -348,8 +348,8 @@ export default function DashboardView() {
             <button
               key={item.id}
               onClick={() => setDashboardTab(item.id)}
-              className={`flex-1 flex flex-col items-center py-3 min-h-[44px] text-xs transition-colors ${
-                dashboardTab === item.id ? 'text-emerald-600' : 'text-muted-foreground'
+              className={`flex-1 flex flex-col items-center py-3 min-h-[48px] sm:min-h-[44px] text-[10px] sm:text-xs transition-colors active:scale-95 transition-transform ${
+                dashboardTab === item.id ? 'text-emerald-600 border-t-2 border-emerald-500' : 'text-muted-foreground'
               }`}
               aria-current={dashboardTab === item.id ? 'page' : undefined}
             >
@@ -360,7 +360,7 @@ export default function DashboardView() {
           {showMoreButton && (
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className={`flex-1 flex flex-col items-center py-3 min-h-[44px] text-xs transition-colors text-muted-foreground`}
+              className={`flex-1 flex flex-col items-center py-3 min-h-[48px] sm:min-h-[44px] text-[10px] sm:text-xs transition-colors active:scale-95 transition-transform text-muted-foreground`}
               aria-label="More menu options"
             >
               <MoreHorizontal className="w-5 h-5" />
@@ -375,16 +375,18 @@ export default function DashboardView() {
             <SheetHeader>
               <SheetTitle>More Options</SheetTitle>
             </SheetHeader>
-            <nav className="grid grid-cols-3 gap-2 py-4" aria-label="Additional navigation">
+            <nav className="grid grid-cols-3 sm:grid-cols-4 gap-2 py-4" aria-label="Additional navigation">
               {moreNavItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => { setDashboardTab(item.id); setMobileMenuOpen(false); }}
-                  className={`flex flex-col items-center gap-2 p-3 min-h-[44px] rounded-xl transition-colors ${
+                  className={`flex flex-col items-center gap-2 p-3 min-h-[56px] sm:min-h-[48px] rounded-xl transition-colors ${
                     dashboardTab === item.id ? 'bg-emerald-50 text-emerald-700' : 'text-muted-foreground hover:bg-slate-50'
                   }`}
                 >
-                  <item.icon className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
+                    <item.icon className="w-5 h-5" />
+                  </div>
                   <span className="text-xs font-medium">{item.label}</span>
                 </button>
               ))}

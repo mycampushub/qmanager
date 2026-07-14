@@ -78,6 +78,7 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
       const headers: Record<string, string> = {};
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
       const res = await fetch(`/api/queues?tenantId=${tenantId}`, { headers });
+      if (!res.ok) return;
       const data = await res.json();
       const queueList = Array.isArray(data.queues) ? data.queues : [];
       setQueues(queueList.map((q: Record<string, unknown>) => ({
@@ -86,7 +87,7 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
         prefix: q.prefix as string,
       })));
     } catch {
-      // silently fail - queues not critical for staff tab
+      toast.error('Failed to load queues');
     }
   }, [tenantId, authToken]);
 
@@ -95,10 +96,11 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
       const headers: Record<string, string> = {};
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
       const res = await fetch('/api/queue-assignments', { headers });
+      if (!res.ok) return;
       const data = await res.json();
       setAssignments(Array.isArray(data.assignments) ? data.assignments : []);
     } catch {
-      // silently fail
+      toast.error('Failed to load queue assignments');
     }
   }, [authToken]);
 
@@ -191,12 +193,12 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
         toast.success(`${assigningAgent.name}'s queue assignments updated`);
         setAssignDialogOpen(false);
         setAssigningAgent(null);
-        await fetchAssignments();
       }
     } catch {
       toast.error('Failed to update queue assignments');
     } finally {
       setAssignSaving(false);
+      await fetchAssignments();
     }
   };
 
@@ -307,7 +309,7 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold">Staff Management</h2>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
@@ -362,7 +364,7 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle className="text-base">Team Members</CardTitle>
             {queues.length > 0 && (
               <p className="text-xs text-muted-foreground">
@@ -375,131 +377,211 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
           {staff.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No staff members found.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Assigned Queues</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {staff.map((member) => {
-                    const agentQueueIds = getAgentQueueIds(member.id);
-                    const assignedQueues = queues.filter((q) => agentQueueIds.includes(q.id));
-                    const isManager = member.role === 'MANAGER';
+            <>
+              {/* Mobile Card Layout — hidden on md+ */}
+              <div className="md:hidden space-y-3">
+                {staff.map((member) => {
+                  const agentQueueIds = getAgentQueueIds(member.id);
+                  const assignedQueues = queues.filter((q) => agentQueueIds.includes(q.id));
+                  const isManager = member.role === 'MANAGER';
+                  return (
+                    <Card key={member.id} className={!member.isActive ? 'opacity-50' : ''}>
+                      <CardContent className="p-4">
+                        {/* Row 1: Name + Role badge + Status dot */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm shrink-0">
+                              {member.name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm truncate">{member.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Badge variant={isManager ? 'default' : 'secondary'} className={isManager ? 'bg-emerald-100 text-emerald-700 text-[10px]' : 'text-[10px]'}>
+                              {isManager ? managerLabel : 'Agent'}
+                            </Badge>
+                            <div className={`w-2 h-2 rounded-full ${member.isActive ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                          </div>
+                        </div>
 
-                    return (
-                      <TableRow key={member.id} className={!member.isActive ? 'opacity-50' : ''}>
-                        <TableCell className="font-medium">{member.name}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{member.email}</TableCell>
-                        <TableCell>
-                          <Badge variant={isManager ? 'default' : 'secondary'} className={isManager ? 'bg-emerald-100 text-emerald-700' : ''}>
-                            {isManager ? managerLabel : 'Agent'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {isManager ? (
-                            <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50 font-normal">
+                        {/* Row 2: Assigned Queues */}
+                        {isManager ? (
+                          <div className="mt-3">
+                            <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50 font-normal text-xs">
                               All Queues
                             </Badge>
-                          ) : queues.length === 0 ? (
-                            <span className="text-xs text-muted-foreground">No queues yet</span>
-                          ) : assignedQueues.length === 0 ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground">Unassigned</span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                                onClick={() => openAssignDialog(member)}
-                              >
-                                Assign
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {assignedQueues.slice(0, 3).map((q) => (
-                                <Badge key={q.id} variant="secondary" className="font-normal text-xs">
-                                  {q.prefix} {q.name}
-                                </Badge>
-                              ))}
-                              {assignedQueues.length > 3 && (
-                                <Badge variant="outline" className="font-normal text-xs">
-                                  +{assignedQueues.length - 3} more
-                                </Badge>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-5 w-5 p-0 text-muted-foreground hover:text-emerald-600"
-                                onClick={() => openAssignDialog(member)}
-                                title="Manage queue assignments"
-                                aria-label={`Manage queues for ${member.name}`}
-                              >
-                                <ListChecks className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={member.isActive ? 'text-emerald-600 border-emerald-300 bg-emerald-50' : 'text-red-600 border-red-300 bg-red-50'}>
-                            {member.isActive ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {!isManager && queues.length > 0 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openAssignDialog(member)}
-                                title="Manage queue assignments"
-                                aria-label={`Manage queues for ${member.name}`}
-                              >
-                                <ListChecks className="w-4 h-4 text-emerald-600" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleToggleActive(member)}
-                              title={member.isActive ? 'Deactivate' : 'Activate'}
-                              aria-label={`${member.isActive ? 'Deactivate' : 'Activate'} ${member.name}`}
-                            >
-                              {member.isActive ? <ShieldX className="w-4 h-4 text-amber-600" /> : <ShieldCheck className="w-4 h-4 text-emerald-600" />}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleChangeRole(member)}
-                              title={`Change role to ${member.role === 'MANAGER' ? 'Agent' : managerLabel}`}
-                              aria-label={`Change role for ${member.name}`}
-                            >
-                              <UserCog className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDelete(member)}
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                              title="Delete staff member"
-                              aria-label={`Delete ${member.name}`}
-                            >
-                              <X className="w-4 h-4" />
-                            </Button>
                           </div>
-                        </TableCell>
+                        ) : assignedQueues.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-1">
+                            {assignedQueues.slice(0, 3).map((q) => (
+                              <Badge key={q.id} variant="secondary" className="font-normal text-xs">{q.prefix} {q.name}</Badge>
+                            ))}
+                            {assignedQueues.length > 3 && (
+                              <Badge variant="outline" className="font-normal text-xs">+{assignedQueues.length - 3}</Badge>
+                            )}
+                          </div>
+                        ) : queues.length > 0 ? (
+                          <div className="mt-3">
+                            <span className="text-xs text-muted-foreground">Unassigned</span>
+                          </div>
+                        ) : null}
+
+                        {/* Row 3: Action buttons */}
+                        <div className="flex items-center gap-1 mt-3 pt-3 border-t">
+                          {!isManager && queues.length > 0 && (
+                            <Button variant="ghost" size="sm" className="h-8 text-xs flex-1" onClick={() => openAssignDialog(member)}>
+                              <ListChecks className="w-3.5 h-3.5 mr-1 text-emerald-600" /> Queues
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => handleToggleActive(member)}>
+                            {member.isActive ? <ShieldX className="w-3.5 h-3.5 mr-1 text-amber-600" /> : <ShieldCheck className="w-3.5 h-3.5 mr-1 text-emerald-600" />}
+                            {member.isActive ? 'Deactivate' : 'Activate'}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => handleChangeRole(member)}>
+                            <UserCog className="w-3.5 h-3.5 mr-1" />
+                            {isManager ? 'Agent' : 'Admin'}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 text-xs text-red-500 ml-auto" onClick={() => handleDelete(member)}>
+                            <X className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table Layout — hidden below md */}
+              <div className="hidden md:block">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Assigned Queues</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                    </TableHeader>
+                    <TableBody>
+                      {staff.map((member) => {
+                        const agentQueueIds = getAgentQueueIds(member.id);
+                        const assignedQueues = queues.filter((q) => agentQueueIds.includes(q.id));
+                        const isManager = member.role === 'MANAGER';
+
+                        return (
+                          <TableRow key={member.id} className={!member.isActive ? 'opacity-50' : ''}>
+                            <TableCell className="font-medium">{member.name}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{member.email}</TableCell>
+                            <TableCell>
+                              <Badge variant={isManager ? 'default' : 'secondary'} className={isManager ? 'bg-emerald-100 text-emerald-700' : ''}>
+                                {isManager ? managerLabel : 'Agent'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {isManager ? (
+                                <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50 font-normal">
+                                  All Queues
+                                </Badge>
+                              ) : queues.length === 0 ? (
+                                <span className="text-xs text-muted-foreground">No queues yet</span>
+                              ) : assignedQueues.length === 0 ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted-foreground">Unassigned</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                    onClick={() => openAssignDialog(member)}
+                                  >
+                                    Assign
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {assignedQueues.slice(0, 3).map((q) => (
+                                    <Badge key={q.id} variant="secondary" className="font-normal text-xs">
+                                      {q.prefix} {q.name}
+                                    </Badge>
+                                  ))}
+                                  {assignedQueues.length > 3 && (
+                                    <Badge variant="outline" className="font-normal text-xs">
+                                      +{assignedQueues.length - 3} more
+                                    </Badge>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 w-5 p-0 text-muted-foreground hover:text-emerald-600"
+                                    onClick={() => openAssignDialog(member)}
+                                    title="Manage queue assignments"
+                                    aria-label={`Manage queues for ${member.name}`}
+                                  >
+                                    <ListChecks className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={member.isActive ? 'text-emerald-600 border-emerald-300 bg-emerald-50' : 'text-red-600 border-red-300 bg-red-50'}>
+                                {member.isActive ? 'Active' : 'Inactive'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {!isManager && queues.length > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => openAssignDialog(member)}
+                                    title="Manage queue assignments"
+                                    aria-label={`Manage queues for ${member.name}`}
+                                  >
+                                    <ListChecks className="w-4 h-4 text-emerald-600" />
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleToggleActive(member)}
+                                  title={member.isActive ? 'Deactivate' : 'Activate'}
+                                  aria-label={`${member.isActive ? 'Deactivate' : 'Activate'} ${member.name}`}
+                                >
+                                  {member.isActive ? <ShieldX className="w-4 h-4 text-amber-600" /> : <ShieldCheck className="w-4 h-4 text-emerald-600" />}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleChangeRole(member)}
+                                  title={`Change role to ${member.role === 'MANAGER' ? 'Agent' : managerLabel}`}
+                                  aria-label={`Change role for ${member.name}`}
+                                >
+                                  <UserCog className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDelete(member)}
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  title="Delete staff member"
+                                  aria-label={`Delete ${member.name}`}
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -512,7 +594,7 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
           setLocalAssignments({});
         }
       }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-w-[calc(100vw-2rem)]">
           <DialogHeader>
             <DialogTitle>Manage Queue Assignments</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
@@ -531,7 +613,7 @@ export function StaffTab({ tenantId }: { tenantId: string }) {
                 {queues.map((queue) => (
                   <div
                     key={queue.id}
-                    className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-muted/50 transition-colors"
+                    className="flex items-center justify-between py-3 px-3 rounded-lg hover:bg-muted/50 transition-colors"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <Badge variant="secondary" className="font-mono text-xs shrink-0">

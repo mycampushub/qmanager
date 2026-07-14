@@ -40,6 +40,7 @@ export const POST = withAuth(
         status: string;
         customer_name: string;
         customer_phone: string | null;
+        notes: string | null;
         skip_count: number;
         served_at: string | null;
         served_by_agent: string | null;
@@ -239,6 +240,7 @@ export const POST = withAuth(
           status: 'SERVING',
           customerName: ticket.customer_name,
           customerPhone: ticket.customer_phone,
+          notes: ticket.notes,
           servedAt: nowISO,
           servedByAgent: user.userId,
           skipCount: ticket.skip_count,

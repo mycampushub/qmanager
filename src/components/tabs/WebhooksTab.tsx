@@ -112,7 +112,7 @@ export default function WebhooksTab({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold">Webhooks</h2>
         <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) resetForm(); }}>
           <DialogTrigger asChild>
@@ -170,7 +170,7 @@ export default function WebhooksTab({ tenantId }: { tenantId: string }) {
                       <div className="flex flex-wrap gap-1 mt-2">
                         {events.map((ev) => <Badge key={ev} variant="outline" className="text-xs">{ev.replace('TICKET_', '').replace('FEEDBACK_', '')}</Badge>)}
                       </div>
-                      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                      <div className="flex items-center flex-wrap gap-2 mt-2 text-xs text-muted-foreground">
                         <span>Secret: {maskSecret(wh.secret)}
                           <button className="ml-1 hover:text-foreground" onClick={() => copySecret(wh.id, wh.secret)}>
                             {copiedId === wh.id ? <Check className="w-3 h-3 inline text-emerald-500" /> : <Copy className="w-3 h-3 inline" />}

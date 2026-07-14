@@ -46,6 +46,13 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
   const queues = tenantData?.queues?.filter(q => q.isActive) || [];
   const selectedQueue = queues.find(q => q.id === selectedQueueId);
 
+  // Sync skippedAvailable from queue data on switch/load
+  useEffect(() => {
+    if (selectedQueue) {
+      setSkippedAvailable(selectedQueue._skippedCount ?? 0);
+    }
+  }, [selectedQueue?.id, selectedQueue?._skippedCount]);
+
   useEffect(() => {
     if (queues.length > 0 && !selectedQueueId) {
       setSelectedQueueId(queues[0].id);
@@ -89,7 +96,8 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     setTicketListLoading(true);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` };
-      const status = tab === 'waiting' ? 'WAITING' : 'COMPLETED';
+      const statusMap: Record<string, string> = { waiting: 'WAITING', served: 'COMPLETED', skipped: 'SKIPPED' };
+      const status = statusMap[tab] || 'WAITING';
       const res = await fetch('/api/tickets/list', {
         method: 'POST',
         headers,
@@ -339,7 +347,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                 key={q.id}
                 type="button"
                 onClick={() => { setSelectedQueueId(q.id); setCurrentTicket(null); setServingTime(0); }}
-                className={`flex-shrink-0 w-44 rounded-xl border-2 p-3 text-left transition-all ${
+                className={`flex-shrink-0 w-40 sm:w-44 rounded-xl border-2 p-2.5 sm:p-3 text-left transition-all ${
                   isSelected
                     ? 'border-emerald-500 bg-emerald-50 shadow-sm'
                     : 'border-transparent bg-muted/40 hover:bg-muted/70'
@@ -401,7 +409,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                     />
                     <p className="text-xs text-muted-foreground text-right">{walkInNotes.length}/500</p>
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex gap-2 sm:gap-3">
                     <Button onClick={handleWalkIn} className="bg-emerald-600 hover:bg-emerald-700" disabled={!walkInName.trim() || walkInLoading}>
                       <Plus className="w-4 h-4 mr-1" /> Add
                     </Button>
@@ -446,7 +454,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                       className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                       disabled={!walkInName.trim() || walkInLoading}
                     >
-                      <Printer className="w-4 h-4 mr-1" /> Add & Print
+                      <Printer className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline-flex">Add & Print</span>
                     </Button>
                   </div>
                 </div>
@@ -461,16 +469,16 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
         <Button
           variant="outline"
           onClick={() => setShowWalkIn(!showWalkIn)}
-          className="flex-1 h-14 text-base font-semibold"
+          className="flex-1 h-12 sm:h-14 text-sm sm:text-base font-semibold"
         >
-          <UserPlus className="w-5 h-5 mr-2" /> Walk-in
+          <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 mr-2" /> Walk-in
         </Button>
         <Button
           onClick={handleCallNext}
           disabled={callingNext || !selectedQueueId}
-          className="flex-1 h-14 text-base font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-200 transition-all"
+          className="flex-1 h-12 sm:h-14 text-sm sm:text-base font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-200 transition-all"
         >
-          <Phone className="w-5 h-5 mr-2" />
+          <Phone className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
           CALL NEXT
         </Button>
       </div>
@@ -479,10 +487,10 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       <AnimatePresence mode="wait">
         {recentlyCalled && (
           <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 pointer-events-none">
-            <motion.div animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 0.5, repeat: 2 }} className="bg-emerald-600 text-white px-16 py-12 rounded-3xl text-center shadow-2xl">
-              <p className="text-lg font-medium opacity-80">NOW SERVING</p>
-              <p className="text-7xl font-bold mt-2">{recentlyCalled._formattedSerial}</p>
-              <p className="text-xl mt-2">{recentlyCalled.customerName}</p>
+            <motion.div animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 0.5, repeat: 2 }} className="bg-emerald-600 text-white px-8 py-8 sm:px-16 sm:py-12 rounded-3xl text-center shadow-2xl">
+              <p className="text-lg sm:text-xl font-medium opacity-80">NOW SERVING</p>
+              <p className="text-5xl sm:text-7xl font-bold mt-2">{recentlyCalled._formattedSerial}</p>
+              <p className="text-lg sm:text-xl mt-2">{recentlyCalled.customerName}</p>
             </motion.div>
           </motion.div>
         )}
@@ -505,8 +513,8 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                 </CardHeader>
                 <CardContent>
                   <div className="text-center py-4">
-                    <p className="text-5xl font-bold text-emerald-600">{currentTicket._formattedSerial}</p>
-                    <p className="text-xl text-foreground mt-2">{currentTicket.customerName}</p>
+                    <p className="text-4xl sm:text-5xl font-bold text-emerald-600">{currentTicket._formattedSerial}</p>
+                    <p className="text-lg sm:text-xl text-foreground mt-2">{currentTicket.customerName}</p>
                     {currentTicket.customerPhone && (
                       <p className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1">
                         <Phone className="w-3 h-3" /> {currentTicket.customerPhone}
@@ -522,23 +530,23 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                     )}
                     <div className="flex items-center justify-center gap-2 mt-3 text-muted-foreground">
                       <Clock className="w-4 h-4" />
-                      <span className="text-lg font-mono">{formatTime(servingTime)}</span>
+                      <span className="text-base sm:text-lg font-mono">{formatTime(servingTime)}</span>
                     </div>
                   </div>
-                  <div className="grid grid-cols-4 gap-3 mt-4">
-                    <Button onClick={handleComplete} className="bg-emerald-600 hover:bg-emerald-700 h-14" disabled={loading}>
-                      <CheckCircle2 className="w-5 h-5 mr-1" /> Complete
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                    <Button onClick={handleComplete} className="bg-emerald-600 hover:bg-emerald-700 h-12 sm:h-14" disabled={loading}>
+                      <CheckCircle2 className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">Complete</span>
                     </Button>
-                    <Button onClick={() => setSkipConfirm(true)} variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50 h-14" disabled={loading}>
-                      <SkipForward className="w-5 h-5 mr-1" /> Skip
+                    <Button onClick={() => setSkipConfirm(true)} variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50 h-12 sm:h-14" disabled={loading}>
+                      <SkipForward className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">Skip</span>
                     </Button>
-                    <Button onClick={() => setCancelConfirm(true)} variant="outline" className="border-red-300 text-red-700 hover:bg-red-50 h-14" disabled={loading}>
-                      <XCircle className="w-5 h-5 mr-1" /> Cancel
+                    <Button onClick={() => setCancelConfirm(true)} variant="outline" className="border-red-300 text-red-700 hover:bg-red-50 h-12 sm:h-14" disabled={loading}>
+                      <XCircle className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">Cancel</span>
                     </Button>
                     <Button
                       onClick={() => currentTicket && handlePrintTicket(currentTicket)}
                       variant="outline"
-                      className="border-slate-300 text-slate-700 hover:bg-slate-50 h-14"
+                      className="border-slate-300 text-slate-700 hover:bg-slate-50 h-12 sm:h-14"
                     >
                       <Printer className="w-5 h-5" />
                     </Button>
@@ -580,9 +588,9 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
             </motion.div>
           ) : (
             <Card className="border-dashed border-slate-300 h-full">
-              <CardContent className="py-12 text-center flex items-center justify-center h-full">
+              <CardContent className="py-8 sm:py-12 text-center flex items-center justify-center h-full">
                 <div className="text-muted-foreground">
-                  <ListOrdered className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <ListOrdered className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 opacity-30" />
                   <p className="text-lg">No ticket currently being served</p>
                   <p className="text-sm mt-1">Click &quot;CALL NEXT&quot; to serve the next customer</p>
                 </div>
@@ -632,7 +640,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                       key={tab}
                       type="button"
                       onClick={() => setTicketListTab(tab)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      className={`px-2 py-1 sm:px-3 sm:py-1.5 text-[11px] sm:text-xs font-medium rounded-md transition-colors ${
                         ticketListTab === tab
                           ? 'bg-white text-foreground shadow-sm'
                           : 'text-muted-foreground hover:text-foreground'
@@ -644,7 +652,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                 </div>
                 {ticketListTab === 'skipped' && skippedAvailable > 0 && (
                   <Button variant="outline" size="sm" className="ml-1 h-7 text-xs gap-1" onClick={() => setShowRecallDialog(true)}>
-                    <Undo2 className="w-3 h-3" /> Recall
+                    <Undo2 className="w-3 h-3" /> <span className="hidden sm:inline-flex">Recall</span>
                   </Button>
                 )}
               </div>
@@ -691,7 +699,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                           <p className="text-xs text-muted-foreground">{t.customerPhone}</p>
                         )}
                         {t.notes && (
-                          <p className="text-xs text-amber-700 truncate max-w-[200px]" title={t.notes}>
+                          <p className="text-xs text-amber-700 truncate max-w-[140px] sm:max-w-[200px]" title={t.notes}>
                             📝 {t.notes}
                           </p>
                         )}
@@ -760,23 +768,23 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
             <CardTitle className="text-sm font-medium text-muted-foreground">Queue Overview</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-4 gap-3 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
               <div>
-                <p className="text-2xl sm:text-3xl font-bold text-emerald-600">{selectedQueue.nowServingSerial}</p>
+                <p className="text-2xl font-bold text-emerald-600">{selectedQueue.nowServingSerial}</p>
                 <p className="text-xs text-muted-foreground mt-1">Now Serving</p>
               </div>
               <div>
-                <p className="text-2xl sm:text-3xl font-bold text-amber-600">{selectedQueue._waitingCount || 0}</p>
+                <p className="text-2xl font-bold text-amber-600">{selectedQueue._waitingCount || 0}</p>
                 <p className="text-xs text-muted-foreground mt-1">Waiting</p>
               </div>
               <div>
-                <p className="text-2xl sm:text-3xl font-bold text-orange-600 cursor-pointer hover:text-orange-700 transition-colors" onClick={() => { setTicketListTab('skipped'); }}>
+                <p className="text-2xl font-bold text-orange-600 cursor-pointer hover:text-orange-700 transition-colors" onClick={() => { setTicketListTab('skipped'); }}>
                   {skippedAvailable}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">Skipped</p>
               </div>
               <div>
-                <p className="text-2xl sm:text-3xl font-bold">{selectedQueue._ewt ? Math.ceil(selectedQueue._ewt / 60) : 0}<span className="text-sm font-normal"> min</span></p>
+                <p className="text-2xl font-bold">{selectedQueue._ewt ? Math.ceil(selectedQueue._ewt / 60) : 0}<span className="text-sm font-normal"> min</span></p>
                 <p className="text-xs text-muted-foreground mt-1">Est. Wait</p>
               </div>
             </div>

@@ -91,8 +91,8 @@ export default function AuditLogTab() {
               <p className="text-sm mt-1">Actions will appear here as they occur.</p>
             </div>
           ) : (
-            <div className="max-h-[32rem] overflow-y-auto">
-              <Table>
+            <div className="max-h-[32rem] overflow-y-auto overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <Table className="min-w-[700px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[140px]">Timestamp</TableHead>

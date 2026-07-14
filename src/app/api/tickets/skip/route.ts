@@ -16,6 +16,7 @@ interface TicketWithQueue {
   status: string;
   customer_name: string;
   customer_phone: string | null;
+  notes: string | null;
   skip_count: number;
   served_at: string | null;
   served_by_agent: string | null;
@@ -174,15 +175,20 @@ export const POST = withAuth(
         success: true,
         ticket: {
           id: ticketId,
+          tenantId: ticket.tenant_id,
+          queueId: ticket.queue_id,
           status: 'SKIPPED',
           serialNumber: ticket.serial_number,
+          customerName: ticket.customer_name,
+          customerPhone: ticket.customer_phone,
+          notes: ticket.notes,
           skipCount: newSkipCount,
           skippedAt: nowISO,
           servedByAgent: null,
           servedAt: null,
           _formattedSerial: formattedSerial,
           queueName: ticket.queue_name,
-          customerName: ticket.customer_name,
+          queuePrefix: ticket.queue_prefix,
         },
         remainingWaiting: remainingResult?.cnt ?? 0,
         skippedAvailable: skippedResult?.cnt ?? 0,

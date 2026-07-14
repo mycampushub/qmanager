@@ -119,7 +119,7 @@ export default function ServiceWindowsTab({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold">Service Windows</h2>
         <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) resetForm(); }}>
           <DialogTrigger asChild>
@@ -183,7 +183,7 @@ export default function ServiceWindowsTab({ tenantId }: { tenantId: string }) {
               const isToday = dayIdx === currentDay;
               return (
                 <div key={dayIdx} className={`flex items-center gap-3 p-3 rounded-lg border ${isToday ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-100'}`}>
-                  <div className="w-28 shrink-0">
+                  <div className="w-20 sm:w-28 shrink-0">
                     <span className={`text-sm font-medium ${isToday ? 'text-emerald-700' : ''}`}>{day}</span>
                     {isToday && <Badge className="ml-2 bg-emerald-100 text-emerald-700 text-xs">Today</Badge>}
                   </div>
@@ -193,8 +193,8 @@ export default function ServiceWindowsTab({ tenantId }: { tenantId: string }) {
                       <Badge key={w.id} variant="outline" className={`text-xs ${w.isClosed ? 'border-red-300 text-red-600' : 'border-emerald-300 text-emerald-700'}`}>
                         {w.isClosed ? 'Closed' : `${w.openTime}–${w.closeTime}`}
                         {w.queue && <span className="ml-1 opacity-60">({w.queue.prefix})</span>}
-                        <button className="ml-1 hover:text-foreground" onClick={() => openEdit(w)}><Pencil className="w-3 h-3 inline" /></button>
-                        <button className="hover:text-red-500" onClick={() => handleDelete(w.id)}><Trash2 className="w-3 h-3 inline" /></button>
+                        <button className="ml-1 p-1 hover:text-foreground" onClick={() => openEdit(w)}><Pencil className="w-3 h-3 inline" /></button>
+                        <button className="p-1 hover:text-red-500" onClick={() => handleDelete(w.id)}><Trash2 className="w-3 h-3 inline" /></button>
                       </Badge>
                     ))}
                   </div>

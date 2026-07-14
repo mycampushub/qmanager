@@ -234,7 +234,7 @@ export function QueuesTab({ user, tenantData, onRefresh }: { user: StaffUser; te
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">Service Queues</h2>
           <Badge variant="secondary">{queues.filter(q => q.isActive).length} active</Badge>
@@ -249,7 +249,7 @@ export function QueuesTab({ user, tenantData, onRefresh }: { user: StaffUser; te
         {queues.map((queue) => (
           <motion.div key={queue.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: queues.indexOf(queue) * 0.05 }}>
             <Card className={queue.isActive ? '' : 'opacity-50'}>
-              <CardContent className="pt-4 pb-4">
+              <CardContent className="p-3 sm:p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
@@ -266,15 +266,15 @@ export function QueuesTab({ user, tenantData, onRefresh }: { user: StaffUser; te
                 </div>
                 <div className="grid grid-cols-3 gap-3 text-center pt-3 border-t">
                   <div>
-                    <p className="text-lg font-bold">{queue.nowServingSerial ? `${queue.prefix}-${String(queue.nowServingSerial).padStart(3, '0')}` : '—'}</p>
+                    <p className="text-base sm:text-lg font-bold">{queue.nowServingSerial ? `${queue.prefix}-${String(queue.nowServingSerial).padStart(3, '0')}` : '—'}</p>
                     <p className="text-xs text-muted-foreground">Serving</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-amber-600">{queue._waitingCount || 0}</p>
+                    <p className="text-base sm:text-lg font-bold text-amber-600">{queue._waitingCount || 0}</p>
                     <p className="text-xs text-muted-foreground">Waiting</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold">{queue._ewt ? `${Math.ceil(queue._ewt / 60)}m` : '—'}</p>
+                    <p className="text-base sm:text-lg font-bold">{queue._ewt ? `${Math.ceil(queue._ewt / 60)}m` : '—'}</p>
                     <p className="text-xs text-muted-foreground">EWT</p>
                   </div>
                 </div>

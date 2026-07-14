@@ -92,19 +92,20 @@ function QueueQRCodes({ tenantId, tenantName }: { tenantId: string; tenantName: 
               {queues.map((q) => {
                 const queueUrl = `${origin}/?tenant=${tenantId}&queue=${q.id}`;
                 return (
-                  <div key={q.id} className="flex flex-col items-center gap-2 p-3 rounded-lg border bg-white">
+                  <div key={q.id} className="flex flex-col items-center gap-2 p-2.5 sm:p-3 rounded-lg border bg-white">
                     <div className="bg-white p-2 rounded-lg shadow-sm border" ref={setQrRef(q.id)}>
                       <QRCodeDisplay value={queueUrl} size={100} />
                     </div>
                     <div className="text-center">
                       <p className="text-sm font-medium">{q.prefix}</p>
-                      <p className="text-xs text-muted-foreground truncate max-w-[120px]">{q.name}</p>
+                      <p className="text-xs text-muted-foreground truncate max-w-[140px]">{q.name}</p>
                     </div>
+                    <p className="text-[10px] text-muted-foreground text-center break-all leading-tight max-w-[160px] line-clamp-2" title={queueUrl}>{queueUrl}</p>
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleCopy(queueUrl)}>
-                        <Copy className="w-3 h-3" />
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleCopy(queueUrl)} title="Copy join link">
+                        <Copy className="w-3 h-3 mr-0.5" /> Copy
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleDownload(q.prefix, qrRefs.current.get(q.id) ?? null)}>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => handleDownload(q.prefix, qrRefs.current.get(q.id) ?? null)} title="Download QR as SVG">
                         <Download className="w-3 h-3" />
                       </Button>
                     </div>

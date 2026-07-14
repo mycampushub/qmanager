@@ -277,9 +277,10 @@ export const PUT = withAuth(
       // Compute stats for each queue
       const queuesWithStats = await Promise.all(
         queuesResult.results.map(async (queue) => {
-          const [waitingResult, servingResult, logsResult] = await Promise.all([
+          const [waitingResult, servingResult, skippedResult, logsResult] = await Promise.all([
             d1.prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'WAITING'`).bind(queue.id).first<{ cnt: number }>(),
             d1.prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'SERVING'`).bind(queue.id).first<{ cnt: number }>(),
+            d1.prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'SKIPPED'`).bind(queue.id).first<{ cnt: number }>(),
             d1.prepare(
               `SELECT duration_seconds FROM service_logs WHERE tenant_id = ? AND queue_id = ? AND duration_seconds IS NOT NULL ORDER BY created_at DESC LIMIT 20`
             ).bind(tenantId, queue.id).all<{ duration_seconds: number }>(),
@@ -287,6 +288,7 @@ export const PUT = withAuth(
 
           const waiting = waitingResult?.cnt ?? 0;
           const serving = servingResult?.cnt ?? 0;
+          const skipped = skippedResult?.cnt ?? 0;
           const logs = logsResult.results;
 
           const avgServiceTime = logs.length > 0
@@ -305,6 +307,7 @@ export const PUT = withAuth(
             isActive: queue.is_active === 1,
             _waitingCount: waiting,
             _servingCount: serving,
+            _skippedCount: skipped,
             _avgServiceTime: avgServiceTime,
             _ewt: waiting * avgServiceTime,
           };

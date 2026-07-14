@@ -35,7 +35,8 @@ export const GET = withAuth(
         // AGENT: only show assigned queues, unless agent has NO assignments (backwards compatible)
         sql = `SELECT q.*,
           (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'WAITING') as waiting_count,
-          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SERVING') as serving_count
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SERVING') as serving_count,
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SKIPPED') as skipped_count
         FROM queues q
         LEFT JOIN queue_assignments qa ON qa.queue_id = q.id AND qa.agent_id = ? AND qa.is_active = 1
         WHERE q.tenant_id = ? AND q.is_active = 1
@@ -46,7 +47,8 @@ export const GET = withAuth(
         // MANAGER: see all queues (single query with subqueries, no N+1)
         sql = `SELECT q.*,
           (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'WAITING') as waiting_count,
-          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SERVING') as serving_count
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SERVING') as serving_count,
+          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SKIPPED') as skipped_count
         FROM queues q
         WHERE q.tenant_id = ? AND q.is_active = 1
         ORDER BY q.name ASC`;
@@ -63,6 +65,7 @@ export const GET = withAuth(
         const mapped = mapQueue(qRec);
         mapped.waitingCount = (qRec.waiting_count as number) ?? 0;
         mapped.servingCount = (qRec.serving_count as number) ?? 0;
+        mapped.skippedCount = (qRec.skipped_count as number) ?? 0;
         return mapped;
       });
 

@@ -70,7 +70,7 @@ export function WalletTab({ tenantId }: { tenantId: string }) {
       <Card className="bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-0">
         <CardContent className="pt-6 pb-6">
           <p className="text-emerald-100 text-sm">Current Balance</p>
-          <p className="text-4xl font-bold mt-1">৳{(walletData.tenant.walletBalance / 100).toLocaleString()}</p>
+          <p className="text-3xl sm:text-4xl font-bold mt-1">৳{(walletData.tenant.walletBalance / 100).toLocaleString()}</p>
           <div className="flex gap-4 mt-4 text-sm text-emerald-100">
             <span>Tier: <strong className="text-white">{walletData.tenant.planTier}</strong></span>
             <span>Cost: <strong className="text-white">৳1/ticket</strong></span>
@@ -137,9 +137,9 @@ export function WalletTab({ tenantId }: { tenantId: string }) {
               <Plus className="w-4 h-4 mr-1" /> Quick Top Up
             </Button>
           </div>
-          <div className="flex gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-3">
             {[100, 500, 1000, 5000].map((amt) => (
-              <Button key={amt} variant="outline" size="sm" onClick={() => setTopUpAmount(String(amt))}>
+              <Button key={amt} variant="outline" size="sm" className="flex-1 min-w-[70px]" onClick={() => setTopUpAmount(String(amt))}>
                 ৳{amt}
               </Button>
             ))}

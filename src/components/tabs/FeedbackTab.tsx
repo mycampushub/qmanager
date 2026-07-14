@@ -105,7 +105,7 @@ export default function FeedbackTab({ tenantId }: { tenantId: string }) {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card><CardContent className="pt-4 pb-4 text-center"><p className="text-3xl font-bold text-amber-500">{avgRating.toFixed(1)}</p><Stars rating={Math.round(avgRating)} size="md" /><p className="text-xs text-muted-foreground mt-1">Avg Rating</p></CardContent></Card>
+        <Card><CardContent className="pt-4 pb-4 text-center"><p className="text-2xl sm:text-3xl font-bold text-amber-500">{avgRating.toFixed(1)}</p><Stars rating={Math.round(avgRating)} size="md" /><p className="text-xs text-muted-foreground mt-1">Avg Rating</p></CardContent></Card>
         <Card><CardContent className="pt-4 pb-4 text-center"><p className="text-3xl font-bold">{total}</p><p className="text-xs text-muted-foreground mt-1">Total Reviews</p></CardContent></Card>
         <Card><CardContent className="pt-4 pb-4 text-center"><p className="text-3xl font-bold text-emerald-600">{feedbacks.length}</p><p className="text-xs text-muted-foreground mt-1">In Period</p></CardContent></Card>
         <Card><CardContent className="pt-4 pb-4 text-center"><p className="text-3xl font-bold text-blue-600">{npsEstimate}%</p><p className="text-xs text-muted-foreground mt-1">Positive Rating</p></CardContent></Card>
@@ -149,10 +149,12 @@ export default function FeedbackTab({ tenantId }: { tenantId: string }) {
                       <div key={f.id} className="flex items-start gap-3 p-3 rounded-lg border">
                         <div className="mt-0.5"><Stars rating={f.rating} /></div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">{f.ticket?.customerName || 'Anonymous'}</span>
-                            {f.ticket?._formattedSerial && <Badge variant="outline" className="text-xs">{f.ticket._formattedSerial}</Badge>}
-                            <span className="text-xs text-muted-foreground ml-auto">{timeAgo(f.createdAt)}</span>
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm">{f.ticket?.customerName || 'Anonymous'}</span>
+                              {f.ticket?._formattedSerial && <Badge variant="outline" className="text-xs">{f.ticket._formattedSerial}</Badge>}
+                            </div>
+                            <span className="text-xs text-muted-foreground mt-1 sm:mt-0 sm:ml-auto">{timeAgo(f.createdAt)}</span>
                           </div>
                           {f.comment && <p className="text-sm text-muted-foreground mt-1">{f.comment}</p>}
                         </div>

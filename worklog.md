@@ -1,6 +1,133 @@
 # QueueFlow Project Worklog
 
 ---
+Task ID: 11
+Agent: Main Agent
+Task: Mobile-optimize ALL dashboard components for super mobile-friendly UX
+
+Work Log:
+- Audited 17 component files across dashboard/, views/, tabs/, platform-admin/, master-tenant/
+- Identified critical mobile issues: 4-col action grids, tables unusable on small screens, fixed-width elements, cramped buttons, no tap feedback
+
+**AgentView.tsx (Critical agent working view):**
+- Action buttons: `grid-cols-4` → `grid-cols-2 sm:grid-cols-4` (2x2 on mobile)
+- Button labels hidden on mobile (icon-only), shown on sm+
+- NOW SERVING overlay: responsive padding `px-8 sm:px-16`, text `text-5xl sm:text-7xl`
+- Currently serving card: serial `text-4xl sm:text-5xl`, name `text-lg sm:text-xl`, timer `text-base sm:text-lg`
+- Queue overview: `grid-cols-4` → `grid-cols-2 sm:grid-cols-4`
+- Queue selector cards: `w-40 sm:w-44`, `p-2.5 sm:p-3`
+- Walk-in/Call Next buttons: `h-12 sm:h-14`, `text-sm sm:text-base`
+- "Add & Print" text hidden on mobile
+- Ticket list notes: `max-w-[140px] sm:max-w-[200px]`
+- Tab switcher: `text-[11px] sm:text-xs`, Recall text hidden on mobile
+- Empty state: smaller padding and icon on mobile
+
+**DashboardView.tsx (Shell/navigation):**
+- Top bar: `h-12 sm:h-14`, hamburger `h-10 w-10`, badge `text-[10px] sm:text-xs`
+- Bottom nav: `min-h-[48px] sm:min-h-[44px]`, `text-[10px] sm:text-xs`
+- Active tab: added `border-t-2 border-emerald-500` visual indicator
+- Tap feedback: `active:scale-95 transition-transform` on all nav buttons
+- More sheet: `grid-cols-3 sm:grid-cols-4`, items `min-h-[56px] sm:min-h-[48px]`
+- More sheet icons: wrapped in `w-10 h-10 rounded-full bg-slate-100` circles
+- Sidebar overlay: `w-72 sm:w-80`, nav items `py-3.5`
+- Sidebar bottom buttons: `h-10` for proper touch targets
+- Content padding: `p-3 sm:p-5 lg:p-6`
+- Added `overscroll-y-contain` for smoother mobile scrolling
+
+**StaffTab.tsx (Dual layout):**
+- CRITICAL: Replaced single table with dual layout — mobile cards + desktop table
+- Mobile cards (`md:hidden`): avatar initial, name/email truncated, role badge, status dot, queue badges, action buttons with text labels
+- Desktop table (`hidden md:block`): original table preserved
+- Queue assignment dialog: `max-w-[calc(100vw-2rem)]`, queue items `py-3` touch targets
+
+**AnalyticsTab.tsx:**
+- Export buttons: icon-only on mobile, text `hidden sm:inline`
+- Stat cards: responsive padding, `text-lg sm:text-xl`, icons `w-4 sm:w-5`
+- Agent performance table: `overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0`, inner `min-w-[600px]`
+- Queue performance table: same scroll pattern, `min-w-[500px]`
+- Recent activity: stacks vertically on mobile (`flex-col sm:flex-row`), responsive text sizes
+
+**QueuesTab.tsx:** Header `flex-wrap gap-2`, card padding `p-3 sm:p-4`, stats `text-base sm:text-lg`
+**WalletTab.tsx:** Balance `text-3xl sm:text-4xl`, preset buttons `flex-wrap` with `flex-1 min-w-[70px]`
+**BrandingTab.tsx:** QR grid items `p-2.5 sm:p-3`
+**ServiceWindowsTab.tsx:** Header `flex-wrap`, day names `w-20 sm:w-28`, badge action buttons `p-1` touch targets
+**AppointmentsTab.tsx:** Date picker `w-36 sm:w-40`, action buttons stack vertically on mobile
+**FeedbackTab.tsx:** Rating `text-2xl sm:text-3xl`, review items stack vertically on mobile
+**WebhooksTab.tsx:** Header `flex-wrap`, stats row `flex-wrap gap-2`
+**SettingsTab.tsx:** Language select `w-full sm:w-48`, payment presets `flex-wrap`
+**MasterTenantsTab.tsx:** Button text hidden on mobile (icon-only)
+**AuditLogTab.tsx:** Table in scroll container, `min-w-[700px]`
+**BranchesTab.tsx:** Stats `text-xl sm:text-2xl`
+**CrossBranchAnalytics.tsx:** Table in scroll container, `min-w-[400px]`
+**MtStaffTab.tsx:** Table in scroll container, `min-w-[500px]`
+
+Stage Summary:
+- 17 files modified across 5 directories
+- 0 TypeScript errors
+- Key patterns: responsive grids (col-sm), responsive text (size sm:size), icon-only mobile buttons, card/table dual layouts, edge-to-edge table scrolling, tap feedback animations, 48px+ touch targets
+- All changes are CSS/Tailwind only — no logic, state, or API changes
+
+---
+Task ID: 10
+Agent: Main Agent
+Task: Comprehensive audit — walk-in, skip/recall, skipped tab, all recent features
+
+Work Log:
+- **CRITICAL BUG FIXED**: Skipped tab was fetching COMPLETED tickets instead of SKIPPED
+  - AgentView.tsx L92: `const status = tab === 'waiting' ? 'WAITING' : 'COMPLETED'` — both served AND skipped tabs fetched COMPLETED
+  - Fixed with proper status mapping: `{ waiting: 'WAITING', served: 'COMPLETED', skipped: 'SKIPPED' }`
+- **BUG FIXED**: Recall API response missing `notes` field
+  - When a ticket with notes was recalled, notes wouldn't display on "Currently Serving" card
+  - Added `notes: string | null` to ticket type + response in recall/route.ts
+- **BUG FIXED**: Skip API response missing `tenantId`, `queueId`, `customerPhone`, `notes`, `queuePrefix`
+  - Added all missing fields to skip response for consistency
+- **BUG FIXED**: `skippedAvailable` count started at 0, never populated on initial load
+  - Added `_skippedCount` to Queue type and added SKIPPED count subquery to:
+    - GET /api/queues (both AGENT and MANAGER SQL paths)
+    - PUT /api/tenants (fetchTenantData endpoint)
+  - Added useEffect in AgentView to sync `skippedAvailable` from `selectedQueue._skippedCount`
+- **Walk-in audit**: Walk-in flow verified correct — name/phone/notes sent, reset on success, notes field in form
+- **Skip flow audit**: State machine correct (SERVING→SKIPPED), wallet refund, usage ledger deleted, audit log written
+- **Recall flow audit**: State machine correct (SKIPPED→SERVING), auto-completes current SERVING, re-charges wallet
+- **Notes audit**: JoinForm→QueueSelector→JoinView→API chain verified, AgentView walk-in verified, display on Currently Serving + ticket list verified
+- **StaffTab audit**: Assignment save now correctly refreshes in finally block, no silent failures
+- **AnalyticsTab audit**: Agent performance table verified, removed unused `UserCheck` import
+- TypeScript: 0 errors
+
+Stage Summary:
+- Files modified: AgentView.tsx, recall/route.ts, skip/route.ts, types.ts, queues/route.ts, tenants/route.ts, AnalyticsTab.tsx
+- 4 bugs found and fixed, all recent features verified working
+- Skipped tab now correctly shows only SKIPPED tickets
+- Skipped count in Queue Overview now initializes from DB on load
+
+---
+Task ID: 9
+Agent: Main Agent
+Task: Fix 3 issues — per-queue join link, assignment save bug, agent performance UI
+
+Work Log:
+- **Per-queue join link** (BrandingTab.tsx): Added visible URL text below each per-queue QR code with `line-clamp-2` truncation, full-text tooltip, and changed copy button to say "Copy" with text
+- **Assignment save bug** (StaffTab.tsx): Fixed 3 issues:
+  1. `fetchAssignments()` moved from success-only block to `finally` — now always refreshes even on partial failure
+  2. `fetchQueues()` and `fetchAssignments()` no longer silently fail — now show toast errors and check `res.ok`
+  3. Dialog now stays open on error (only closes on full success) but UI data always refreshes
+- **Agent Performance UI** (AnalyticsTab.tsx): Added full Agent Performance section:
+  - Fetches from `/api/staff/performance` API on mount + refresh
+  - Table with columns: Agent name, Status (Serving/Idle badge), Today served, Total served, Total skipped, Avg service time, Avg wait time
+  - "Serving" status shows green Activity badge, "Idle" shows secondary badge
+  - Today served highlighted in emerald, skipped in amber
+  - Duration formatting helper (m s format)
+  - Integrated with existing Refresh button (refreshes both analytics + performance)
+  - Placed above Queue Performance table for visibility
+- TypeScript: 0 errors
+
+Stage Summary:
+- Files modified: BrandingTab.tsx, StaffTab.tsx, AnalyticsTab.tsx
+- Per-queue QR cards now show the join link URL for easy sharing
+- Queue assignment saving now always refreshes state even on partial errors
+- Agent Performance is now visible in the Analytics tab as a table
+
+---
 Task ID: 8
 Agent: Main Agent
 Task: Add notes field to ticket creation (customer join + agent walk-in)

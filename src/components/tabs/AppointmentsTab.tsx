@@ -106,7 +106,7 @@ export default function AppointmentsTab({ tenantId }: { tenantId: string }) {
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2">
             <CalendarDays className="w-4 h-4 text-muted-foreground" />
-            <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-40" />
+            <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-36 sm:w-40" />
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -169,9 +169,9 @@ export default function AppointmentsTab({ tenantId }: { tenantId: string }) {
                       </div>
                     </div>
                     {a.status === 'SCHEDULED' && (
-                      <div className="flex gap-1">
-                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleStatus(a.id, 'CHECKED_IN')}>Check In</Button>
-                        <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleStatus(a.id, 'NO_SHOW')}>No Show</Button>
+                      <div className="flex flex-col sm:flex-row gap-1">
+                        <Button size="sm" variant="outline" className="h-7 text-xs w-full sm:w-auto" onClick={() => handleStatus(a.id, 'CHECKED_IN')}>Check In</Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 w-full sm:w-auto" onClick={() => handleStatus(a.id, 'NO_SHOW')}>No Show</Button>
                       </div>
                     )}
                     {a.status === 'CHECKED_IN' && (

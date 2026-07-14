@@ -326,14 +326,14 @@ export default function MasterTenantsTab() {
                   {/* Action buttons */}
                   <div className="flex items-center gap-1 pt-1">
                     <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => openEditCorp(mt)}>
-                      <Pencil className="w-3.5 h-3.5 mr-1" /> Rename
+                      <Pencil className="w-3.5 h-3.5" /><span className="hidden sm:inline ml-1">Rename</span>
                     </Button>
                     <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => handleToggleBilling(mt)} disabled={actionLoading}>
-                      {mt.isActive ? <ShieldX className="w-3.5 h-3.5 mr-1" /> : <ShieldCheck className="w-3.5 h-3.5 mr-1" />}
-                      {mt.isActive ? 'Deactivate' : 'Activate'}
+                      {mt.isActive ? <ShieldX className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                      <span className="hidden sm:inline ml-1">{mt.isActive ? 'Deactivate' : 'Activate'}</span>
                     </Button>
                     <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => openAddSub(mt)}>
-                      <Plus className="w-3.5 h-3.5 mr-1" /> Branch
+                      <Plus className="w-3.5 h-3.5" /><span className="hidden sm:inline ml-1">Branch</span>
                     </Button>
                     <Button variant="ghost" size="sm" className="h-8 text-xs text-red-500 hover:text-red-600 ml-auto" onClick={() => setDeleteMt(mt)}>
                       <Trash2 className="w-3.5 h-3.5" />

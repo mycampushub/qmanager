@@ -39,6 +39,7 @@ export interface Queue {
   isActive: boolean;
   _waitingCount?: number;
   _servingCount?: number;
+  _skippedCount?: number;
   _activeTickets?: number;
   _avgServiceTime?: number;
   _ewt?: number; // Estimated Wait Time in seconds

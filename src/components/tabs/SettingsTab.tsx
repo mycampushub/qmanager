@@ -361,7 +361,7 @@ export default function SettingsTab({ tenantId }: { tenantId: string }) {
         <CardContent>
           <div className="flex items-center gap-4">
             <Select value={locale} onValueChange={handleLocaleChange}>
-              <SelectTrigger className="w-48">
+              <SelectTrigger className="w-full sm:w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -421,7 +421,7 @@ export default function SettingsTab({ tenantId }: { tenantId: string }) {
               {paymentProcessing ? 'Processing...' : 'Pay & Top Up'}
             </Button>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {[100, 500, 1000, 5000].map((amt) => (
               <Button key={amt} variant="outline" size="sm" onClick={() => setPaymentAmount(String(amt))}>
                 ৳{amt}

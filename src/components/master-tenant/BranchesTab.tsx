@@ -255,15 +255,15 @@ function BranchCard({
         <CardContent>
           <div className="grid grid-cols-3 gap-3 text-center mb-4">
             <div>
-              <p className="text-2xl font-bold">{branch.queueCount}</p>
+              <p className="text-xl sm:text-2xl font-bold">{branch.queueCount}</p>
               <p className="text-xs text-muted-foreground">Queues</p>
             </div>
             <div>
-              <p className="text-2xl font-bold">{branch.staffCount}</p>
+              <p className="text-xl sm:text-2xl font-bold">{branch.staffCount}</p>
               <p className="text-xs text-muted-foreground">Staff</p>
             </div>
             <div>
-              <p className="text-2xl font-bold">${(branch.walletBalance / 100).toFixed(0)}</p>
+              <p className="text-xl sm:text-2xl font-bold">${(branch.walletBalance / 100).toFixed(0)}</p>
               <p className="text-xs text-muted-foreground">Wallet</p>
             </div>
           </div>

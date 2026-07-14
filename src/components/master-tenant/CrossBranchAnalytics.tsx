@@ -96,8 +96,8 @@ export default function CrossBranchAnalyticsTab() {
       {/* Per-Branch Breakdown Table */}
       <Card>
         <CardContent className="p-0">
-          <div className="max-h-96 overflow-y-auto">
-            <Table>
+          <div className="max-h-96 overflow-y-auto overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <Table className="min-w-[400px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Branch</TableHead>
