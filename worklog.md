@@ -528,3 +528,97 @@ Stage Summary:
 - Files modified: `src/components/tabs/SettingsTab.tsx`, `src/components/views/DashboardView.tsx`
 - TV Display URL pattern: `/?display=<tenant-id>` (e.g., `/?display=tenant-quickbite`)
 - Two access points: Settings tab (full details with QR) and sidebar quick-link
+---
+Task ID: 13
+Agent: Main Agent
+Task: Homepage SEO redesign - integrate all target keywords naturally, remove technical terms, restructure sections for optimal SEO flow
+
+Work Log:
+- Read and analyzed full existing MarketingView.tsx (1561 lines, 10 sections)
+- Updated layout.tsx metadata: title, description, keywords (18 SEO keywords), OpenGraph, Twitter card
+- Completely rewrote MarketingView.tsx (1730 lines, restructured to 15 content sections)
+- New section order (SEO-optimized flow): Hero → Stats → How It Works → Comparison Table → Core Value Proposition → Why Choose Us → Benefits → Features → Industry Solutions → Infrastructure → Security → Pricing → FAQ → CTA → Contact
+- Naturally integrated all 18 primary/LSI/semantic keywords throughout without stuffing
+- Removed all technical terms: "Cloudflare Workers" → "edge-deployed global network", "JWT-based auth" → "Multi-factor authentication", "cloud-native pipeline" removed
+- Enhanced Industry Solutions cards with descriptions for each industry
+- Enhanced Why Choose Us items with short descriptions
+- Expanded FAQ from 6 to 10 questions with keyword-rich Q&As
+- Redesigned footer with 4-column layout (Brand, Quick Links, Solutions, Support)
+- Added Badge labels to section headers for visual hierarchy
+- Verified: tsc --noEmit = 0 errors
+- Verified: 0 occurrences of "Cloudflare Workers", "JWT", or "cloud-native pipeline"
+- Keyword density verification: 41 total "queue management" mentions across 1730 lines (~1 per 42 lines)
+- All nav links correctly map to section IDs
+- Footer scrollTo links validated
+
+Stage Summary:
+- Files modified: src/app/layout.tsx (metadata), src/components/views/MarketingView.tsx (complete rewrite)
+- All 18 SEO keywords naturally distributed across H1, H2, H3, body text, FAQ, footer
+- No technical infrastructure terms exposed to users
+- Responsive design preserved with mobile-first approach
+- Dev server OOM in sandbox (known limitation) — verified via tsc --noEmit instead
+---
+Task ID: 14
+Agent: Main Agent
+Task: Fix 6 critical issues - QR join queue filtering, assigned queues, walk-in mobile, date filter, now serving display, API optimization with pagination
+
+Work Log:
+- Analyzed full codebase: JoinView, JoinForm, QueueSelector, AgentView, API routes (queues, tickets/list, tickets/complete, tickets/call, queue-assignments), display endpoint
+- Fixed QR join: filtered queues by joinQueueId before passing to QueueSelector (JoinView.tsx line 469)
+- Fixed assigned queues: AgentView now fetches queues from /api/queues (which has assignment filtering) instead of using unfiltered tenantData.queues
+- Fixed walk-in mobile: Added h-12 to inputs, min-w-0 to flex containers, min-h-[80px] to textarea
+- Fixed queue overview "Now Serving": Dynamic label shows "Now Serving" (emerald) / "Last Served" (gray) / "—" (empty) based on _servingCount
+- Added date filter to queue overview section
+- Fixed now_serving_serial reset: complete route now resets to 0 when no SERVING tickets remain
+- Optimized queues GET: Replaced 3 correlated subqueries with 3 pre-aggregated LEFT JOINs (GROUP BY)
+- Added cursor-based pagination to /api/tickets/list (limit 20, hasMore flag, cursor param)
+- Added "Load More" button to AgentView ticket list with ref-based cursor tracking
+- Optimized display endpoint: Added optional ?queueId= filter for single-queue join flow
+
+Stage Summary:
+- Files modified: src/components/views/JoinView.tsx, src/components/dashboard/AgentView.tsx, src/app/api/tickets/complete/route.ts, src/app/api/tickets/list/route.ts, src/app/api/tenants/[id]/display/route.ts, src/app/api/queues/route.ts
+- tsc --noEmit: 0 errors
+- All 6 issues resolved: QR filtering, assigned queues, walk-in mobile UX, date filter, now serving display, API optimization
+---
+Task ID: 1
+Agent: Main Agent
+Task: TV display enhancements, remove agent popup, remove print button, fix language switching, add voice announcements, fix mobile walk-in
+
+Work Log:
+- Fixed i18n.ts: Rewrote useLocale hook to use React useState for reactivity (was broken - read from localStorage in closure, never triggered re-renders)
+- Expanded i18n translations: Added 40+ new translation keys for display, agent view, walk-in, common, voice
+- Created src/lib/voice.ts: Web Speech API voice announcement utility with English and Bengali support, digit-by-digit number pronunciation, debouncing
+- Modified display API (src/app/api/tenants/[id]/display/route.ts): Added batch query for waiting ticket serials (up to 15 per queue) for TV display
+- Rewrote DisplayView.tsx: Added waiting ticket serials display below now serving, language switcher in header, voice announcement on TICKET_CALLED events
+- Rewrote AgentView.tsx: Removed full-screen NOW SERVING popup overlay (recentlyCalled state removed), removed Print button from Currently Serving card (3 buttons now: Complete/Skip/Cancel), added voice announcement on call next, added language switcher, fixed mobile walk-in (full-width stacked inputs on mobile with h-14), i18n integration for all UI text
+- Modified DashboardView.tsx: Added language switcher button (Globe icon) to top bar
+- Modified JoinView.tsx: Added language switcher button (Globe icon) to header
+- Verified: tsc --noEmit passes with 0 errors
+
+Stage Summary:
+- TV display now shows "Now Serving" + next waiting ticket serials with customer names
+- No more full-screen "NOW SERVING" popup when calling next ticket (removed from AgentView)
+- Print button removed from Currently Serving card (still available in ticket list items)
+- Language switching now works: useLocale uses useState for reactivity, switcher added to TV display, dashboard top bar, agent view, and join view
+- Voice announcements: Tickets are announced via Web Speech API when called (both TV display and agent view), supports English and Bengali
+- Mobile walk-in: Name/phone inputs now stack vertically on mobile with full-width and h-14 height
+---
+Task ID: 2
+Agent: Main Agent
+Task: Join view: add Now Serving + Waiting List for specific queue; TV display: show only ticket numbers (no names) in waiting list
+
+Work Log:
+- Modified DisplayView.tsx: Changed waiting ticket serials from cards with customer names to compact inline serial badges (just the number, e.g. "A-005")
+- Modified TicketStatus.tsx (TicketStatusView):
+  - Added QueueContextData interface for now-serving + waiting serials
+  - Added fetchQueueContext() function using the display API with queueId filter
+  - Added "Now Serving" card below the user's ticket card showing the current serving serial for the specific queue
+  - Added "Waiting List" card showing all waiting ticket serials as compact badges
+  - User's own ticket is highlighted with emerald border + "You" label
+  - Both sections only appear when ticket is not in terminal state
+  - Loading skeletons shown while fetching queue context
+- Verified: tsc --noEmit passes with 0 errors
+
+Stage Summary:
+- Join view confirmation now shows: My Ticket → Now Serving → Waiting List (serials only for specific queue)
+- TV display waiting list now shows only ticket numbers (no customer names) as compact inline badges

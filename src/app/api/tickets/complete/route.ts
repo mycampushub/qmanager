@@ -148,6 +148,19 @@ export const POST = withAuth(
 
       await d1.batch(statements);
 
+      // Reset now_serving_serial if no more SERVING tickets remain
+      const servingCheck = await d1
+        .prepare("SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'SERVING'")
+        .bind(ticket.queue_id)
+        .first<{ cnt: number }>();
+
+      if (servingCheck && servingCheck.cnt === 0) {
+        await d1
+          .prepare("UPDATE queues SET now_serving_serial = 0, updated_at = datetime('now') WHERE id = ?")
+          .bind(ticket.queue_id)
+          .run();
+      }
+
       // Audit log
       const ip = getClientIp(req);
       await d1

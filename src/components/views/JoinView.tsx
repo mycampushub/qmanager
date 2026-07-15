@@ -5,8 +5,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import type { Tenant, Queue, Ticket, TicketStatus } from '@/lib/types';
-import { QrCode, ArrowLeft } from 'lucide-react';
+import { QrCode, ArrowLeft, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useLocale } from '@/lib/i18n';
 
 // ─── EXTRACTED COMPONENTS ──────────────────────────────────
 import QueueSelector from '@/components/join/QueueSelector';
@@ -89,6 +90,9 @@ export default function JoinView() {
     setMyTickets,
     setCurrentView,
   } = useAppStore();
+
+  // i18n
+  const { locale, setLocale } = useLocale();
 
   // Step management
   const [step, setStep] = useState<Step>('queue');
@@ -437,6 +441,16 @@ export default function JoinView() {
           <Button
             variant="ghost"
             size="sm"
+            onClick={() => setLocale(locale === 'en' ? 'bn' : 'en')}
+            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+            aria-label="Switch language"
+          >
+            <Globe className="w-4 h-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
             className="min-h-[44px] min-w-[44px] px-2"
             onClick={() => {
               if (step === 'queue') handleBackToHome();
@@ -466,7 +480,7 @@ export default function JoinView() {
             >
               <QueueSelector
                 tenant={tenantWithQueues}
-                queues={queues}
+                queues={joinQueueId ? queues.filter(q => q.id === joinQueueId) : queues}
                 loading={loadingTenantDetail}
                 joining={joining}
                 initialQueueId={joinQueueId}

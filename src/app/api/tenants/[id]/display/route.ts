@@ -1,6 +1,7 @@
 // =============================================================================
 // QueueFlow — Public TV Display Endpoint
-// Returns tenant info + queue stats for the TV display. No auth required.
+// Returns tenant info + queue stats + waiting ticket serials for the TV display.
+// No auth required.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -38,16 +39,26 @@ export async function GET(
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
 
+    // Optional queueId filter for join flow
+    const queueIdParam = request.nextUrl.searchParams.get('queueId');
+
     // Fetch active queues with waiting counts in a single query
-    const queuesResult = await d1
-      .prepare(
-        `SELECT q.*,
+    let queuesSql = `SELECT q.*,
           (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'WAITING') as waiting_count
          FROM queues q
-         WHERE q.tenant_id = ? AND q.is_active = 1
-         ORDER BY q.name ASC`
-      )
-      .bind(tenantId)
+         WHERE q.tenant_id = ? AND q.is_active = 1`;
+    const queueBinds: unknown[] = [tenantId];
+
+    if (queueIdParam) {
+      queuesSql += ' AND q.id = ?';
+      queueBinds.push(queueIdParam);
+    }
+
+    queuesSql += ' ORDER BY q.name ASC';
+
+    const queuesResult = await d1
+      .prepare(queuesSql)
+      .bind(...queueBinds)
       .all<{
         id: string;
         tenant_id: string;
@@ -90,9 +101,37 @@ export async function GET(
       return Math.round(durations.reduce((sum, d) => sum + d, 0) / durations.length);
     }
 
+    // Fetch waiting ticket serials for each queue (up to 15 per queue for TV display)
+    const queueIds = queuesResult.results.map(q => q.id);
+    const waitingSerialsByQueue = new Map<string, Array<{ serialNumber: number; customerName: string }>>();
+
+    if (queueIds.length > 0) {
+      // Build a single query to get waiting tickets across all queues
+      const placeholders = queueIds.map(() => '?').join(',');
+      const waitingResult = await d1
+        .prepare(
+          `SELECT queue_id, serial_number, customer_name
+           FROM tickets
+           WHERE queue_id IN (${placeholders}) AND status = 'WAITING'
+           ORDER BY serial_number ASC`
+        )
+        .bind(...queueIds)
+        .all<{ queue_id: string; serial_number: number; customer_name: string }>();
+
+      for (const row of waitingResult.results) {
+        const arr = waitingSerialsByQueue.get(row.queue_id);
+        if (arr) {
+          if (arr.length < 15) arr.push({ serialNumber: row.serial_number, customerName: row.customer_name });
+        } else {
+          waitingSerialsByQueue.set(row.queue_id, [{ serialNumber: row.serial_number, customerName: row.customer_name }]);
+        }
+      }
+    }
+
     const queuesWithStats = queuesResult.results.map((queue) => {
       const avgServiceTime = getAvgServiceTime(queue.id, queue.default_service_time_sec);
       const waiting = queue.waiting_count ?? 0;
+      const waitingSerials = waitingSerialsByQueue.get(queue.id) ?? [];
 
       return {
         id: queue.id,
@@ -107,6 +146,7 @@ export async function GET(
         _waitingCount: waiting,
         _avgServiceTime: avgServiceTime,
         _ewt: waiting * avgServiceTime,
+        _waitingSerials: waitingSerials,
       };
     });
 

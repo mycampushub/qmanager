@@ -34,24 +34,30 @@ export const GET = withAuth(
       if (user.role === 'AGENT') {
         // AGENT: only show assigned queues, unless agent has NO assignments (backwards compatible)
         sql = `SELECT q.*,
-          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'WAITING') as waiting_count,
-          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SERVING') as serving_count,
-          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SKIPPED') as skipped_count
-        FROM queues q
-        LEFT JOIN queue_assignments qa ON qa.queue_id = q.id AND qa.agent_id = ? AND qa.is_active = 1
-        WHERE q.tenant_id = ? AND q.is_active = 1
-        AND (qa.id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM queue_assignments WHERE agent_id = ? AND is_active = 1 AND tenant_id = ?))
-        ORDER BY q.name ASC`;
+  COALESCE(wc.waiting_count, 0) as waiting_count,
+  COALESCE(sc.serving_count, 0) as serving_count,
+  COALESCE(skpc.skipped_count, 0) as skipped_count
+FROM queues q
+LEFT JOIN (SELECT queue_id, count(*) as waiting_count FROM tickets WHERE status = 'WAITING' GROUP BY queue_id) wc ON wc.queue_id = q.id
+LEFT JOIN (SELECT queue_id, count(*) as serving_count FROM tickets WHERE status = 'SERVING' GROUP BY queue_id) sc ON sc.queue_id = q.id
+LEFT JOIN (SELECT queue_id, count(*) as skipped_count FROM tickets WHERE status = 'SKIPPED' GROUP BY queue_id) skpc ON skpc.queue_id = q.id
+LEFT JOIN queue_assignments qa ON qa.queue_id = q.id AND qa.agent_id = ? AND qa.is_active = 1
+WHERE q.tenant_id = ? AND q.is_active = 1
+AND (qa.id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM queue_assignments WHERE agent_id = ? AND is_active = 1 AND tenant_id = ?))
+ORDER BY q.name ASC`;
         binds.push(user.userId, tenantId, user.userId, tenantId);
       } else {
-        // MANAGER: see all queues (single query with subqueries, no N+1)
+        // MANAGER: see all queues (optimized with LEFT JOINs)
         sql = `SELECT q.*,
-          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'WAITING') as waiting_count,
-          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SERVING') as serving_count,
-          (SELECT count(*) FROM tickets WHERE queue_id = q.id AND status = 'SKIPPED') as skipped_count
-        FROM queues q
-        WHERE q.tenant_id = ? AND q.is_active = 1
-        ORDER BY q.name ASC`;
+  COALESCE(wc.waiting_count, 0) as waiting_count,
+  COALESCE(sc.serving_count, 0) as serving_count,
+  COALESCE(skpc.skipped_count, 0) as skipped_count
+FROM queues q
+LEFT JOIN (SELECT queue_id, count(*) as waiting_count FROM tickets WHERE status = 'WAITING' GROUP BY queue_id) wc ON wc.queue_id = q.id
+LEFT JOIN (SELECT queue_id, count(*) as serving_count FROM tickets WHERE status = 'SERVING' GROUP BY queue_id) sc ON sc.queue_id = q.id
+LEFT JOIN (SELECT queue_id, count(*) as skipped_count FROM tickets WHERE status = 'SKIPPED' GROUP BY queue_id) skpc ON skpc.queue_id = q.id
+WHERE q.tenant_id = ? AND q.is_active = 1
+ORDER BY q.name ASC`;
         binds.push(tenantId);
       }
 

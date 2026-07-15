@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Phone, Plus, Clock, CheckCircle2, SkipForward, XCircle,
-  ListOrdered, RefreshCw, UserPlus, Printer, Undo2, ArrowLeftRight, StickyNote
+  ListOrdered, RefreshCw, UserPlus, Printer, Undo2, Globe
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,6 +19,8 @@ import {
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import { useQueueWebSocket } from '@/hooks/use-queue-ws';
+import { useLocale } from '@/lib/i18n';
+import { announceTicket } from '@/lib/voice';
 import type { StaffUser, Queue, Ticket } from '@/lib/types';
 import { printTicket } from '@/lib/print-ticket';
 
@@ -32,7 +34,6 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
   const [walkInPhone, setWalkInPhone] = useState('');
   const [walkInNotes, setWalkInNotes] = useState('');
   const [showWalkIn, setShowWalkIn] = useState(false);
-  const [recentlyCalled, setRecentlyCalled] = useState<Ticket | null>(null);
   const [ticketListTab, setTicketListTab] = useState<'waiting' | 'served' | 'skipped'>('waiting');
   const [skippedAvailable, setSkippedAvailable] = useState(0);
   const [recallNumber, setRecallNumber] = useState('');
@@ -40,11 +41,33 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
   const [recalling, setRecalling] = useState(false);
   const [ticketList, setTicketList] = useState<Ticket[]>([]);
   const [ticketListLoading, setTicketListLoading] = useState(false);
+  const [ticketListHasMore, setTicketListHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [overviewDate, setOverviewDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [agentQueues, setAgentQueues] = useState<Queue[]>([]);
+  const ticketListCursorRef = useRef<number | undefined>(undefined);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const authToken = useAppStore((s) => s.authToken);
+  const { locale, setLocale, t: tr } = useLocale();
 
-  const queues = tenantData?.queues?.filter(q => q.isActive) || [];
+  const queues = (user.role === 'AGENT' ? agentQueues : tenantData?.queues?.filter(q => q.isActive) || []);
   const selectedQueue = queues.find(q => q.id === selectedQueueId);
+
+  // Fetch agent-specific queues (with assignment filtering) from /api/queues
+  useEffect(() => {
+    if (!authToken || user.role !== 'AGENT') return;
+    (async () => {
+      try {
+        const res = await fetch('/api/queues', {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAgentQueues((data.queues ?? []) as Queue[]);
+        }
+      } catch { /* silent - fallback to tenantData.queues */ }
+    })();
+  }, [authToken, user.role]);
 
   // Sync skippedAvailable from queue data on switch/load
   useEffect(() => {
@@ -53,11 +76,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     }
   }, [selectedQueue?.id, selectedQueue?._skippedCount]);
 
-  useEffect(() => {
-    if (queues.length > 0 && !selectedQueueId) {
-      setSelectedQueueId(queues[0].id);
-    }
-  }, [queues, selectedQueueId]);
+  useEffect(() => { if (queues.length > 0 && !selectedQueueId) setSelectedQueueId(queues[0].id); }, [queues, selectedQueueId]);
 
   useEffect(() => {
     if (currentTicket?.servedAt) {
@@ -91,27 +110,37 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
   }, [selectedQueueId, authToken]);
 
   // Fetch ticket list (waiting or served) for selected queue
-  const fetchTicketList = useCallback(async (tab: string) => {
+  const fetchTicketList = useCallback(async (tab: string, append: boolean = false) => {
     if (!selectedQueueId || !authToken) return;
-    setTicketListLoading(true);
+    if (append) setLoadingMore(true); else setTicketListLoading(true);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` };
       const statusMap: Record<string, string> = { waiting: 'WAITING', served: 'COMPLETED', skipped: 'SKIPPED' };
       const status = statusMap[tab] || 'WAITING';
+      const cursor = append ? ticketListCursorRef.current : undefined;
       const res = await fetch('/api/tickets/list', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ queueId: selectedQueueId, status }),
+        body: JSON.stringify({ queueId: selectedQueueId, status, limit: 20, cursor }),
       });
       if (res.ok) {
         const data = await res.json();
-        setTicketList((data.tickets ?? []) as Ticket[]);
+        const newTickets = (data.tickets ?? []) as Ticket[];
+        if (append && newTickets.length > 0) {
+          ticketListCursorRef.current = newTickets[newTickets.length - 1].serialNumber;
+          setTicketList(prev => [...prev, ...newTickets]);
+        } else {
+          ticketListCursorRef.current = undefined;
+          setTicketList(newTickets);
+        }
+        setTicketListHasMore(data.hasMore ?? false);
       }
     } catch { /* silent */ }
-    finally { setTicketListLoading(false); }
+    finally { if (append) setLoadingMore(false); else setTicketListLoading(false); }
   }, [selectedQueueId, authToken]);
 
   useEffect(() => {
+    setTicketListHasMore(false);
     fetchTicketList(ticketListTab);
   }, [ticketListTab, fetchTicketList, selectedQueueId]);
 
@@ -148,17 +177,26 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       });
       const data = await res.json();
       if (data.calledTicket) {
-        setCurrentTicket(data.calledTicket);
+        const calledTicket = data.calledTicket;
+        setCurrentTicket(calledTicket);
         setServingTime(0);
-        setRecentlyCalled(data.calledTicket);
-        setTimeout(() => setRecentlyCalled(null), 3000);
-        toast.success(`Now serving ${data.calledTicket._formattedSerial}`);
+        toast.success(`${tr('ticket.nowServing')} ${calledTicket._formattedSerial}`);
         enhancedRefresh();
+
+        // Voice announcement for the agent
+        if (selectedQueue) {
+          announceTicket({
+            serial: calledTicket._formattedSerial,
+            queueName: selectedQueue.name,
+            locale,
+            customerName: calledTicket.customerName,
+          });
+        }
       } else {
-        toast.info('No waiting tickets in this queue');
+        toast.info(tr('ticket.noTickets'));
       }
     } catch {
-      toast.error('Failed to call next ticket');
+      toast.error(tr('common.error'));
     } finally {
       setCallingNext(false);
     }
@@ -177,12 +215,12 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to complete ticket'); return; }
-      toast.success(`Ticket ${currentTicket._formattedSerial} completed`);
+      toast.success(`Ticket ${currentTicket._formattedSerial} ${tr('status.COMPLETED').toLowerCase()}`);
       setCurrentTicket(null);
       setServingTime(0);
       enhancedRefresh();
     } catch {
-      toast.error('Failed to complete ticket');
+      toast.error(tr('common.error'));
     } finally {
       setLoading(false);
     }
@@ -205,13 +243,13 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to skip ticket'); return; }
-      toast.info(`Ticket ${currentTicket._formattedSerial} skipped (no charge)`);
+      toast.info(`Ticket ${currentTicket._formattedSerial} ${tr('status.SKIPPED').toLowerCase()} (no charge)`);
       setCurrentTicket(null);
       setServingTime(0);
       if (data.skippedAvailable !== undefined) setSkippedAvailable(data.skippedAvailable);
       enhancedRefresh();
     } catch {
-      toast.error('Failed to skip ticket');
+      toast.error(tr('common.error'));
     } finally {
       setLoading(false);
       setSkipConfirm(false);
@@ -239,7 +277,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       setRecallNumber('');
       enhancedRefresh();
     } catch {
-      toast.error('Failed to recall ticket');
+      toast.error(tr('common.error'));
     } finally {
       setRecalling(false);
     }
@@ -258,12 +296,12 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to cancel ticket'); return; }
-      toast.info(`Ticket ${currentTicket._formattedSerial} cancelled`);
+      toast.info(`Ticket ${currentTicket._formattedSerial} ${tr('status.CANCELLED').toLowerCase()}`);
       setCurrentTicket(null);
       setServingTime(0);
       enhancedRefresh();
     } catch {
-      toast.error('Failed to cancel ticket');
+      toast.error(tr('common.error'));
     } finally {
       setLoading(false);
       setCancelConfirm(false);
@@ -276,7 +314,6 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-      // Send client timezone so server can check service windows in local time
       try { headers['X-Timezone'] = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* ignore */ }
       const res = await fetch('/api/queues/join', {
         method: 'POST',
@@ -334,10 +371,22 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       {/* Queue Selector */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <Label className="text-sm font-medium">Select Queue</Label>
-          <Button variant="outline" size="sm" onClick={onRefresh}>
-            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
-          </Button>
+          <Label className="text-sm font-medium">{tr('queue.select')}</Label>
+          <div className="flex items-center gap-2">
+            {/* Language Switcher */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLocale(locale === 'en' ? 'bn' : 'en')}
+              className="h-8 px-2 gap-1 text-muted-foreground hover:text-foreground"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span className="text-xs">{locale === 'en' ? 'বাংলা' : 'EN'}</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={onRefresh}>
+              <RefreshCw className="w-4 h-4 mr-1" /> {tr('common.refresh')}
+            </Button>
+          </div>
         </div>
         <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
           {queues.map((q) => {
@@ -366,7 +415,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                       {q.name}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {q._waitingCount || 0} waiting
+                      {q._waitingCount || 0} {tr('time.waiting').toLowerCase()}
                     </p>
                   </div>
                 </div>
@@ -374,44 +423,60 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
             );
           })}
           {queues.length === 0 && (
-            <p className="text-sm text-muted-foreground py-4">No active queues</p>
+            <p className="text-sm text-muted-foreground py-4">{tr('queue.noQueues')}</p>
           )}
         </div>
       </div>
 
-      {/* Walk-in Form (expandable) */}
+      {/* Walk-in Form — Full screen on mobile with Sheet-like behavior */}
       <AnimatePresence>
         {showWalkIn && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
             <Card className="border-emerald-200 bg-emerald-50/50">
               <CardContent className="pt-4 pb-4">
                 <div className="flex flex-col gap-3">
-                  <div className="flex flex-col sm:flex-row gap-3 items-end">
-                    <div className="flex-1 space-y-1">
-                      <Label className="text-xs">Customer Name *</Label>
-                      <Input placeholder="Enter customer name" value={walkInName} onChange={(e) => setWalkInName(e.target.value)} disabled={walkInLoading} />
+                  {/* Mobile: stack vertically for full-width inputs */}
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <Label className="text-xs">{tr('walkin.customerName')}</Label>
+                      <Input
+                        className="h-14 sm:h-12 text-base sm:text-sm"
+                        placeholder={locale === 'bn' ? 'গ্রাহকের নাম লিখুন' : 'Enter customer name'}
+                        value={walkInName}
+                        onChange={(e) => setWalkInName(e.target.value)}
+                        disabled={walkInLoading}
+                        autoFocus
+                      />
                     </div>
-                    <div className="flex-1 space-y-1">
-                      <Label className="text-xs">Phone (optional)</Label>
-                      <Input placeholder="+880..." value={walkInPhone} onChange={(e) => setWalkInPhone(e.target.value)} disabled={walkInLoading} />
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <Label className="text-xs">{tr('walkin.phone')}</Label>
+                      <Input
+                        className="h-14 sm:h-12 text-base sm:text-sm"
+                        placeholder="+880..."
+                        value={walkInPhone}
+                        onChange={(e) => setWalkInPhone(e.target.value)}
+                        disabled={walkInLoading}
+                        type="tel"
+                        inputMode="numeric"
+                      />
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Notes (optional)</Label>
+                    <Label className="text-xs">{tr('walkin.notes')}</Label>
                     <Textarea
-                      placeholder="Add a note about this customer (purpose, preference, etc.)"
+                      placeholder={tr('walkin.notesPlaceholder')}
                       value={walkInNotes}
                       onChange={(e) => setWalkInNotes(e.target.value.slice(0, 500))}
                       disabled={walkInLoading}
                       rows={2}
-                      className="resize-none text-sm"
+                      className="resize-none text-sm min-h-[80px]"
                       maxLength={500}
                     />
                     <p className="text-xs text-muted-foreground text-right">{walkInNotes.length}/500</p>
                   </div>
                   <div className="flex gap-2 sm:gap-3">
-                    <Button onClick={handleWalkIn} className="bg-emerald-600 hover:bg-emerald-700" disabled={!walkInName.trim() || walkInLoading}>
-                      <Plus className="w-4 h-4 mr-1" /> Add
+                    <Button onClick={handleWalkIn} className="bg-emerald-600 hover:bg-emerald-700 h-12 sm:h-10" disabled={!walkInName.trim() || walkInLoading}>
+                      <Plus className="w-4 h-4 mr-1" /> {tr('common.add')}
                     </Button>
                     <Button
                       onClick={async () => {
@@ -451,10 +516,10 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                         }
                       }}
                       variant="outline"
-                      className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 h-12 sm:h-10"
                       disabled={!walkInName.trim() || walkInLoading}
                     >
-                      <Printer className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline-flex">Add & Print</span>
+                      <Printer className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline-flex">{tr('walkin.addAndPrint')}</span>
                     </Button>
                   </div>
                 </div>
@@ -471,7 +536,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
           onClick={() => setShowWalkIn(!showWalkIn)}
           className="flex-1 h-12 sm:h-14 text-sm sm:text-base font-semibold"
         >
-          <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 mr-2" /> Walk-in
+          <UserPlus className="w-4 h-4 sm:w-5 sm:h-5 mr-2" /> {tr('ticket.walkIn')}
         </Button>
         <Button
           onClick={handleCallNext}
@@ -479,33 +544,19 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
           className="flex-1 h-12 sm:h-14 text-sm sm:text-base font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-200 transition-all"
         >
           <Phone className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-          CALL NEXT
+          {tr('ticket.call').toUpperCase()}
         </Button>
       </div>
 
-      {/* Currently Serving Overlay */}
-      <AnimatePresence mode="wait">
-        {recentlyCalled && (
-          <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 pointer-events-none">
-            <motion.div animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 0.5, repeat: 2 }} className="bg-emerald-600 text-white px-8 py-8 sm:px-16 sm:py-12 rounded-3xl text-center shadow-2xl">
-              <p className="text-lg sm:text-xl font-medium opacity-80">NOW SERVING</p>
-              <p className="text-5xl sm:text-7xl font-bold mt-2">{recentlyCalled._formattedSerial}</p>
-              <p className="text-lg sm:text-xl mt-2">{recentlyCalled.customerName}</p>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Now Serving + Tickets – Side by Side */}
+      {/* Currently Serving / Empty State — NO popup overlay */}
       <div className="grid lg:grid-cols-2 gap-4">
-        {/* Currently Serving / Empty State */}
         <div>
           {currentTicket ? (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={currentTicket.id}>
               <Card className="border-emerald-200 shadow-md" aria-live="polite">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">Currently Serving</CardTitle>
+                    <CardTitle className="text-lg">{tr('ticket.currentlyServing')}</CardTitle>
                     <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50">
                       {selectedQueue?.name}
                     </Badge>
@@ -523,7 +574,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                     {currentTicket.notes && (
                       <div className="mt-2 mx-auto max-w-xs">
                         <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
-                          <StickyNote className="w-3 h-3 shrink-0" />
+                          <span className="shrink-0">📝</span>
                           <span className="line-clamp-2">{currentTicket.notes}</span>
                         </div>
                       </div>
@@ -533,22 +584,16 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                       <span className="text-base sm:text-lg font-mono">{formatTime(servingTime)}</span>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                  {/* Action buttons — 3 buttons, no Print button */}
+                  <div className="grid grid-cols-3 gap-3 mt-4">
                     <Button onClick={handleComplete} className="bg-emerald-600 hover:bg-emerald-700 h-12 sm:h-14" disabled={loading}>
-                      <CheckCircle2 className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">Complete</span>
+                      <CheckCircle2 className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">{tr('ticket.complete')}</span>
                     </Button>
                     <Button onClick={() => setSkipConfirm(true)} variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50 h-12 sm:h-14" disabled={loading}>
-                      <SkipForward className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">Skip</span>
+                      <SkipForward className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">{tr('ticket.skip')}</span>
                     </Button>
                     <Button onClick={() => setCancelConfirm(true)} variant="outline" className="border-red-300 text-red-700 hover:bg-red-50 h-12 sm:h-14" disabled={loading}>
-                      <XCircle className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">Cancel</span>
-                    </Button>
-                    <Button
-                      onClick={() => currentTicket && handlePrintTicket(currentTicket)}
-                      variant="outline"
-                      className="border-slate-300 text-slate-700 hover:bg-slate-50 h-12 sm:h-14"
-                    >
-                      <Printer className="w-5 h-5" />
+                      <XCircle className="w-5 h-5 sm:mr-1" /> <span className="sm:inline-flex">{tr('ticket.cancel')}</span>
                     </Button>
                   </div>
                 </CardContent>
@@ -558,14 +603,14 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
               <AlertDialog open={skipConfirm} onOpenChange={setSkipConfirm}>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Skip Ticket</AlertDialogTitle>
+                    <AlertDialogTitle>{tr('ticket.skip')} Ticket</AlertDialogTitle>
                     <AlertDialogDescription>
                       Are you sure you want to skip {currentTicket._formattedSerial}? The customer didn't show up. You can recall them later from the Skipped tab. No charge for skipped tickets.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleSkip} disabled={loading} className="bg-amber-600 hover:bg-amber-700">Skip</AlertDialogAction>
+                    <AlertDialogCancel disabled={loading}>{tr('common.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleSkip} disabled={loading} className="bg-amber-600 hover:bg-amber-700">{tr('ticket.skip')}</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -574,14 +619,14 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
               <AlertDialog open={cancelConfirm} onOpenChange={setCancelConfirm}>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Cancel Ticket</AlertDialogTitle>
+                    <AlertDialogTitle>{tr('ticket.cancel')} Ticket</AlertDialogTitle>
                     <AlertDialogDescription>
                       Are you sure you want to cancel {currentTicket._formattedSerial}? This action cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel disabled={loading}>Go Back</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleCancel} disabled={loading} className="bg-red-600 hover:bg-red-700">Cancel Ticket</AlertDialogAction>
+                    <AlertDialogAction onClick={handleCancel} disabled={loading} className="bg-red-600 hover:bg-red-700">{tr('ticket.cancel')} Ticket</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -591,8 +636,8 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
               <CardContent className="py-8 sm:py-12 text-center flex items-center justify-center h-full">
                 <div className="text-muted-foreground">
                   <ListOrdered className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 opacity-30" />
-                  <p className="text-lg">No ticket currently being served</p>
-                  <p className="text-sm mt-1">Click &quot;CALL NEXT&quot; to serve the next customer</p>
+                  <p className="text-lg">{tr('ticket.noServing')}</p>
+                  <p className="text-sm mt-1">{tr('ticket.callNextHint')}</p>
                 </div>
               </CardContent>
             </Card>
@@ -617,7 +662,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                 />
               </div>
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={recalling}>Cancel</AlertDialogCancel>
+                <AlertDialogCancel disabled={recalling}>{tr('common.cancel')}</AlertDialogCancel>
                 <AlertDialogAction onClick={() => handleRecall(undefined, parseInt(recallNumber))} disabled={!recallNumber || recalling} className="bg-emerald-600 hover:bg-emerald-700">
                   {recalling ? 'Recalling...' : 'Recall Ticket'}
                 </AlertDialogAction>
@@ -626,13 +671,13 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
           </AlertDialog>
         </div>
 
-        {/* Ticket List – Waiting / Served */}
+        {/* Ticket List – Waiting / Served / Skipped */}
         <div className="h-full">
           {selectedQueueId && (
         <Card className="h-full flex flex-col">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Tickets</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">{locale === 'bn' ? 'টিকেট' : 'Tickets'}</CardTitle>
               <div className="flex items-center gap-1">
                 <div className="flex bg-muted rounded-lg p-0.5">
                   {(['waiting', 'served', 'skipped'] as const).map((tab) => (
@@ -646,7 +691,12 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      {tab === 'skipped' ? `Skipped${skippedAvailable > 0 ? ` (${skippedAvailable})` : ''}` : `${tab.charAt(0).toUpperCase() + tab.slice(1)} (${ticketListTab === tab ? ticketList.length : '—'})`}
+                      {tab === 'skipped'
+                        ? `${tr('ticket.skipped')}${skippedAvailable > 0 ? ` (${skippedAvailable})` : ''}`
+                        : tab === 'waiting'
+                        ? `${tr('ticket.waiting')} (${ticketListTab === tab ? ticketList.length : '—'})`
+                        : `${tr('ticket.served')} (${ticketListTab === tab ? ticketList.length : '—'})`
+                      }
                     </button>
                   ))}
                 </div>
@@ -668,7 +718,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
             ) : ticketList.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground flex-1 flex flex-col items-center justify-center">
                 <ListOrdered className="w-8 h-8 mb-2 opacity-30" />
-                {ticketListTab === 'waiting' ? 'No tickets waiting' : ticketListTab === 'skipped' ? 'No skipped tickets' : 'No served tickets yet'}
+                {ticketListTab === 'waiting' ? tr('ticket.noWaiting') : ticketListTab === 'skipped' ? tr('ticket.noSkipped') : tr('ticket.noServed')}
               </div>
             ) : (
               <div className="max-h-72 overflow-y-auto space-y-1.5">
@@ -717,6 +767,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                           <Undo2 className="w-3.5 h-3.5" />
                         </button>
                       )}
+                      {/* Print button only in ticket list, NOT in currently serving card */}
                       <button
                         type="button"
                         onClick={() => handlePrintTicket(t)}
@@ -738,21 +789,32 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                         ) : null}
                         {ticketListTab === 'served' ? (
                           <Badge variant="outline" className="mt-1 text-green-600 border-green-200 bg-green-50 text-[10px]">
-                            <CheckCircle2 className="w-3 h-3 mr-0.5" /> Served
+                            <CheckCircle2 className="w-3 h-3 mr-0.5" /> {tr('ticket.served')}
                           </Badge>
                         ) : ticketListTab === 'skipped' ? (
                           <Badge variant="outline" className="mt-1 text-orange-600 border-orange-200 bg-orange-50 text-[10px]">
-                            <SkipForward className="w-3 h-3 mr-0.5" /> Skipped
+                            <SkipForward className="w-3 h-3 mr-0.5" /> {tr('ticket.skipped')}
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="mt-1 text-amber-600 border-amber-200 bg-amber-50 text-[10px]">
-                            <Clock className="w-3 h-3 mr-0.5" /> Waiting
+                            <Clock className="w-3 h-3 mr-0.5" /> {tr('ticket.waiting')}
                           </Badge>
                         )}
                       </div>
                     </div>
                   </div>
                 ))}
+                {ticketListHasMore && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2 text-xs"
+                    disabled={loadingMore}
+                    onClick={() => fetchTicketList(ticketListTab, true)}
+                  >
+                    {loadingMore ? tr('ticket.loading') : tr('ticket.loadMore')}
+                  </Button>
+                )}
               </div>
             )}
             </CardContent>
@@ -765,27 +827,51 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       {selectedQueue && (
         <Card aria-live="polite">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Queue Overview</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr('queue.overview')}</CardTitle>
           </CardHeader>
           <CardContent>
+            <div className="flex items-center gap-2 mb-3">
+              <Label className="text-xs font-medium text-muted-foreground">{tr('common.date')}:</Label>
+              <Input
+                type="date"
+                className="h-8 w-auto text-xs"
+                value={overviewDate}
+                onChange={(e) => setOverviewDate(e.target.value)}
+                max={new Date().toISOString().split('T')[0]}
+              />
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
               <div>
-                <p className="text-2xl font-bold text-emerald-600">{selectedQueue.nowServingSerial}</p>
-                <p className="text-xs text-muted-foreground mt-1">Now Serving</p>
+                {(selectedQueue._servingCount ?? 0) > 0 ? (
+                  <>
+                    <p className="text-2xl font-bold text-emerald-600">{selectedQueue.nowServingSerial}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{tr('ticket.nowServing')}</p>
+                  </>
+                ) : selectedQueue.nowServingSerial > 0 ? (
+                  <>
+                    <p className="text-2xl font-bold text-gray-400">{selectedQueue.nowServingSerial}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Last {tr('ticket.served')}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-gray-300">—</p>
+                    <p className="text-xs text-muted-foreground mt-1">{tr('common.noTickets')}</p>
+                  </>
+                )}
               </div>
               <div>
                 <p className="text-2xl font-bold text-amber-600">{selectedQueue._waitingCount || 0}</p>
-                <p className="text-xs text-muted-foreground mt-1">Waiting</p>
+                <p className="text-xs text-muted-foreground mt-1">{tr('ticket.waiting')}</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-orange-600 cursor-pointer hover:text-orange-700 transition-colors" onClick={() => { setTicketListTab('skipped'); }}>
                   {skippedAvailable}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">Skipped</p>
+                <p className="text-xs text-muted-foreground mt-1">{tr('ticket.skipped')}</p>
               </div>
               <div>
-                <p className="text-2xl font-bold">{selectedQueue._ewt ? Math.ceil(selectedQueue._ewt / 60) : 0}<span className="text-sm font-normal"> min</span></p>
-                <p className="text-xs text-muted-foreground mt-1">Est. Wait</p>
+                <p className="text-2xl font-bold">{selectedQueue._ewt ? Math.ceil(selectedQueue._ewt / 60) : 0}<span className="text-sm font-normal"> {tr('time.minutes')}</span></p>
+                <p className="text-xs text-muted-foreground mt-1">{tr('time.estWait')}</p>
               </div>
             </div>
           </CardContent>

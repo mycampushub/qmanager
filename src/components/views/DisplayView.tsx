@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Clock, Users, Timer, CheckCircle2, QrCode } from 'lucide-react';
+import { ArrowLeft, Clock, Users, Timer, CheckCircle2, QrCode, Globe } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/stores/app-store';
 import { useQueueWebSocket } from '@/hooks/use-queue-ws';
+import { useLocale } from '@/lib/i18n';
+import { announceTicket, preloadVoices } from '@/lib/voice';
 import type { Tenant, Queue, BrandingConfig } from '@/lib/types';
 import { QRCodeDisplay } from '@/components/QRCode';
 
@@ -43,9 +46,18 @@ function playChime() {
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
+interface WaitingTicket {
+  serialNumber: number;
+  customerName: string;
+}
+
 function formatSerial(queue: Queue): string {
   const num = String(queue.nowServingSerial).padStart(3, '0');
   return `${queue.prefix}-${num}`;
+}
+
+function formatSerialFromParts(prefix: string, serialNumber: number): string {
+  return `${prefix}-${String(serialNumber).padStart(3, '0')}`;
 }
 
 function formatEwt(seconds: number): string {
@@ -60,6 +72,23 @@ function waitColor(count: number): string {
   return 'text-red-400';
 }
 
+/* ------------------------------------------------------------------ */
+/*  Language Switcher                                                  */
+/* ------------------------------------------------------------------ */
+function LanguageSwitcher() {
+  const { locale, setLocale } = useLocale();
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => setLocale(locale === 'en' ? 'bn' : 'en')}
+      className="h-8 px-2.5 gap-1.5 text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-lg border border-slate-800/60"
+    >
+      <Globe className="w-3.5 h-3.5" />
+      <span className="text-xs font-medium">{locale === 'en' ? 'বাংলা' : 'English'}</span>
+    </Button>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /*  Flash overlay that fires on TICKET_CALLED                          */
@@ -143,6 +172,7 @@ function TickerBar({ items, accentColor }: { items: CompletedTicket[]; accentCol
 function MainDisplay({ tenantId }: { tenantId: string }) {
   const { setDisplayTenantId, setCurrentView } = useAppStore();
   const { lastEvent, clearLastEvent } = useQueueWebSocket(tenantId);
+  const { locale, t } = useLocale();
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [branding, setBranding] = useState<BrandingConfig | null>(null);
@@ -153,6 +183,16 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
   const [activeQueueIdx, setActiveQueueIdx] = useState(0);
 
   const accentColor = branding?.primaryColor || '#10b981';
+
+  // Preload TTS voices on mount
+  useEffect(() => {
+    preloadVoices();
+    // Also listen for voiceschanged event
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.addEventListener('voiceschanged', preloadVoices);
+      return () => window.speechSynthesis.removeEventListener('voiceschanged', preloadVoices);
+    }
+  }, []);
 
   /* Clock tick */
   useEffect(() => {
@@ -212,7 +252,20 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
         const queueId = lastEvent.payload?.queueId as string | undefined;
         if (queueId) {
           const idx = queues.findIndex((q) => q.id === queueId);
-          if (idx >= 0) setActiveQueueIdx(idx);
+          if (idx >= 0) {
+            setActiveQueueIdx(idx);
+            // Voice announcement
+            const calledQueue = queues[idx];
+            const serialNum = lastEvent.payload?.serialNumber as number | undefined;
+            if (serialNum && calledQueue) {
+              const serial = formatSerialFromParts(calledQueue.prefix, serialNum);
+              announceTicket({
+                serial,
+                queueName: calledQueue.name,
+                locale,
+              });
+            }
+          }
         }
         setTimeout(() => setFlashActive(false), 1200);
       }
@@ -243,7 +296,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
     });
 
     clearLastEvent();
-  }, [lastEvent, clearLastEvent, fetchTenantData, queues]);
+  }, [lastEvent, clearLastEvent, fetchTenantData, queues, locale]);
 
   /* Prune old completed tickets after 30 min */
   useEffect(() => {
@@ -265,7 +318,11 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
 
   const activeQueue = queues[activeQueueIdx];
   const totalWaiting = queues.reduce((sum, q) => sum + (q._waitingCount ?? 0), 0);
-  const dateStr = currentTime.toLocaleDateString('en-US', {
+
+  // Get waiting ticket serials for active queue
+  const activeWaitingTickets: WaitingTicket[] = (activeQueue as unknown as { _waitingSerials?: WaitingTicket[] })?._waitingSerials ?? [];
+
+  const dateStr = currentTime.toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -305,13 +362,14 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4">
           <div className="hidden sm:flex items-center gap-2 text-slate-400">
             <Users className="w-5 h-5" />
             <span className="text-lg">
-              <span className="text-white font-semibold">{totalWaiting}</span> waiting
+              <span className="text-white font-semibold">{totalWaiting}</span> {t('time.waiting').toLowerCase()}
             </span>
           </div>
+          <LanguageSwitcher />
           <div className="text-right">
             <p className="text-2xl font-mono font-semibold tabular-nums" style={{ color: accentColor }}>
               {timeStr}
@@ -337,12 +395,12 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
                 className="flex flex-col items-center"
               >
                 <p className="text-2xl font-semibold uppercase tracking-[0.3em] text-slate-400 mb-4">
-                  Now Serving
+                  {t('display.nowServing')}
                 </p>
 
                 {/* Big ticket number */}
                 <div
-                  className="relative rounded-2xl border-2 px-16 py-8 mb-6"
+                  className="relative rounded-2xl border-2 px-16 py-8 mb-4"
                   style={{ borderColor: `${accentColor}40`, backgroundColor: `${accentColor}08` }}
                 >
                   <motion.p
@@ -366,44 +424,75 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
                 </div>
 
                 {/* Queue + Window info */}
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 mb-4">
                   <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800/80 border border-slate-700/50">
                     <Users className="w-4 h-4 text-slate-400" />
-                    <span className="text-slate-400 text-sm">Queue:</span>
+                    <span className="text-slate-400 text-sm">{locale === 'bn' ? 'কিউ:' : 'Queue:'}</span>
                     <span className="text-white font-semibold text-lg">{activeQueue.name}</span>
                   </div>
-                  {activeQueue._waitingCount !== undefined && activeQueue._waitingCount > 0 && (
+                  {(activeQueue._waitingCount ?? 0) > 0 && (
                     <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800/80 border border-slate-700/50">
                       <Clock className="w-4 h-4 text-slate-400" />
-                      <span className="text-slate-400 text-sm">Next up:</span>
-                      <span className={waitColor(activeQueue._waitingCount)}>
+                      <span className="text-slate-400 text-sm">{t('display.nextUp')}:</span>
+                      <span className={waitColor(activeQueue._waitingCount ?? 0)}>
                         <span className="font-semibold text-lg">{activeQueue._waitingCount}</span>
-                        <span className="text-sm ml-1">waiting</span>
+                        <span className="text-sm ml-1">{t('time.waiting').toLowerCase()}</span>
                       </span>
                     </div>
                   )}
                 </div>
+
+                {/* ---- WAITING TICKET SERIALS ---- */}
+                {activeWaitingTickets.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3, duration: 0.4 }}
+                    className="w-full max-w-3xl"
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="h-px flex-1 bg-slate-800/60" />
+                      <span className="text-xs font-semibold uppercase tracking-widest text-slate-500 px-3">
+                        {t('display.waitingTickets')}
+                      </span>
+                      <div className="h-px flex-1 bg-slate-800/60" />
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {activeWaitingTickets.map((wt, idx) => (
+                        <motion.span
+                          key={wt.serialNumber}
+                          initial={{ opacity: 0, scale: 0.85 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: 0.03 * idx, duration: 0.25 }}
+                          className="px-3.5 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800/60 text-base font-bold font-mono"
+                          style={{ color: accentColor }}
+                        >
+                          {formatSerialFromParts(activeQueue.prefix, wt.serialNumber)}
+                        </motion.span>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Welcome / announcement */}
-          {(welcomeMessage || branding?.welcomeMessage) && (
+          {(welcomeMessage || branding?.welcomeMessage) ? (
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="mt-6 text-lg text-slate-500 text-center max-w-2xl"
+              className="mt-4 text-lg text-slate-500 text-center max-w-2xl"
             >
               {welcomeMessage || branding?.welcomeMessage}
             </motion.p>
-          )}
-          {!welcomeMessage && !branding?.welcomeMessage && (
+          ) : (
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="mt-6 text-lg text-slate-600 text-center"
+              className="mt-4 text-lg text-slate-600 text-center"
             >
-              Please have your documents ready when your number is called. Thank you for your patience.
+              {t('display.pleaseReady')}
             </motion.p>
           )}
         </section>
@@ -413,7 +502,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
           <section className="shrink-0">
             <div className="flex items-center gap-3 mb-4">
               <h2 className="text-lg font-semibold uppercase tracking-widest text-slate-500">
-                Queue Status
+                {t('queue.status')}
               </h2>
               <div className="flex-1 h-px bg-slate-800/60" />
             </div>
@@ -455,7 +544,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-1.5">
                         <Users className="w-3.5 h-3.5 text-slate-500" />
-                        <span className="text-slate-500">Waiting:</span>
+                        <span className="text-slate-500">{t('time.waiting')}:</span>
                         <span className={`font-semibold ${waitColor(queue._waitingCount ?? 0)}`}>
                           {queue._waitingCount ?? 0}
                         </span>
@@ -488,7 +577,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
         />
         <div className="flex items-center gap-1 text-slate-500">
           <QrCode className="w-3 h-3" />
-          <span className="text-[10px] font-medium">Scan to Join</span>
+          <span className="text-[10px] font-medium">{t('display.scanToJoin')}</span>
         </div>
       </div>
 

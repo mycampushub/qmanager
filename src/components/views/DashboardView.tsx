@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LogOut, Users, BarChart3, Wallet, Palette, ListOrdered,
   Phone, CalendarClock, Star, Webhook, Settings,
-  Menu, MoreHorizontal, KeyRound, Monitor
+  Menu, MoreHorizontal, KeyRound, Monitor, Globe
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
+import { useLocale } from '@/lib/i18n';
 import type { Queue, StaffUser } from '@/lib/types';
 import ServiceWindowsTab from '@/components/tabs/ServiceWindowsTab';
 import AppointmentsTab from '@/components/tabs/AppointmentsTab';
@@ -179,6 +180,7 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
 // ─── MAIN DASHBOARD ─────────────────────────────────────────
 export default function DashboardView() {
   const { authUser, authToken, logout, dashboardTab, setDashboardTab } = useAppStore();
+  const { locale, setLocale } = useLocale();
   const [tenantData, setTenantData] = useState<{ queues: Queue[] } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const tenantIdRef = useRef(authUser?.tenantId);
@@ -296,6 +298,15 @@ export default function DashboardView() {
           <Badge variant={isManager ? 'default' : 'secondary'} className={`text-[10px] sm:text-xs px-1.5 sm:px-2.5 ${isManager ? 'bg-emerald-100 text-emerald-700' : ''}`}>
             {isManager ? (authUser?.tenant?.masterTenantId ? 'Branch Manager' : 'Admin (Tenant Admin)') : 'Agent'}
           </Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setLocale(locale === 'en' ? 'bn' : 'en')}
+            className="h-8 px-2 gap-1 text-muted-foreground hover:text-foreground hidden sm:flex"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span className="text-xs">{locale === 'en' ? 'বাংলা' : 'EN'}</span>
+          </Button>
           <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
             <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs">{authUser.name.charAt(0)}</AvatarFallback>
           </Avatar>

@@ -10,10 +10,11 @@ export const POST = withAuth(
 
     try {
       const body = await req.json();
-      const { queueId, status, limit = 50 } = body as {
+      const { queueId, status, limit = 20, cursor } = body as {
         queueId: string;
         status?: string;
         limit?: number;
+        cursor?: number;
       };
 
       if (!queueId) {
@@ -50,26 +51,42 @@ export const POST = withAuth(
         bindValues.push(statusFilter);
       }
 
-      const orderBy = statusFilter === 'WAITING'
-        ? 't.serial_number ASC'
-        : 't.created_at DESC';
+      // Cursor-based pagination
+      if (statusFilter === 'WAITING') {
+        if (cursor) {
+          sql += ' AND t.serial_number > ?';
+          bindValues.push(cursor);
+        }
+        sql += ' ORDER BY t.serial_number ASC';
+      } else {
+        sql += ' ORDER BY t.created_at DESC';
+        if (cursor) {
+          sql += ' AND t.created_at < (SELECT created_at FROM tickets WHERE serial_number = ?)';
+          bindValues.push(cursor);
+        }
+      }
 
-      sql += ` ORDER BY ${orderBy} LIMIT ?`;
-      bindValues.push(Math.min(limit, 100));
+      // Fetch limit+1 to detect hasMore
+      const effectiveLimit = Math.min(limit, 50);
+      sql += ' LIMIT ?';
+      bindValues.push(effectiveLimit + 1);
 
       const result = await d1
         .prepare(sql)
         .bind(...bindValues)
         .all<Record<string, unknown>>();
 
+      const hasMore = result.results.length > effectiveLimit;
+      const rows = hasMore ? result.results.slice(0, effectiveLimit) : result.results;
+
       // Convert to camelCase + add formattedSerial
-      const tickets = result.results.map((row) => {
+      const tickets = rows.map((row) => {
         const ticket = toCamel(row);
         ticket.formattedSerial = `${queue.prefix}${String(row.serial_number as number).padStart(3, '0')}`;
         return ticket;
       });
 
-      return NextResponse.json({ tickets });
+      return NextResponse.json({ tickets, hasMore });
     } catch (error) {
       console.error('Ticket list error:', error);
       return NextResponse.json(

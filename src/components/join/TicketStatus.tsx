@@ -5,10 +5,10 @@ import { motion } from 'framer-motion';
 import {
   Users, Clock, ArrowLeft, Loader2,
   Wallet, RefreshCw, Hash, AlertTriangle,
-  LogOut, Star, History, CheckCircle2,
+  LogOut, Star, History, CheckCircle2, ListOrdered,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,6 +26,44 @@ import type { Ticket } from '@/lib/types';
 import { toast } from 'sonner';
 import { QRCodeDisplay } from '@/components/QRCode';
 import { formatEwt, fadeInUp, parseBranding, STATUS_STYLES, StatusBadge } from './join-helpers';
+
+// ---------------------------------------------------------------------------
+// Queue context data (now serving + waiting list) for the join confirmation view
+// ---------------------------------------------------------------------------
+interface QueueContextData {
+  nowServingSerial: number;
+  prefix: string;
+  queueName: string;
+  waitingSerials: number[];
+  waitingCount: number;
+}
+
+async function fetchQueueContext(tenantId: string, queueId: string): Promise<QueueContextData | null> {
+  try {
+    const res = await fetch(`/api/tenants/${tenantId}/display?queueId=${queueId}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const queues: Array<{
+      id: string;
+      name: string;
+      prefix: string;
+      nowServingSerial: number;
+      _waitingCount: number;
+      _waitingSerials?: Array<{ serialNumber: number }>;
+    }> = data?.tenant?._queues ?? [];
+    const q = queues[0];
+    if (!q) return null;
+    return {
+      nowServingSerial: q.nowServingSerial,
+      prefix: q.prefix,
+      queueName: q.name,
+      waitingSerials: (q._waitingSerials ?? []).map((w) => w.serialNumber),
+      waitingCount: q._waitingCount,
+    };
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Feedback Form Component
@@ -210,10 +248,28 @@ export function TicketStatusView({
 
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
 
+  // Queue context: now serving + waiting list
+  const [queueCtx, setQueueCtx] = useState<QueueContextData | null>(null);
+  const [queueCtxLoading, setQueueCtxLoading] = useState(true);
+
   const isTerminal = ticket.status === 'COMPLETED' || ticket.status === 'SKIPPED' || ticket.status === 'CANCELLED';
   const isServing = ticket.status === 'SERVING';
   const peopleAhead = ticket._peopleAhead ?? 0;
   const ewt = ticket._ewt ?? 0;
+
+  // Fetch queue context (now serving + waiting list)
+  useEffect(() => {
+    if (!ticket.queueId || !ticket.tenantId) return;
+    let cancelled = false;
+    setQueueCtxLoading(true);
+    fetchQueueContext(ticket.tenantId, ticket.queueId).then((data) => {
+      if (!cancelled) {
+        setQueueCtx(data);
+        setQueueCtxLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [ticket.queueId, ticket.tenantId, ticket.status]);
 
   // Progress: higher is better. If serving → 90%, if completed → 100%, etc.
   const progressValue = (() => {
@@ -222,9 +278,11 @@ export function TicketStatusView({
     if (ticket.status === 'SKIPPED' || ticket.status === 'CANCELLED') return 100;
     // WAITING: estimate based on position (if many ahead → lower)
     if (peopleAhead <= 0) return 80;
-    // Rough estimate: 20% base + scaled by position
     return Math.max(10, Math.min(75, 80 - peopleAhead * 8));
   })();
+
+  const prefix = queue?.prefix ?? '';
+  const formatQueueSerial = (num: number) => `${prefix}-${String(num).padStart(3, '0')}`;
 
   return (
     <div className="flex flex-col gap-5" aria-live="polite">
@@ -364,6 +422,101 @@ export function TicketStatusView({
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* ---- NOW SERVING CARD ---- */}
+      {!isTerminal && (
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.3, duration: 0.4 }}
+        >
+          <Card className="border-dashed border-slate-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <ListOrdered className="w-4 h-4" />
+                Now Serving
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {queueCtxLoading ? (
+                <Skeleton className="h-12 w-32 rounded-lg" />
+              ) : queueCtx && queueCtx.nowServingSerial > 0 ? (
+                <div className="flex items-center gap-3">
+                  <p className="text-3xl font-bold text-emerald-600 font-mono">
+                    {formatQueueSerial(queueCtx.nowServingSerial)}
+                  </p>
+                  <span className="text-xs text-muted-foreground">
+                    at {queueCtx.queueName}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No tickets served yet</p>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* ---- WAITING LIST (ticket serials only) ---- */}
+      {!isTerminal && (
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.4, duration: 0.4 }}
+        >
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  Waiting List
+                </CardTitle>
+                {queueCtx && (
+                  <Badge variant="outline" className="text-xs">
+                    {queueCtx.waitingCount} {queueCtx.waitingCount === 1 ? 'ticket' : 'tickets'}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {queueCtxLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4].map((i) => (
+                    <Skeleton key={i} className="h-9 w-full rounded-lg" />
+                  ))}
+                </div>
+              ) : queueCtx && queueCtx.waitingSerials.length > 0 ? (
+                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
+                  {queueCtx.waitingSerials.map((sn, idx) => {
+                    const isMyTicket = sn === ticket.serialNumber;
+                    return (
+                      <div
+                        key={sn}
+                        className={`flex items-center justify-center px-3.5 py-2 rounded-lg text-sm font-bold font-mono transition-colors ${
+                          isMyTicket
+                            ? 'bg-emerald-100 text-emerald-700 border-2 border-emerald-400 ring-2 ring-emerald-200'
+                            : 'bg-slate-50 text-slate-700 border border-slate-200'
+                        }`}
+                      >
+                        {formatQueueSerial(sn)}
+                        {isMyTicket && (
+                          <span className="ml-1.5 text-[10px] font-medium text-emerald-600 normal-case tracking-normal">
+                            You
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No other tickets waiting
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {/* Serving Alert */}
       {isServing && (

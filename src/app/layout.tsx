@@ -21,9 +21,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "QueueFlow - Smart Queue Management SaaS",
-  description: "Zero-friction queue management with QR codes, real-time updates, and edge-native performance. Eliminate waiting lines for your business.",
-  keywords: ["queue management", "QMS", "SaaS", "queue system", "waiting line", "customer management", "real-time queue", "PWA"],
+  title: "QueueFlow - Smart Queue Management System | Digital Queue Management Platform",
+  description: "Transform your waiting line management with QueueFlow's virtual queue management system. A digital queue management platform with QR code entry, real-time updates, and affordable queue management for businesses of all sizes. Reduce customer waiting frustration and improve staff productivity.",
+  keywords: ["queue management system", "digital queue management", "smart queue management", "virtual queue management", "online queue system", "cloud queue management", "QR queue management", "customer queue management", "waiting line management", "queue ticket system", "queue management platform", "queue management solution", "queue management application", "enterprise queue management", "affordable queue management", "multi-branch queue management", "electronic queue management", "queue ticket software"],
   authors: [{ name: "QueueFlow" }],
   icons: {
     icon: "/icons/icon-192.png",
@@ -36,14 +36,14 @@ export const metadata: Metadata = {
     title: 'QueueFlow',
   },
   openGraph: {
-    title: "QueueFlow - Smart Queue Management",
-    description: "Eliminate waiting lines with smart, QR-based queue management. Real-time updates, pay-per-entry billing, and multi-location support.",
+    title: "QueueFlow - Smart Queue Management System | Digital Queue Management Platform",
+    description: "Transform waiting line management with a virtual queue management system. QR-based digital queue management, real-time updates, and affordable queue management for every business.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "QueueFlow - Smart Queue Management",
-    description: "Eliminate waiting lines with smart queue management.",
+    title: "QueueFlow - Smart Queue Management System",
+    description: "A digital queue management platform that reduces customer waiting frustration. QR queue management with real-time updates.",
   },
 };
 
