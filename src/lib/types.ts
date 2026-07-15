@@ -31,6 +31,7 @@ export interface Queue {
   id: string;
   tenantId: string;
   name: string;
+  locationTag: string | null;
   description: string | null;
   defaultServiceTimeSec: number;
   prefix: string;
@@ -178,6 +179,7 @@ export interface QueueRow {
   id: string;
   tenant_id: string;
   name: string;
+  location_tag: string | null;
   description: string | null;
   default_service_time_sec: number;
   prefix: string;

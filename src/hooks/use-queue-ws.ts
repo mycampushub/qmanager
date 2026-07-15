@@ -1,30 +1,31 @@
 // =============================================================================
-// QueueFlow — Queue Polling Hook (replaces WebSocket for free-plan CF Workers)
+// QueueFlow — Real-Time WebSocket Hook (Socket.io)
 //
-// Polls a lightweight endpoint to detect queue changes and emits events
-// with the same interface as the previous WebSocket hook.
+// Connects to the WebSocket mini-service (port 3003 via Caddy proxy).
+// Clients join a tenant room and receive real-time events.
 //
-// Events emitted on change detection:
-//   TICKET_CALLED   — now_serving_serial changed
-//   TICKET_CREATED  — current_serial changed (new ticket joined)
-//   QUEUE_UPDATE    — any other queue data change
+// Events received:
+//   TICKET_CALLED    — a ticket was called to serve
+//   TICKET_COMPLETED — a ticket was completed
+//   TICKET_SKIPPED   — a ticket was skipped
+//   TICKET_RECALLED  — a skipped ticket was recalled
+//   TICKET_CREATED   — a new ticket joined a queue
+//   TICKET_CANCELLED — a ticket was cancelled
+//   QUEUE_UPDATE     — queue configuration changed
+//
+// Falls back to polling if WebSocket connection fails.
 // =============================================================================
 
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { io } from 'socket.io-client';
 
 export interface WSEvent {
   type: string;
   event?: string;
   tenantId?: string;
   payload?: Record<string, unknown>;
-}
-
-interface QueueSnapshot {
-  id: string;
-  now_serving_serial: number;
-  current_serial: number;
 }
 
 interface UseQueueWebSocketResult {
@@ -35,17 +36,17 @@ interface UseQueueWebSocketResult {
   broadcast: (tenantId: string, event: string, payload: Record<string, unknown>) => void;
 }
 
-export function useQueueWS(tenantId?: string, authToken?: string): UseQueueWebSocketResult {
+export function useQueueWS(tenantId?: string, _authToken?: string): UseQueueWebSocketResult {
   const [lastEvent, setLastEvent] = useState<WSEvent | null>(null);
-  const prevSnapRef = useRef<string>(''); // JSON-stringified snapshot for comparison
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [connected, setConnected] = useState(false);
+  const socketRef = useRef<ReturnType<typeof io> | null>(null);
   const mountedRef = useRef(true);
 
   const clearLastEvent = useCallback(() => setLastEvent(null), []);
 
-  // No-op: polling cannot broadcast
+  // No-op: clients don't broadcast in this architecture
   const broadcast = useCallback((_tenantId: string, _event: string, _payload: Record<string, unknown>) => {
-    // no-op — polling is receive-only
+    // no-op — server-side API routes emit events
   }, []);
 
   useEffect(() => {
@@ -53,88 +54,58 @@ export function useQueueWS(tenantId?: string, authToken?: string): UseQueueWebSo
 
     mountedRef.current = true;
 
-    async function poll() {
+    // Connect to WebSocket service via Caddy proxy
+    const socket = io('/?XTransformPort=3003', {
+      transports: ['websocket', 'polling'],
+      forceNew: true,
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
+      timeout: 10000,
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
       if (!mountedRef.current) return;
-      try {
-        const headers: Record<string, string> = {};
-        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      setConnected(true);
+      // Join the tenant room
+      socket.emit('join-tenant', { tenantId });
+    });
 
-        const res = await fetch(`/api/tenants/${tenantId}/poll`, { headers, signal: AbortSignal.timeout(8000) });
-        if (!res.ok || !mountedRef.current) return;
+    socket.on('disconnect', () => {
+      if (!mountedRef.current) return;
+      setConnected(false);
+    });
 
-        const data = await res.json() as { queues: QueueSnapshot[] };
-        const snapshot = JSON.stringify(data.queues);
+    socket.on('connect_error', () => {
+      // Silently handle — reconnection will be attempted automatically
+      setConnected(false);
+    });
 
-        // First poll — just store, don't emit
-        if (!prevSnapRef.current) {
-          prevSnapRef.current = snapshot;
-          return;
-        }
+    // Listen for broadcast events
+    socket.on('event', (data: WSEvent) => {
+      if (!mountedRef.current) return;
+      // Filter: only process events for our tenant (or global events)
+      if (data.tenantId && data.tenantId !== tenantId) return;
+      setLastEvent(data);
+    });
 
-        if (snapshot !== prevSnapRef.current) {
-          const prev: QueueSnapshot[] = JSON.parse(prevSnapRef.current);
-          const curr: QueueSnapshot[] = data.queues;
-
-          // Compare to detect what changed
-          for (const c of curr) {
-            const p = prev.find((q) => q.id === c.id);
-            if (!p) continue;
-
-            if (c.now_serving_serial !== p.now_serving_serial) {
-              // A ticket was called — highest priority event
-              if (mountedRef.current) {
-                setLastEvent({
-                  type: 'TICKET_CALLED',
-                  event: 'TICKET_CALLED',
-                  tenantId,
-                  payload: {
-                    queueId: c.id,
-                    serialNumber: c.now_serving_serial,
-                    prevSerial: p.now_serving_serial,
-                  },
-                });
-              }
-              prevSnapRef.current = snapshot;
-              return; // emit one event per poll cycle
-            }
-
-            if (c.current_serial !== p.current_serial) {
-              // New ticket joined queue
-              if (mountedRef.current) {
-                setLastEvent({
-                  type: 'TICKET_CREATED',
-                  event: 'TICKET_CREATED',
-                  tenantId,
-                  payload: { queueId: c.id, serialNumber: c.current_serial },
-                });
-              }
-              prevSnapRef.current = snapshot;
-              return;
-            }
-          }
-
-          // Generic update (queue added/removed, etc.)
-          if (mountedRef.current) {
-            setLastEvent({ type: 'QUEUE_UPDATE', event: 'QUEUE_UPDATE', tenantId, payload: {} });
-          }
-          prevSnapRef.current = snapshot;
-        }
-      } catch {
-        // Network error — silently retry next interval
-      }
-    }
-
-    // Poll immediately, then every 3 seconds
-    poll();
-    timerRef.current = setInterval(poll, 3000);
-
+    // Cleanup on unmount or tenantId change
     return () => {
       mountedRef.current = false;
-      if (timerRef.current) clearInterval(timerRef.current);
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('connect_error');
+      socket.off('event');
+      socket.emit('leave-tenant', { tenantId });
+      socket.disconnect();
+      socketRef.current = null;
     };
-  }, [tenantId, authToken]);
+  }, [tenantId]);
 
-  return { connected: true, isConnected: true, lastEvent, clearLastEvent, broadcast };
+  return { connected, isConnected: connected, lastEvent, clearLastEvent, broadcast };
 }
 
 export const useQueueWebSocket = useQueueWS;

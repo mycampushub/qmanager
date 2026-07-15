@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
-import { useQueueWebSocket } from '@/hooks/use-queue-ws';
+import { useQueueEvents } from '@/hooks/use-queue-events';
 import { useLocale } from '@/lib/i18n';
 import { announceTicket } from '@/lib/voice';
 import type { StaffUser, Queue, Ticket } from '@/lib/types';
@@ -156,9 +156,9 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     }
   }, [originalOnRefresh, fetchTicketList, ticketListTab]);
 
-  const { lastEvent, clearLastEvent } = useQueueWebSocket(user.tenantId, authToken ?? undefined);
+  const { lastEvent, clearLastEvent, pushEvent } = useQueueEvents(user.tenantId);
   useEffect(() => {
-    if (lastEvent?.event === 'TICKET_CALLED' || lastEvent?.event === 'TICKET_COMPLETED' || lastEvent?.event === 'TICKET_SKIPPED' || lastEvent?.event === 'TICKET_RECALLED') {
+    if (lastEvent?.type === 'TICKET_CALLED' || lastEvent?.type === 'TICKET_COMPLETED' || lastEvent?.type === 'TICKET_SKIPPED' || lastEvent?.type === 'TICKET_RECALLED') {
       enhancedRefresh();
       clearLastEvent();
     }
@@ -360,6 +360,19 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     [queues, tenantName],
   );
 
+  // Group queues by location tag
+  const groupedQueues = queues.reduce<Record<string, typeof queues>>((acc, q) => {
+    const tag = q.locationTag || 'General';
+    if (!acc[tag]) acc[tag] = [];
+    acc[tag].push(q);
+    return acc;
+  }, {});
+  const locationTags = Object.keys(groupedQueues).sort((a, b) => {
+    if (a === 'General') return 1;
+    if (b === 'General') return -1;
+    return a.localeCompare(b);
+  });
+
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
@@ -388,40 +401,52 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
             </Button>
           </div>
         </div>
-        <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
-          {queues.map((q) => {
-            const isSelected = selectedQueueId === q.id;
-            return (
-              <button
-                key={q.id}
-                type="button"
-                onClick={() => { setSelectedQueueId(q.id); setCurrentTicket(null); setServingTime(0); }}
-                className={`flex-shrink-0 w-40 sm:w-44 rounded-xl border-2 p-2.5 sm:p-3 text-left transition-all ${
-                  isSelected
-                    ? 'border-emerald-500 bg-emerald-50 shadow-sm'
-                    : 'border-transparent bg-muted/40 hover:bg-muted/70'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className={`flex size-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${
-                      isSelected ? 'bg-emerald-600' : 'bg-muted-foreground/20'
-                    }`}
-                  >
-                    {q.prefix}
-                  </div>
-                  <div className="min-w-0">
-                    <p className={`text-sm font-medium truncate ${isSelected ? 'text-emerald-900' : 'text-foreground'}`}>
-                      {q.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {q._waitingCount || 0} {tr('time.waiting').toLowerCase()}
-                    </p>
-                  </div>
+        <div className="space-y-3 overflow-x-auto pb-1 -mx-1 px-1">
+          {locationTags.map(tag => (
+            <div key={tag}>
+              {locationTags.length > 1 && (
+                <div className="flex items-center gap-2 py-1">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{tag}</span>
+                  <div className="flex-1 h-px bg-border/50" />
                 </div>
-              </button>
-            );
-          })}
+              )}
+              <div className="flex gap-3">
+                {groupedQueues[tag].map((q) => {
+                  const isSelected = selectedQueueId === q.id;
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => { setSelectedQueueId(q.id); setCurrentTicket(null); setServingTime(0); }}
+                      className={`flex-shrink-0 w-40 sm:w-44 rounded-xl border-2 p-2.5 sm:p-3 text-left transition-all ${
+                        isSelected
+                          ? 'border-emerald-500 bg-emerald-50 shadow-sm'
+                          : 'border-transparent bg-muted/40 hover:bg-muted/70'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={`flex size-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${
+                            isSelected ? 'bg-emerald-600' : 'bg-muted-foreground/20'
+                          }`}
+                        >
+                          {q.prefix}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`text-sm font-medium truncate ${isSelected ? 'text-emerald-900' : 'text-foreground'}`}>
+                            {q.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {q._waitingCount || 0} {tr('time.waiting').toLowerCase()}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
           {queues.length === 0 && (
             <p className="text-sm text-muted-foreground py-4">{tr('queue.noQueues')}</p>
           )}

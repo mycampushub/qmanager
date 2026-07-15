@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
-import type { Tenant, Queue, Ticket, TicketStatus } from '@/lib/types';
+import type { Tenant, Queue, Ticket } from '@/lib/types';
 import { QrCode, ArrowLeft, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/lib/i18n';
+import { useQueueEvents } from '@/hooks/use-queue-events';
 
 // ─── EXTRACTED COMPONENTS ──────────────────────────────────
 import QueueSelector from '@/components/join/QueueSelector';
@@ -107,12 +108,11 @@ export default function JoinView() {
   const [joining, setJoining] = useState(false);
   const [tracking, setTracking] = useState(false);
   const [loadingMyTickets, setLoadingMyTickets] = useState(false);
-  const [isPolling, setIsPolling] = useState(false);
-  const prevStatusRef = useRef<TicketStatus | null>(null);
 
-  // Polling
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [ticket, setTicket] = useState<Ticket | null>(activeTicket);
+
+  // Real-time events for ticket status changes (SSE or adaptive polling)
+  const { lastEvent, clearLastEvent } = useQueueEvents(ticket?.tenantId);
 
   // --- Callbacks (declared before effects that use them) ---
 
@@ -215,22 +215,8 @@ export default function JoinView() {
       const data = await res.json();
       const updated = data.ticket;
       if (updated) {
-        const prevStatus = prevStatusRef.current;
         setTicket(updated);
         setActiveTicket(updated);
-        // Only show toast on status change
-        if (prevStatus && prevStatus !== updated.status) {
-          if (updated.status === 'SERVING') {
-            toast.success('Your turn has come! Please proceed to the counter.');
-          } else if (updated.status === 'COMPLETED') {
-            toast.success('Your service has been completed!');
-          } else if (updated.status === 'SKIPPED') {
-            toast.error('Your ticket was skipped. Please contact staff.');
-          } else if (updated.status === 'CANCELLED') {
-            toast.error('Your ticket has been cancelled.');
-          }
-        }
-        prevStatusRef.current = updated.status;
       }
     } catch {
       toast.error('Failed to update ticket status');
@@ -238,29 +224,6 @@ export default function JoinView() {
       setTracking(false);
     }
   }, [ticket, setActiveTicket]);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    setIsPolling(false);
-  }, []);
-
-  const startPolling = useCallback(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    prevStatusRef.current = ticket?.status ?? null;
-    setIsPolling(true);
-    // Immediately fetch once
-    handleTrack();
-    // Then poll every 10s
-    pollRef.current = setInterval(() => {
-      handleTrack();
-    }, 10_000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [handleTrack, ticket?.status]);
 
   const handleShowMyTickets = useCallback(async () => {
     if (!ticket?.customerPhone || !ticket?.tenantId) return;
@@ -290,7 +253,6 @@ export default function JoinView() {
   );
 
   const handleBackToHome = useCallback(() => {
-    stopPolling();
     setJoinTenantId(null);
     setJoinQueueId(null);
     setTenantWithQueues(null);
@@ -298,15 +260,14 @@ export default function JoinView() {
     setTicket(null);
     setActiveTicket(null);
     setCurrentView('marketing');
-  }, [setJoinTenantId, setJoinQueueId, setActiveTicket, setCurrentView, stopPolling]);
+  }, [setJoinTenantId, setJoinQueueId, setActiveTicket, setCurrentView]);
 
   const handleNewTicket = useCallback(() => {
-    stopPolling();
     setTicket(null);
     setActiveTicket(null);
     setJoinQueueId(null);
     goTo('queue', -1);
-  }, [setActiveTicket, setJoinQueueId, goTo, stopPolling]);
+  }, [setActiveTicket, setJoinQueueId, goTo]);
 
   const handleLeaveQueue = useCallback(async () => {
     if (!ticket) return;
@@ -318,17 +279,15 @@ export default function JoinView() {
       });
       if (!res.ok) throw new Error('Failed to leave queue');
       toast.success('You have left the queue');
-      stopPolling();
       setTicket(null);
       setActiveTicket(null);
       goTo('queue', -1);
     } catch {
       toast.error('Failed to leave the queue');
     }
-  }, [ticket, setActiveTicket, goTo, stopPolling]);
+  }, [ticket, setActiveTicket, goTo]);
 
   const handleHome = useCallback(() => {
-    stopPolling();
     setJoinTenantId(null);
     setJoinQueueId(null);
     setTenantWithQueues(null);
@@ -336,7 +295,7 @@ export default function JoinView() {
     setTicket(null);
     setActiveTicket(null);
     setCurrentView('marketing');
-  }, [setJoinTenantId, setJoinQueueId, setActiveTicket, setCurrentView, stopPolling]);
+  }, [setJoinTenantId, setJoinQueueId, setActiveTicket, setCurrentView]);
 
   // --- Effects ---
 
@@ -355,31 +314,36 @@ export default function JoinView() {
     }
   }, [activeTicket]);
 
-  // Cleanup polling on unmount
+  // React to real-time events for ticket status changes
   useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
+    if (!lastEvent || !ticket) return;
 
-  // Stop polling when ticket reaches a terminal or serving state
-  useEffect(() => {
-    if (ticket && (ticket.status === 'SERVING' || ticket.status === 'COMPLETED' || ticket.status === 'SKIPPED' || ticket.status === 'CANCELLED')) {
-      stopPolling();
-    }
-  }, [ticket?.status, stopPolling]);
+    const { type, payload } = lastEvent;
 
-  // Auto-start polling when on confirmation step and ticket is WAITING
-  useEffect(() => {
-    if (step === 'confirmation' && ticket && (ticket.status === 'WAITING' || ticket.status === 'SERVING')) {
-      const cleanup = startPolling();
-      return cleanup;
+    if (type === 'TICKET_CALLED' && payload?.ticketId === ticket.id) {
+      setTicket(prev => prev ? { ...prev, status: 'SERVING' as const, servedAt: new Date().toISOString() } : prev);
+      setActiveTicket({ ...ticket, status: 'SERVING' as const, servedAt: new Date().toISOString() });
+      toast.success('Your turn has come! Please proceed to the counter.');
+    } else if (type === 'TICKET_COMPLETED' && payload?.ticketId === ticket.id) {
+      setTicket(prev => prev ? { ...prev, status: 'COMPLETED' as const, completedAt: new Date().toISOString() } : prev);
+      setActiveTicket({ ...ticket, status: 'COMPLETED' as const, completedAt: new Date().toISOString() });
+      toast.success('Your service has been completed!');
+    } else if (type === 'TICKET_SKIPPED' && payload?.ticketId === ticket.id) {
+      setTicket(prev => prev ? { ...prev, status: 'SKIPPED' as const, skippedAt: new Date().toISOString() } : prev);
+      setActiveTicket({ ...ticket, status: 'SKIPPED' as const, skippedAt: new Date().toISOString() });
+      toast.error('Your ticket was skipped. Please contact staff.');
+    } else if (type === 'TICKET_CANCELLED' && payload?.ticketId === ticket.id) {
+      setTicket(prev => prev ? { ...prev, status: 'CANCELLED' as const, cancelledAt: new Date().toISOString() } : prev);
+      setActiveTicket({ ...ticket, status: 'CANCELLED' as const, cancelledAt: new Date().toISOString() });
+      toast.error('Your ticket has been cancelled.');
+    } else if (type === 'TICKET_RECALLED' && payload?.ticketId === ticket.id) {
+      setTicket(prev => prev ? { ...prev, status: 'SERVING' as const, servedAt: new Date().toISOString() } : prev);
+      setActiveTicket({ ...ticket, status: 'SERVING' as const, servedAt: new Date().toISOString() });
+      toast.success('Your ticket has been recalled! Please proceed.');
     }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      setIsPolling(false);
-    };
-  }, [step, ticket, startPolling]);
+
+    clearLastEvent();
+  }, [lastEvent, ticket, setActiveTicket, clearLastEvent]);
 
   // Determine the header subtitle
   const headerSubtitle = (() => {
@@ -503,7 +467,7 @@ export default function JoinView() {
               <TicketStatusView
                 ticket={ticket}
                 tracking={tracking}
-                isPolling={isPolling}
+                isPolling={false}
                 onTrack={handleTrack}
                 onShowMyTickets={handleShowMyTickets}
                 onNewTicket={handleNewTicket}

@@ -3,6 +3,7 @@ import { getD1FromEnv } from '@/lib/db';
 import { authenticateRequest, rateLimit } from '@/lib/auth';
 import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
+import { emitWSEvent } from '@/lib/ws-emit';
 import { dbNow } from '@/lib/datetime';
 import { getClientIp, toCamel } from '@/lib/utils';
 
@@ -210,6 +211,15 @@ export async function POST(req: NextRequest) {
     dispatchWebhooks(tenantId, 'TICKET_CANCELLED', {
       ticketId,
       serialNumber: formattedSerial,
+      queueName: ticket.queue_name,
+      queueId: ticket.queue_id,
+    });
+
+    // Emit WebSocket event for real-time updates
+    emitWSEvent(tenantId, 'TICKET_CANCELLED', {
+      ticketId,
+      serialNumber: formattedSerial,
+      customerName: ticket.customer_name,
       queueName: ticket.queue_name,
       queueId: ticket.queue_id,
     });

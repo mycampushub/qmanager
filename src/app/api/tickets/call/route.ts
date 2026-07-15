@@ -3,6 +3,7 @@ import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
+import { emitWSEvent } from '@/lib/ws-emit';
 import { dbNow } from '@/lib/datetime';
 import { toCamel } from '@/lib/utils';
 
@@ -242,6 +243,17 @@ export const POST = withAuth(
         queueName: queue.name,
       };
 
+      // Emit WebSocket event for auto-completed previous serving ticket
+      if (prevServing) {
+        const prevFormatted = `${queue.prefix}${String(prevServing.serial_number).padStart(3, '0')}`;
+        emitWSEvent(tenantId, 'TICKET_COMPLETED', {
+          ticketId: prevServing.id,
+          serialNumber: prevFormatted,
+          queueName: queue.name,
+          queueId,
+        });
+      }
+
       // Fire webhooks (fire-and-forget)
       dispatchWebhooks(tenantId, 'TICKET_CALLED', {
         ticketId: nextWaiting.id,
@@ -249,6 +261,16 @@ export const POST = withAuth(
         customerName: nextWaiting.customer_name,
         queueName: queue.name,
         queueId,
+      });
+
+      // Emit WebSocket event for real-time updates
+      emitWSEvent(tenantId, 'TICKET_CALLED', {
+        ticketId: nextWaiting.id,
+        serialNumber: formattedSerial,
+        customerName: nextWaiting.customer_name,
+        queueName: queue.name,
+        queueId,
+        position: 1,
       });
 
       return NextResponse.json({

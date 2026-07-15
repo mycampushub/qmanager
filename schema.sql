@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS queues (
   id                       TEXT PRIMARY KEY,
   tenant_id                TEXT NOT NULL,
   name                     TEXT NOT NULL,
+  location_tag             TEXT,
   description              TEXT,
   default_service_time_sec INTEGER NOT NULL DEFAULT 300,
   prefix                   TEXT NOT NULL DEFAULT 'A',
@@ -275,6 +276,7 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
 
 CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_queues_tenant_active ON queues(tenant_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_queues_tenant_location ON queues(tenant_id, location_tag);
 CREATE INDEX IF NOT EXISTS idx_tickets_tenant_status ON tickets(tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_tickets_queue_status_serial ON tickets(queue_id, status, serial_number);
 CREATE INDEX IF NOT EXISTS idx_tickets_phone_tenant ON tickets(customer_phone, tenant_id);
@@ -343,6 +345,10 @@ CREATE TRIGGER IF NOT EXISTS trg_users_updated
   BEGIN
     UPDATE users SET updated_at = datetime('now') WHERE id = OLD.id;
   END;
+
+-- Migration: add location_tag column if not exists
+-- Run this if upgrading from an older schema
+-- ALTER TABLE queues ADD COLUMN location_tag TEXT;
 
 CREATE TRIGGER IF NOT EXISTS trg_queues_updated
   AFTER UPDATE ON queues

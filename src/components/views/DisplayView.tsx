@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/stores/app-store';
-import { useQueueWebSocket } from '@/hooks/use-queue-ws';
+import { useQueueEvents } from '@/hooks/use-queue-events';
 import { useLocale } from '@/lib/i18n';
 import { announceTicket, preloadVoices } from '@/lib/voice';
 import type { Tenant, Queue, BrandingConfig } from '@/lib/types';
@@ -171,7 +171,7 @@ function TickerBar({ items, accentColor }: { items: CompletedTicket[]; accentCol
 /* ------------------------------------------------------------------ */
 function MainDisplay({ tenantId }: { tenantId: string }) {
   const { setDisplayTenantId, setCurrentView } = useAppStore();
-  const { lastEvent, clearLastEvent } = useQueueWebSocket(tenantId);
+  const { lastEvent, clearLastEvent } = useQueueEvents(tenantId);
   const { locale, t } = useLocale();
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -230,6 +230,22 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
   /* Rotate active queue for the big "NOW SERVING" display */
   const queues = useMemo(() => tenant?._queues ?? [], [tenant]);
 
+  // Group queues by location tag for the status grid
+  const { groupedQueues, locationTags } = useMemo(() => {
+    const grouped = queues.reduce<Record<string, typeof queues>>((acc, q) => {
+      const tag = q.locationTag || 'General';
+      if (!acc[tag]) acc[tag] = [];
+      acc[tag].push(q);
+      return acc;
+    }, {});
+    const tags = Object.keys(grouped).sort((a, b) => {
+      if (a === 'General') return 1;
+      if (b === 'General') return -1;
+      return a.localeCompare(b);
+    });
+    return { groupedQueues: grouped, locationTags: tags };
+  }, [queues]);
+
   useEffect(() => {
     if (queues.length <= 1) return;
     const interval = setInterval(() => {
@@ -238,13 +254,13 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
     return () => clearInterval(interval);
   }, [queues.length]);
 
-  /* Handle WebSocket events */
+  /* Handle real-time events (SSE or polling) */
   useEffect(() => {
     if (!lastEvent) return;
 
     // Defer all setState calls to microtask to satisfy lint
     queueMicrotask(() => {
-      if (lastEvent.event === 'TICKET_CALLED') {
+      if (lastEvent.type === 'TICKET_CALLED') {
         playChime();
         setFlashActive(true);
         fetchTenantData();
@@ -254,13 +270,12 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
           const idx = queues.findIndex((q) => q.id === queueId);
           if (idx >= 0) {
             setActiveQueueIdx(idx);
-            // Voice announcement
+            // Voice announcement — serialNumber in payload is pre-formatted (e.g. "A-042")
             const calledQueue = queues[idx];
-            const serialNum = lastEvent.payload?.serialNumber as number | undefined;
-            if (serialNum && calledQueue) {
-              const serial = formatSerialFromParts(calledQueue.prefix, serialNum);
+            const serialStr = lastEvent.payload?.serialNumber as string | undefined;
+            if (serialStr && calledQueue) {
               announceTicket({
-                serial,
+                serial: serialStr,
                 queueName: calledQueue.name,
                 locale,
               });
@@ -270,18 +285,16 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
         setTimeout(() => setFlashActive(false), 1200);
       }
 
-      if (lastEvent.event === 'TICKET_COMPLETED') {
+      if (lastEvent.type === 'TICKET_COMPLETED') {
         const payload = lastEvent.payload ?? {};
-        const serialNumber = payload.serialNumber as number | undefined;
-        const prefix = payload.prefix as string | undefined;
+        const serialStr = payload.serialNumber as string | undefined;
         const queueName = payload.queueName as string | undefined;
         const ticketId = payload.ticketId as string | undefined;
 
-        if (serialNumber && prefix && ticketId) {
-          const formattedSerial = `${prefix}-${String(serialNumber).padStart(3, '0')}`;
+        if (serialStr && ticketId) {
           setRecentlyCompleted((prev) => {
             const updated = [
-              { id: ticketId, formattedSerial, queueName: queueName || '', completedAt: Date.now() },
+              { id: ticketId, formattedSerial: serialStr, queueName: queueName || '', completedAt: Date.now() },
               ...prev,
             ].slice(0, 10);
             return updated;
@@ -290,7 +303,7 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
         fetchTenantData();
       }
 
-      if (lastEvent.event === 'TICKET_CREATED' || lastEvent.event === 'QUEUE_UPDATE') {
+      if (lastEvent.type === 'TICKET_CREATED' || lastEvent.type === 'QUEUE_UPDATE') {
         fetchTenantData();
       }
     });
@@ -508,55 +521,67 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
             </div>
 
             <ScrollArea className="w-full">
-              <div className="flex gap-4 pb-2">
-                {queues.map((queue, idx) => (
-                  <motion.div
-                    key={queue.id}
-                    whileHover={{ y: -2 }}
-                    className={`shrink-0 w-56 rounded-xl border p-4 transition-colors ${
-                      idx === activeQueueIdx
-                        ? 'border-slate-600 bg-slate-800/60'
-                        : 'border-slate-800/60 bg-slate-900/60'
-                    }`}
-                    style={
-                      idx === activeQueueIdx
-                        ? { boxShadow: `0 0 20px ${accentColor}10` }
-                        : undefined
-                    }
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-semibold text-white truncate">{queue.name}</h3>
-                      <Badge
-                        variant="outline"
-                        className="border-slate-700 text-slate-400 text-xs shrink-0"
-                      >
-                        {queue.prefix}
-                      </Badge>
-                    </div>
-
-                    <p
-                      className="text-3xl font-bold font-mono mb-3"
-                      style={{ color: accentColor }}
-                    >
-                      {formatSerial(queue)}
-                    </p>
-
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-1.5">
-                        <Users className="w-3.5 h-3.5 text-slate-500" />
-                        <span className="text-slate-500">{t('time.waiting')}:</span>
-                        <span className={`font-semibold ${waitColor(queue._waitingCount ?? 0)}`}>
-                          {queue._waitingCount ?? 0}
-                        </span>
+              <div className="space-y-3 pb-2">
+                {locationTags.map(tag => (
+                  <div key={tag}>
+                    {locationTags.length > 1 && (
+                      <div className="flex items-center gap-2 py-1">
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{tag}</span>
+                        <div className="flex-1 h-px bg-slate-800/60" />
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Timer className="w-3.5 h-3.5 text-slate-500" />
-                        <span className="text-slate-400 text-xs">
-                          {formatEwt(queue._ewt ?? 0)}
-                        </span>
-                      </div>
+                    )}
+                    <div className="flex gap-4">
+                      {groupedQueues[tag].map((queue) => (
+                        <motion.div
+                          key={queue.id}
+                          whileHover={{ y: -2 }}
+                          className={`shrink-0 w-56 rounded-xl border p-4 transition-colors ${
+                            activeQueue?.id === queue.id
+                              ? 'border-slate-600 bg-slate-800/60'
+                              : 'border-slate-800/60 bg-slate-900/60'
+                          }`}
+                          style={
+                            activeQueue?.id === queue.id
+                              ? { boxShadow: `0 0 20px ${accentColor}10` }
+                              : undefined
+                          }
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="font-semibold text-white truncate">{queue.name}</h3>
+                            <Badge
+                              variant="outline"
+                              className="border-slate-700 text-slate-400 text-xs shrink-0"
+                            >
+                              {queue.prefix}
+                            </Badge>
+                          </div>
+
+                          <p
+                            className="text-3xl font-bold font-mono mb-3"
+                            style={{ color: accentColor }}
+                          >
+                            {formatSerial(queue)}
+                          </p>
+
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-1.5">
+                              <Users className="w-3.5 h-3.5 text-slate-500" />
+                              <span className="text-slate-500">{t('time.waiting')}:</span>
+                              <span className={`font-semibold ${waitColor(queue._waitingCount ?? 0)}`}>
+                                {queue._waitingCount ?? 0}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Timer className="w-3.5 h-3.5 text-slate-500" />
+                              <span className="text-slate-400 text-xs">
+                                {formatEwt(queue._ewt ?? 0)}
+                              </span>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
                     </div>
-                  </motion.div>
+                  </div>
                 ))}
               </div>
             </ScrollArea>

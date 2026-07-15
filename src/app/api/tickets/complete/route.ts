@@ -3,6 +3,7 @@ import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { canTransition } from '@/lib/state-machine';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
+import { emitWSEvent } from '@/lib/ws-emit';
 import { dbNow } from '@/lib/datetime';
 import { getClientIp, toCamel } from '@/lib/utils';
 
@@ -204,6 +205,15 @@ export const POST = withAuth(
 
       // Fire webhooks (fire-and-forget)
       dispatchWebhooks(tenantId, 'TICKET_COMPLETED', {
+        ticketId,
+        serialNumber: formattedSerial,
+        queueName: ticket.queue_name,
+        queueId: ticket.queue_id,
+        durationSec,
+      });
+
+      // Emit WebSocket event for real-time updates
+      emitWSEvent(tenantId, 'TICKET_COMPLETED', {
         ticketId,
         serialNumber: formattedSerial,
         queueName: ticket.queue_name,

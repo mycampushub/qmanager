@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getD1FromEnv } from '@/lib/db';
 import { rateLimit } from '@/lib/auth';
 import { dispatchWebhooks } from '@/lib/webhook-dispatch';
+import { emitWSEvent } from '@/lib/ws-emit';
 import { getClientIp } from '@/lib/utils';
 
 const TICKET_COST_CENTS = 100;
@@ -407,6 +408,15 @@ export async function POST(req: NextRequest) {
 
     // Fire webhooks (fire-and-forget)
     dispatchWebhooks(tenantId, 'TICKET_CREATED', {
+      ticketId,
+      serialNumber: formattedSerial,
+      customerName,
+      queueName: queue.name as string,
+      queueId,
+    });
+
+    // Emit WebSocket event for real-time updates
+    emitWSEvent(tenantId, 'TICKET_CREATED', {
       ticketId,
       serialNumber: formattedSerial,
       customerName,

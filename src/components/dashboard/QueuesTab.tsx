@@ -28,6 +28,7 @@ function QueueFormDialog({
   onRefresh: () => void;
 }) {
   const isEdit = !!queue;
+  const [locationTag, setLocationTag] = useState(queue?.locationTag || '');
   const [name, setName] = useState(queue?.name || '');
   const [description, setDescription] = useState(queue?.description || '');
   const [prefix, setPrefix] = useState(queue?.prefix || '');
@@ -37,6 +38,7 @@ function QueueFormDialog({
 
   useEffect(() => {
     if (open) {
+      setLocationTag(queue?.locationTag || '');
       setName(queue?.name || '');
       setDescription(queue?.description || '');
       setPrefix(queue?.prefix || '');
@@ -58,6 +60,7 @@ function QueueFormDialog({
           headers,
           body: JSON.stringify({
             queueId: queue!.id,
+            locationTag: locationTag.trim() || undefined,
             name: name.trim(),
             description: description.trim() || undefined,
             prefix: prefix.trim().toUpperCase(),
@@ -73,6 +76,7 @@ function QueueFormDialog({
           headers,
           body: JSON.stringify({
             tenantId,
+            locationTag: locationTag.trim() || undefined,
             name: name.trim(),
             description: description.trim() || undefined,
             prefix: prefix.trim().toUpperCase(),
@@ -99,6 +103,11 @@ function QueueFormDialog({
           <DialogTitle>{isEdit ? 'Edit Queue' : 'Create Queue'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="queue-location">Location Tag</Label>
+            <Input id="queue-location" placeholder="e.g. Dhanmondi, Gulshan" value={locationTag} onChange={(e) => setLocationTag(e.target.value)} />
+            <p className="text-xs text-muted-foreground">Optional tag to group queues by location</p>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="queue-name">Name *</Label>
             <Input id="queue-name" placeholder="e.g. General, VIP" value={name} onChange={(e) => setName(e.target.value)} required />
@@ -192,6 +201,17 @@ function DeleteQueueDialog({
 // ─── QUEUES TAB (with CRUD) ─────────────────────────────────
 export function QueuesTab({ user, tenantData, onRefresh }: { user: StaffUser; tenantData: { queues: Queue[] } | null; onRefresh: () => void }) {
   const queues = tenantData?.queues || [];
+  const groupedQueues = queues.reduce<Record<string, Queue[]>>((acc, q) => {
+    const tag = q.locationTag || 'General';
+    if (!acc[tag]) acc[tag] = [];
+    acc[tag].push(q);
+    return acc;
+  }, {});
+  const locationTags = Object.keys(groupedQueues).sort((a, b) => {
+    if (a === 'General') return 1;
+    if (b === 'General') return -1;
+    return a.localeCompare(b);
+  });
   const isManager = user.role === 'MANAGER';
   const authToken = useAppStore((s) => s.authToken);
 
@@ -245,57 +265,66 @@ export function QueuesTab({ user, tenantData, onRefresh }: { user: StaffUser; te
           </Button>
         )}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {queues.map((queue) => (
-          <motion.div key={queue.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: queues.indexOf(queue) * 0.05 }}>
-            <Card className={queue.isActive ? '' : 'opacity-50'}>
-              <CardContent className="p-3 sm:p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                      {queue.prefix}
+      {locationTags.map((tag) => (
+        <div key={tag} className="space-y-4">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{tag}</h3>
+            <div className="flex-1 h-px bg-border" />
+            <Badge variant="outline" className="text-xs">{groupedQueues[tag].length}</Badge>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {groupedQueues[tag].map((queue, idx) => (
+              <motion.div key={queue.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }}>
+                <Card className={queue.isActive ? '' : 'opacity-50'}>
+                  <CardContent className="p-3 sm:p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
+                          {queue.prefix}
+                        </div>
+                        <div>
+                          <p className="font-medium">{queue.name}</p>
+                          <p className="text-xs text-muted-foreground">Avg: {queue._avgServiceTime || queue.defaultServiceTimeSec}s per customer</p>
+                        </div>
+                      </div>
+                      <Badge variant={queue.isActive ? 'default' : 'secondary'} className={queue.isActive ? 'bg-emerald-100 text-emerald-700' : ''}>
+                        {queue.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
                     </div>
-                    <div>
-                      <p className="font-medium">{queue.name}</p>
-                      <p className="text-xs text-muted-foreground">Avg: {queue._avgServiceTime || queue.defaultServiceTimeSec}s per customer</p>
+                    <div className="grid grid-cols-3 gap-3 text-center pt-3 border-t">
+                      <div>
+                        <p className="text-base sm:text-lg font-bold">{queue.nowServingSerial ? `${queue.prefix}-${String(queue.nowServingSerial).padStart(3, '0')}` : '—'}</p>
+                        <p className="text-xs text-muted-foreground">Serving</p>
+                      </div>
+                      <div>
+                        <p className="text-base sm:text-lg font-bold text-amber-600">{queue._waitingCount || 0}</p>
+                        <p className="text-xs text-muted-foreground">Waiting</p>
+                      </div>
+                      <div>
+                        <p className="text-base sm:text-lg font-bold">{queue._ewt ? `${Math.ceil(queue._ewt / 60)}m` : '—'}</p>
+                        <p className="text-xs text-muted-foreground">EWT</p>
+                      </div>
                     </div>
-                  </div>
-                  <Badge variant={queue.isActive ? 'default' : 'secondary'} className={queue.isActive ? 'bg-emerald-100 text-emerald-700' : ''}>
-                    {queue.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-3 gap-3 text-center pt-3 border-t">
-                  <div>
-                    <p className="text-base sm:text-lg font-bold">{queue.nowServingSerial ? `${queue.prefix}-${String(queue.nowServingSerial).padStart(3, '0')}` : '—'}</p>
-                    <p className="text-xs text-muted-foreground">Serving</p>
-                  </div>
-                  <div>
-                    <p className="text-base sm:text-lg font-bold text-amber-600">{queue._waitingCount || 0}</p>
-                    <p className="text-xs text-muted-foreground">Waiting</p>
-                  </div>
-                  <div>
-                    <p className="text-base sm:text-lg font-bold">{queue._ewt ? `${Math.ceil(queue._ewt / 60)}m` : '—'}</p>
-                    <p className="text-xs text-muted-foreground">EWT</p>
-                  </div>
-                </div>
-                {isManager && (
-                  <div className="flex items-center gap-1 pt-3 border-t mt-3">
-                    <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => handleOpenEdit(queue)} aria-label={`Edit ${queue.name}`}>
-                      <Pencil className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => handleToggleActive(queue)} aria-label={`${queue.isActive ? 'Deactivate' : 'Activate'} ${queue.name}`}>
-                      {queue.isActive ? <ShieldX className="w-3.5 h-3.5 text-amber-600" /> : <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />}
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => handleOpenDelete(queue)} aria-label={`Delete ${queue.name}`}>
-                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
+                    {isManager && (
+                      <div className="flex items-center gap-1 pt-3 border-t mt-3">
+                        <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => handleOpenEdit(queue)} aria-label={`Edit ${queue.name}`}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => handleToggleActive(queue)} aria-label={`${queue.isActive ? 'Deactivate' : 'Activate'} ${queue.name}`}>
+                          {queue.isActive ? <ShieldX className="w-3.5 h-3.5 text-amber-600" /> : <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />}
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => handleOpenDelete(queue)} aria-label={`Delete ${queue.name}`}>
+                          <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      ))}
       {queues.length === 0 && (
         <Card className="border-dashed">
           <CardContent className="py-8 text-center text-muted-foreground">

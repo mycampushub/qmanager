@@ -63,6 +63,7 @@ export async function GET(
         id: string;
         tenant_id: string;
         name: string;
+        location_tag: string | null;
         description: string | null;
         default_service_time_sec: number;
         prefix: string;
@@ -143,6 +144,7 @@ export async function GET(
         currentSerial: queue.current_serial,
         nowServingSerial: queue.now_serving_serial,
         isActive: queue.is_active === 1,
+        locationTag: queue.location_tag,
         _waitingCount: waiting,
         _avgServiceTime: avgServiceTime,
         _ewt: waiting * avgServiceTime,

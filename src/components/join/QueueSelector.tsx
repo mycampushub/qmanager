@@ -54,6 +54,18 @@ export default function QueueSelector({
     onJoin(selectedQueue, customerName.trim(), phone, notes);
   };
 
+  const groupedQueues = queues.reduce<Record<string, typeof queues>>((acc, q) => {
+    const tag = q.locationTag || 'General';
+    if (!acc[tag]) acc[tag] = [];
+    acc[tag].push(q);
+    return acc;
+  }, {});
+  const locationTags = Object.keys(groupedQueues).sort((a, b) => {
+    if (a === 'General') return 1;
+    if (b === 'General') return -1;
+    return a.localeCompare(b);
+  });
+
   return (
     <div className="flex flex-col gap-5">
       {/* Tenant Header */}
@@ -78,55 +90,65 @@ export default function QueueSelector({
             <p className="text-sm text-muted-foreground">No active queues available</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-2.5 max-h-56 overflow-y-auto">
-            {queues.map((q, i) => (
-              <motion.button
-                key={q.id}
-                custom={i}
-                variants={fadeInUp}
-                initial="hidden"
-                animate="visible"
-                whileTap={{ scale: 0.97 }}
-                className="w-full text-left"
-                onClick={() => setSelectedQueue(q.id)}
-              >
-                <Card
-                  className={`py-3.5 px-4 transition-all cursor-pointer border-2 ${
-                    selectedQueue === q.id
-                      ? 'bg-opacity-5 shadow-sm'
-                      : 'border-transparent hover:bg-accent/50'
-                  }`}
-                  style={selectedQueue === q.id ? {
-                    borderColor: primaryColor,
-                    backgroundColor: `${primaryColor}0D`,
-                  } : undefined}
-                >
-                  <CardContent className="p-0">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className="flex size-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
-                          style={selectedQueue === q.id ? { backgroundColor: primaryColor } : { backgroundColor: 'var(--muted)' }}
-                        >
-                          {q.prefix}
+          <div className="flex flex-col gap-2.5 max-h-80 overflow-y-auto">
+            {locationTags.map((tag) => (
+              <div key={tag} className="space-y-2.5">
+                {locationTags.length > 1 && (
+                  <div className="flex items-center gap-2 pt-2">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{tag}</span>
+                    <div className="flex-1 h-px bg-border/50" />
+                  </div>
+                )}
+                {groupedQueues[tag].map((q, i) => (
+                  <motion.button
+                    key={q.id}
+                    custom={i}
+                    variants={fadeInUp}
+                    initial="hidden"
+                    animate="visible"
+                    whileTap={{ scale: 0.97 }}
+                    className="w-full text-left"
+                    onClick={() => setSelectedQueue(q.id)}
+                  >
+                    <Card
+                      className={`py-3.5 px-4 transition-all cursor-pointer border-2 ${
+                        selectedQueue === q.id
+                          ? 'bg-opacity-5 shadow-sm'
+                          : 'border-transparent hover:bg-accent/50'
+                      }`}
+                      style={selectedQueue === q.id ? {
+                        borderColor: primaryColor,
+                        backgroundColor: `${primaryColor}0D`,
+                      } : undefined}
+                    >
+                      <CardContent className="p-0">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className="flex size-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white"
+                              style={selectedQueue === q.id ? { backgroundColor: primaryColor } : { backgroundColor: 'var(--muted)' }}
+                            >
+                              {q.prefix}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-foreground text-sm truncate">{q.name}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {q._waitingCount ?? 0} waiting
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Timer className="size-3" />
+                              <span>{formatEwt(q._ewt ?? 0)}</span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground text-sm truncate">{q.name}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {q._waitingCount ?? 0} waiting
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Timer className="size-3" />
-                          <span>{formatEwt(q._ewt ?? 0)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.button>
+                      </CardContent>
+                    </Card>
+                  </motion.button>
+                ))}
+              </div>
             ))}
           </div>
         )}

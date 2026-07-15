@@ -3,6 +3,7 @@ import { withAuth, type JwtPayload } from '@/lib/api-auth';
 import { getD1FromEnv } from '@/lib/db';
 import { dbNow } from '@/lib/datetime';
 import { getClientIp, toCamel } from '@/lib/utils';
+import { emitWSEvent } from '@/lib/ws-emit';
 
 // Helper: map a queue DB row to the API response shape
 function mapQueue(q: Record<string, unknown>): Record<string, unknown> {
@@ -100,12 +101,14 @@ export const POST = withAuth(
         description,
         prefix,
         defaultServiceTimeSec,
+        locationTag,
       } = body as {
         tenantId: string;
         name: string;
         description?: string;
         prefix: string;
         defaultServiceTimeSec?: number;
+        locationTag?: string;
       };
 
       if (!tenantId || !name || !prefix) {
@@ -195,10 +198,10 @@ export const POST = withAuth(
 
       await d1
         .prepare(
-          `INSERT INTO queues (id, tenant_id, name, description, default_service_time_sec, prefix, current_serial, now_serving_serial, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1)`
+          `INSERT INTO queues (id, tenant_id, name, location_tag, description, default_service_time_sec, prefix, current_serial, now_serving_serial, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 1)`
         )
-        .bind(id, tenantId, name, description || null, svcTime, prefix.toUpperCase())
+        .bind(id, tenantId, name, locationTag || null, description || null, svcTime, prefix.toUpperCase())
         .run();
 
       // Audit log
@@ -213,7 +216,7 @@ export const POST = withAuth(
           user.userId,
           user.type,
           'QUEUE_CREATE',
-          JSON.stringify({ queueId: id, name, prefix, tenantId }),
+          JSON.stringify({ queueId: id, name, prefix, tenantId, locationTag: locationTag || null }),
           ip
         )
         .run();
@@ -222,6 +225,7 @@ export const POST = withAuth(
         id,
         tenantId,
         name,
+        locationTag: locationTag || null,
         description: description || null,
         defaultServiceTimeSec: svcTime,
         prefix: prefix.toUpperCase(),
@@ -231,6 +235,9 @@ export const POST = withAuth(
         createdAt: dbNow(),
         updatedAt: dbNow(),
       };
+
+      // Notify WebSocket clients
+      emitWSEvent(tenantId, 'QUEUE_UPDATE', { queueId: id, action: 'created' });
 
       return NextResponse.json({ queue }, { status: 201 });
     } catch (error) {
@@ -258,6 +265,7 @@ export const PUT = withAuth(
         prefix,
         defaultServiceTimeSec,
         isActive,
+        locationTag,
       } = body as {
         queueId: string;
         name?: string;
@@ -265,6 +273,7 @@ export const PUT = withAuth(
         prefix?: string;
         defaultServiceTimeSec?: number;
         isActive?: boolean;
+        locationTag?: string;
       };
 
       if (!queueId) {
@@ -332,6 +341,10 @@ export const PUT = withAuth(
         setClauses.push('is_active = ?');
         bindValues.push(isActive ? 1 : 0);
       }
+      if (locationTag !== undefined) {
+        setClauses.push('location_tag = ?');
+        bindValues.push(locationTag || null);
+      }
 
       if (setClauses.length === 0) {
         return NextResponse.json(
@@ -364,6 +377,7 @@ export const PUT = withAuth(
       if (prefix !== undefined) updateData.prefix = prefix.toUpperCase();
       if (defaultServiceTimeSec !== undefined) updateData.defaultServiceTimeSec = defaultServiceTimeSec;
       if (isActive !== undefined) updateData.isActive = isActive;
+      if (locationTag !== undefined) updateData.locationTag = locationTag || null;
 
       await d1
         .prepare(
@@ -379,6 +393,9 @@ export const PUT = withAuth(
           ip
         )
         .run();
+
+      // Notify WebSocket clients
+      emitWSEvent(user.tenantId!, 'QUEUE_UPDATE', { queueId, action: 'updated' });
 
       return NextResponse.json({ queue: mapQueue(updated!) });
     } catch (error) {
@@ -463,6 +480,9 @@ export const DELETE = withAuth(
           ip
         )
         .run();
+
+      // Notify WebSocket clients
+      emitWSEvent(user.tenantId!, 'QUEUE_UPDATE', { queueId, action: 'deleted' });
 
       return NextResponse.json({ success: true });
     } catch (error) {
