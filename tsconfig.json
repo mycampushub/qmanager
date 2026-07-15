@@ -40,6 +40,7 @@
     "node_modules",
     "examples",
     "scripts",
-    "skills"
+    "skills",
+    "mini-services"
   ]
 }
