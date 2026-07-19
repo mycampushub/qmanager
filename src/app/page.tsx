@@ -63,6 +63,7 @@ function HomeContent() {
       if (t && t.id) {
         const store = useAppStore.getState();
         store.setJoinTenantId(t.tenantId || t.tenant_id);
+        store.setJoinQueueId(t.queueId || t.queue_id);
         store.setActiveTicket({
           id: t.id,
           tenantId: t.tenantId || t.tenant_id,

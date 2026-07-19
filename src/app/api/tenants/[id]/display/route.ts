@@ -234,7 +234,7 @@ export async function GET(
       for (const row of waitingResult.results) {
         const arr = waitingSerialsByQueue.get(row.queue_id);
         if (arr) {
-          if (arr.length < 15) arr.push({ serialNumber: row.serial_number, customerName: row.customer_name });
+          arr.push({ serialNumber: row.serial_number, customerName: row.customer_name });
         } else {
           waitingSerialsByQueue.set(row.queue_id, [{ serialNumber: row.serial_number, customerName: row.customer_name }]);
         }
@@ -251,7 +251,8 @@ export async function GET(
 
       // Active serving positions = currently SERVING tickets + 1 for the caller
       // This accounts for multi-counter queues: EWT = waiting * avgTime / activePositions
-      const activePositions = Math.max(serving + 1, 1);
+      const activeCounterCount = counters.filter(c => c.id !== '_no_counter_').length;
+      const activePositions = Math.max(serving + 1, activeCounterCount > 0 ? activeCounterCount : 1);
       const rawEwt = waiting * avgServiceTime;
       const ewt = Math.ceil(rawEwt / activePositions);
 
@@ -294,8 +295,6 @@ export async function GET(
         name: tenantRow.name,
         welcomeMessage: tenantRow.welcome_message,
         logoUrl: tenantRow.logo_url,
-        blockLevel: tenantRow.block_level,
-        blockReason: tenantRow.block_reason,
         masterTenant: tenantRow.master_id
           ? { id: tenantRow.master_id, corporateName: tenantRow.corporate_name }
           : null,

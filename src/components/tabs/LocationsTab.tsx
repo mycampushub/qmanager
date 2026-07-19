@@ -13,6 +13,10 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger, DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from '@/components/ui/alert-dialog';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 
@@ -43,6 +47,7 @@ export default function LocationsTab({ tenantId }: { tenantId: string }) {
   const [editId, setEditId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{id: string; name: string} | null>(null);
 
   const authHeaders = useCallback((): Record<string, string> => {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -92,7 +97,7 @@ export default function LocationsTab({ tenantId }: { tenantId: string }) {
         name: trimmed,
         description: formDescription.trim() || null,
       };
-      if (isEdit) body.id = editId;
+      if (isEdit) body.locationId = editId;
 
       const res = await fetch('/api/locations', {
         method: isEdit ? 'PUT' : 'POST',
@@ -117,9 +122,10 @@ export default function LocationsTab({ tenantId }: { tenantId: string }) {
 
   const handleDelete = async (id: string) => {
     try {
-      const res = await fetch(`/api/locations?id=${id}`, {
+      const res = await fetch('/api/locations', {
         method: 'DELETE',
-        headers: authHeaders(),
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locationId: id }),
       });
       if (res.ok) {
         toast.success('Location removed');
@@ -127,6 +133,30 @@ export default function LocationsTab({ tenantId }: { tenantId: string }) {
       } else {
         const data = await res.json();
         toast.error(data.error || 'Failed to delete location');
+      }
+    } catch {
+      toast.error('Network error');
+    }
+  };
+
+  const handleToggleActive = async (loc: Location) => {
+    try {
+      const res = await fetch('/api/locations', {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          locationId: loc.id,
+          tenantId,
+          name: loc.name,
+          description: loc.description,
+          isActive: !loc.isActive,
+        }),
+      });
+      if (res.ok) {
+        toast.success(loc.isActive ? 'Location deactivated' : 'Location activated');
+        fetchLocations();
+      } else {
+        toast.error('Failed to toggle location status');
       }
     } catch {
       toast.error('Network error');
@@ -145,7 +175,7 @@ export default function LocationsTab({ tenantId }: { tenantId: string }) {
         method: 'PUT',
         headers: authHeaders(),
         body: JSON.stringify({
-          id: location.id,
+          locationId: location.id,
           tenantId,
           name: location.name,
           description: location.description,
@@ -321,11 +351,19 @@ export default function LocationsTab({ tenantId }: { tenantId: string }) {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
-                        onClick={() => handleDelete(loc.id)}
+                        onClick={() => setDeleteTarget({ id: loc.id, name: loc.name })}
                         aria-label="Delete location"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 mt-1">
+                      <Switch
+                        checked={loc.isActive}
+                        onCheckedChange={() => handleToggleActive(loc)}
+                        aria-label={`Toggle ${loc.name} active status`}
+                      />
+                      <span className="text-xs text-muted-foreground">{loc.isActive ? 'Active' : 'Inactive'}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -334,6 +372,27 @@ export default function LocationsTab({ tenantId }: { tenantId: string }) {
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Location</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{deleteTarget?.name}&quot;? This action cannot be undone. Queues assigned to this location will become unassigned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => { if (deleteTarget) { handleDelete(deleteTarget.id); setDeleteTarget(null); } }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

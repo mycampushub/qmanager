@@ -128,7 +128,7 @@ export default function TenantsTab() {
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to top up wallet'); return; }
-      toast.success(`$${amount.toFixed(2)} added to ${topupTenant.name}'s wallet`);
+      toast.success(`৳${amount.toFixed(2)} added to ${topupTenant.name}'s wallet`);
       setTopupTenant(null);
       setTopupAmount('');
       fetchTenants();
@@ -257,7 +257,7 @@ export default function TenantsTab() {
                         <TableCell className="hidden sm:table-cell">
                           <Badge variant="outline" className="capitalize">{t.planTier}</Badge>
                         </TableCell>
-                        <TableCell className="hidden md:table-cell">${(t.walletBalance / 100).toFixed(2)}</TableCell>
+                        <TableCell className="hidden md:table-cell">৳{(t.walletBalance / 100).toFixed(2)}</TableCell>
                         <TableCell className="hidden lg:table-cell">{t.todayTicketCount}</TableCell>
                         <TableCell className="hidden lg:table-cell">{t.staffCount}</TableCell>
                         <TableCell>
@@ -356,7 +356,7 @@ export default function TenantsTab() {
                 </div>
                 <div>
                   <p className="text-muted-foreground">Wallet Balance</p>
-                  <p className="font-medium">${(detailTenant.walletBalance / 100).toFixed(2)}</p>
+                  <p className="font-medium">৳{(detailTenant.walletBalance / 100).toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Status</p>
@@ -429,10 +429,10 @@ export default function TenantsTab() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Wallet Top-Up</DialogTitle>
-            <DialogDescription>Add funds to {topupTenant?.name}'s wallet. Current balance: ${topupTenant ? (topupTenant.walletBalance / 100).toFixed(2) : '0.00'}</DialogDescription>
+            <DialogDescription>Add funds to {topupTenant?.name}'s wallet. Current balance: ৳{topupTenant ? (topupTenant.walletBalance / 100).toFixed(2) : '0.00'}</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 mt-2">
-            <Label>Amount (USD)</Label>
+            <Label>Amount (BDT)</Label>
             <Input
               type="number"
               min="0.01"

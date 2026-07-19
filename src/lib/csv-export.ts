@@ -23,8 +23,8 @@ export function analyticsToCSV(
   rows.push([]);
   rows.push(['Summary']);
   rows.push(['Total Tickets', String(data.totalTickets ?? 0)]);
-  rows.push(['Completed', String(data.completedToday ?? 0)]);
-  rows.push(['Skipped', String(data.skippedToday ?? 0)]);
+  rows.push(['Completed', String(data.completedCount ?? 0)]);
+  rows.push(['Skipped', String(data.skippedCount ?? 0)]);
   rows.push(['Avg Wait Time (sec)', String(data.avgWaitTimeSec ?? 0)]);
   rows.push(['Avg Service Time (sec)', String(data.avgServiceTimeSec ?? 0)]);
   rows.push(['Peak Hour', String(data.peakHour ?? 'N/A')]);

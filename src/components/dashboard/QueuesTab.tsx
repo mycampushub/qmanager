@@ -54,7 +54,7 @@ function QueueFormDialog({
     fetch(`/api/locations?tenantId=${tenantId}`, { headers })
       .then((res) => res.json())
       .then((data) => {
-        setLocations(Array.isArray(data) ? data.filter((l: Location) => l.isActive) : []);
+        setLocations(Array.isArray(data.locations) ? data.locations.filter((l: Location) => l.isActive) : []);
       })
       .catch(() => setLocations([]))
       .finally(() => setLocationsLoading(false));

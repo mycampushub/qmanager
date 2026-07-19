@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -78,13 +78,23 @@ export function WalletTab({ tenantId }: { tenantId: string }) {
         </CardContent>
       </Card>
 
+      {/* Low Balance Warning */}
+      {walletData.tenant.walletBalance < 1000 && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="pt-4 pb-4 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-600" />
+            <p className="text-sm text-amber-800">Low balance warning: Your wallet is below ৳10. Please top up to avoid service interruption.</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Usage Stats */}
       <div className="grid sm:grid-cols-2 gap-4">
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-sm text-muted-foreground">Today&apos;s Usage</p>
             <p className="text-2xl font-bold">{walletData.usage.todayTickets} tickets</p>
-            <p className="text-sm text-muted-foreground">৳{(walletData.usage.todayTickets * 100 / 100).toFixed(2)} spent today</p>
+            <p className="text-sm text-muted-foreground">{walletData.usage.todayTickets} tickets issued today</p>
           </CardContent>
         </Card>
         <Card>

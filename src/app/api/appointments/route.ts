@@ -350,32 +350,28 @@ export const PUT = withAuth(
         const ledgerId = crypto.randomUUID();
         const txnId = crypto.randomUUID();
 
-        // Transaction: check wallet, increment serial, create ticket, create ledger, create transaction, update appointment
-        const results = await d1.batch([
-          // 1. Check tenant wallet + active status
-          d1.prepare('SELECT id, is_active, wallet_balance FROM tenants WHERE id = ?').bind(appointment.tenant_id),
-          // 2. Get current serial
-          d1.prepare('SELECT current_serial FROM queues WHERE id = ?').bind(appointment.queue_id),
-        ]);
+        // Transaction: check wallet, increment serial atomically, create ticket, create ledger, create transaction, update appointment
+        const tenantResult = await d1
+          .prepare('SELECT id, is_active, wallet_balance FROM tenants WHERE id = ?')
+          .bind(appointment.tenant_id)
+          .first<{ id: string; is_active: number; wallet_balance: number }>();
 
-        const tenant = (results[0].results as { id: string; is_active: number; wallet_balance: number }[])[0];
-        if (!tenant || tenant.is_active !== 1) {
+        if (!tenantResult || tenantResult.is_active !== 1) {
           return NextResponse.json({ error: 'Tenant not found or inactive' }, { status: 400 });
         }
-        if (tenant.wallet_balance < TICKET_COST_CENTS) {
+        if (tenantResult.wallet_balance < TICKET_COST_CENTS) {
           return NextResponse.json({ error: 'Insufficient wallet balance' }, { status: 400 });
         }
 
-        const newSerial = ((results[1].results as { current_serial: number }[])[0]?.current_serial ?? 0) + 1;
-
         // Execute all writes in a batch (D1 transaction)
+        // M8 FIX: Atomic serial increment via SQL, then subquery to read the new value
         await d1.batch([
-          d1.prepare("UPDATE queues SET current_serial = ?, updated_at = datetime('now') WHERE id = ?").bind(newSerial, appointment.queue_id),
-          d1.prepare("UPDATE tenants SET wallet_balance = wallet_balance - ?, updated_at = datetime('now') WHERE id = ?").bind(TICKET_COST_CENTS, appointment.tenant_id),
+          d1.prepare("UPDATE queues SET current_serial = current_serial + 1, updated_at = datetime('now') WHERE id = ?").bind(appointment.queue_id),
+          d1.prepare("UPDATE tenants SET wallet_balance = wallet_balance - ?, updated_at = datetime('now') WHERE id = ? AND wallet_balance >= ?").bind(TICKET_COST_CENTS, appointment.tenant_id, TICKET_COST_CENTS),
           d1.prepare(
             `INSERT INTO tickets (id, tenant_id, queue_id, serial_number, status, customer_name, customer_phone, created_at)
-             VALUES (?, ?, ?, ?, 'WAITING', ?, ?, ?)`
-          ).bind(ticketId, appointment.tenant_id, appointment.queue_id, newSerial, appointment.customer_name, appointment.customer_phone, now),
+             VALUES (?, ?, ?, (SELECT current_serial FROM queues WHERE id = ?), 'WAITING', ?, ?, ?)`
+          ).bind(ticketId, appointment.tenant_id, appointment.queue_id, appointment.queue_id, appointment.customer_name, appointment.customer_phone, now),
           d1.prepare(
             `INSERT INTO usage_ledgers (id, tenant_id, ticket_id, cost_cents, created_at) VALUES (?, ?, ?, ?, ?)`
           ).bind(ledgerId, appointment.tenant_id, ticketId, TICKET_COST_CENTS, now),
@@ -388,7 +384,13 @@ export const PUT = withAuth(
           ).bind(ticketId, id),
         ]);
 
-        const newBalance = tenant.wallet_balance - TICKET_COST_CENTS;
+        // Read the new serial post-batch
+        const updatedQueue = await d1
+          .prepare('SELECT current_serial, prefix FROM queues WHERE id = ?')
+          .bind(appointment.queue_id)
+          .first<{ current_serial: number; prefix: string }>();
+        const newSerial = updatedQueue?.current_serial ?? 0;
+        const newBalance = tenantResult.wallet_balance - TICKET_COST_CENTS;
 
         return NextResponse.json({
           appointment: {
@@ -410,7 +412,7 @@ export const PUT = withAuth(
               status: 'WAITING',
               customerName: appointment.customer_name,
               customerPhone: appointment.customer_phone,
-              formattedSerial: `${appointment.prefix}${String(newSerial).padStart(3, '0')}`,
+              formattedSerial: `${updatedQueue?.prefix || appointment.prefix}${String(newSerial).padStart(3, '0')}`,
             },
             createdAt: now,
             updatedAt: now,

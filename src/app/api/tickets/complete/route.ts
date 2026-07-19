@@ -114,13 +114,21 @@ export const POST = withAuth(
           )
         : 0;
 
-      // Transaction: update ticket, create service log, update customer profile
+      // C3: Update ticket with status guard to prevent race conditions
+      const completeResult = await d1
+        .prepare("UPDATE tickets SET status = ?, completed_at = ? WHERE id = ? AND status = 'SERVING'")
+        .bind('COMPLETED', nowISO, ticketId)
+        .run();
+
+      if (!completeResult.meta.changes) {
+        return NextResponse.json(
+          { error: `Cannot complete ticket with status: ${ticket.status}. Only SERVING tickets can be completed.` },
+          { status: 400 }
+        );
+      }
+
+      // Transaction: create service log, update customer profile
       const statements = [
-        d1
-          .prepare(
-            'UPDATE tickets SET status = ?, completed_at = ? WHERE id = ?'
-          )
-          .bind('COMPLETED', nowISO, ticketId),
         d1
           .prepare(
             `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds)
@@ -148,19 +156,6 @@ export const POST = withAuth(
       }
 
       await d1.batch(statements);
-
-      // Reset now_serving_serial if no more SERVING tickets remain
-      const servingCheck = await d1
-        .prepare("SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'SERVING'")
-        .bind(ticket.queue_id)
-        .first<{ cnt: number }>();
-
-      if (servingCheck && servingCheck.cnt === 0) {
-        await d1
-          .prepare("UPDATE queues SET now_serving_serial = 0, updated_at = datetime('now') WHERE id = ?")
-          .bind(ticket.queue_id)
-          .run();
-      }
 
       // Audit log
       const ip = getClientIp(req);

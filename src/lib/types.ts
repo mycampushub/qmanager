@@ -83,7 +83,7 @@ export interface ServiceCounter {
   description: string | null;
   isActive: boolean;
   createdAt: string;
-  _servingTicket?: { id: string; formattedSerial: string; customerName: string } | null;
+  _servingTicket?: { id: string; serialNumber: number; customerName: string; status: string } | null;
 }
 
 export type BreakLevel = 'ROOM' | 'LINE' | 'COUNTER';
@@ -153,8 +153,8 @@ export interface UsageLedger {
 
 export interface AnalyticsData {
   totalTickets: number;
-  completedToday: number;
-  skippedToday: number;
+  completedCount: number;
+  skippedCount: number;
   avgWaitTimeSec: number;
   avgServiceTimeSec: number;
   peakHour: string;

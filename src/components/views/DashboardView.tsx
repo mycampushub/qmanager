@@ -36,6 +36,8 @@ import { AnalyticsTab } from '@/components/dashboard/AnalyticsTab';
 import { WalletTab } from '@/components/dashboard/WalletTab';
 import { BrandingTab } from '@/components/dashboard/BrandingTab';
 import { StaffTab } from '@/components/dashboard/StaffTab';
+import { usePwa } from '@/hooks/use-pwa';
+import { PwaInstallButton } from '@/components/PwaInstallButton';
 
 // ─── CHANGE PASSWORD DIALOG ─────────────────────────────────
 function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -111,13 +113,14 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   );
 }
 
-function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, logout, tenantId }: {
+function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, logout, tenantId, pwa }: {
   navItems: Array<{ id: string; label: string; icon: typeof Phone }>;
   dashboardTab: string;
   setDashboardTab: (id: string) => void;
   authUser: StaffUser;
   logout: () => void;
   tenantId: string;
+  pwa: { canInstall: boolean; isInstalled: boolean; isSupported: boolean; promptInstall: () => Promise<boolean> };
 }) {
   const [changePwdOpen, setChangePwdOpen] = useState(false);
 
@@ -172,6 +175,13 @@ function DashboardSidebar({ navItems, dashboardTab, setDashboardTab, authUser, l
         >
           <Monitor className="w-4 h-4 mr-2" /> TV Display
         </Button>
+        <PwaInstallButton
+          canInstall={pwa.canInstall}
+          isInstalled={pwa.isInstalled}
+          isSupported={pwa.isSupported}
+          promptInstall={pwa.promptInstall}
+          variant="sidebar"
+        />
         <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground h-10" onClick={logout}>
           <LogOut className="w-4 h-4 mr-2" /> Sign Out
         </Button>
@@ -189,6 +199,9 @@ export default function DashboardView() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const tenantIdRef = useRef(authUser?.tenantId);
   const isManager = authUser?.role === 'MANAGER';
+
+  // PWA — only activates for logged-in users
+  const pwa = usePwa(!!authUser);
 
   const fetchTenantData = useCallback(async () => {
     const tid = tenantIdRef.current;
@@ -267,16 +280,20 @@ export default function DashboardView() {
     ] : [])
   ];
 
-  // E1: Mobile nav — show max 5 items, overflow goes into "More" sheet
-  const mobileNavItems = navItems.slice(0, 4);
-  const moreNavItems = navItems.slice(4);
+  // E1: Mobile nav — show most useful items for managers, overflow into "More" sheet
+  const mobileNavItemIds = isManager
+    ? ['agent', 'queues', 'analytics', 'counters']
+    : navItems.slice(0, 4).map(n => n.id);
+  const mobileNavItems = mobileNavItemIds.map(id => navItems.find(n => n.id === id)!).filter(Boolean);
+  const mobileNavIdSet = new Set(mobileNavItemIds);
+  const moreNavItems = navItems.filter(n => !mobileNavIdSet.has(n.id));
   const showMoreButton = moreNavItems.length > 0;
 
   return (
     <div className="h-screen flex flex-row overflow-hidden bg-slate-50">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 border-r bg-white shrink-0 h-full">
-        <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} tenantId={authUser.tenantId} />
+        <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} tenantId={authUser.tenantId} pwa={pwa} />
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -285,7 +302,7 @@ export default function DashboardView() {
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
             <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed left-0 top-0 bottom-0 w-72 sm:w-80 bg-white z-50 shadow-xl md:hidden">
-              <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} tenantId={authUser.tenantId} />
+              <DashboardSidebar navItems={navItems} dashboardTab={dashboardTab} setDashboardTab={(id) => { setDashboardTab(id as typeof dashboardTab); setSidebarOpen(false); }} authUser={authUser} logout={logout} tenantId={authUser.tenantId} pwa={pwa} />
             </motion.aside>
           </>
         )}
@@ -320,7 +337,7 @@ export default function DashboardView() {
         </header>
 
         {/* Page Content */}
-        <main id="main-content" className="flex-1 p-3 sm:p-5 lg:p-6 overflow-auto overscroll-y-contain">
+        <main className="flex-1 p-3 sm:p-5 lg:p-6 overflow-auto overscroll-y-contain">
           <AnimatePresence mode="wait">
             <motion.div key={dashboardTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.15 }}>
               {dashboardTab === 'agent' && (

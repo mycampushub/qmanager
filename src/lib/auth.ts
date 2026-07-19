@@ -67,6 +67,16 @@ export function generateCsrfToken(): string {
 // Falls back to in-memory Map when KV is not available (local dev)
 const inMemoryStore = new Map<string, { count: number; resetAt: number }>();
 
+// Cleanup expired entries every 5 minutes
+if (typeof globalThis !== 'undefined' && typeof setInterval === 'function') {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of inMemoryStore) {
+      if (now > entry.resetAt) inMemoryStore.delete(key);
+    }
+  }, 300_000);
+}
+
 export async function rateLimit(
   key: string,
   maxRequests: number = 60,

@@ -29,12 +29,6 @@ export const metadata: Metadata = {
     icon: "/icons/icon-192.png",
     apple: "/icons/icon-512.png",
   },
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'default',
-    title: 'QueueFlow',
-  },
   openGraph: {
     title: "QueueFlow - Smart Queue Management System | Digital Queue Management Platform",
     description: "Transform waiting line management with a virtual queue management system. QR-based digital queue management, real-time updates, and affordable queue management for every business.",
@@ -55,19 +49,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="/icons/icon-512.png" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js').catch(() => {});
-                });
-              }
-            `,
-          }}
-        />
+        {/* PWA manifest + SW are injected dynamically by usePwa hook — only for logged-in users */}
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}

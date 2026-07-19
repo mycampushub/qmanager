@@ -54,6 +54,8 @@ export function withAuth<T extends AuthenticatedRequest>(
       }
     }
 
+    // NOTE: Enable csrf: true on state-changing handlers for production CSRF protection
+
     // Public endpoints — skip auth
     if (options?.public) {
       return handler(req, {} as T);

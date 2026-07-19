@@ -101,12 +101,14 @@ export function LoginScreen() {
             </div>
           </CardContent>
         </Card>
+        {process.env.NODE_ENV === 'development' && (
         <div className="mt-6 text-center">
           <p className="text-xs text-muted-foreground">Agent: agent1@quickbiterestaurant.com / Agent@2024!Secure</p>
           <p className="text-xs text-muted-foreground mt-1">Manager: manager@quickbiterestaurant.com / Manager@2024!Secure</p>
           <p className="text-xs text-muted-foreground mt-1">Platform Admin: admin@yourqueueapp.com / Admin@2024!Secure</p>
           <p className="text-xs text-muted-foreground mt-1">HQ Admin: hq@cityhealthgroup.com / Manager@2024!Secure</p>
         </div>
+        )}
       </motion.div>
     </div>
   );

@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getR2FromEnv } from '@/lib/db';
+import { authenticateRequest } from '@/lib/auth';
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
@@ -54,6 +55,15 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ key: string[] }> }
 ) {
+  // H7: Authentication required for uploads
+  const authResult = await authenticateRequest(request);
+  if ('error' in authResult && authResult.error) {
+    return NextResponse.json({ error: authResult.error.message }, { status: authResult.error.status });
+  }
+  if (!['MANAGER', 'PLATFORM_ADMIN'].includes(authResult.user.role)) {
+    return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+  }
+
   const { key } = await params;
   const prefix = key.join('/');
 
@@ -96,9 +106,18 @@ export async function POST(
 
 // DELETE /api/storage/logos/tenant-123/old-logo.png
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ key: string[] }> }
 ) {
+  // H7: Authentication required for deletes
+  const authResult = await authenticateRequest(request);
+  if ('error' in authResult && authResult.error) {
+    return NextResponse.json({ error: authResult.error.message }, { status: authResult.error.status });
+  }
+  if (!['MANAGER', 'PLATFORM_ADMIN'].includes(authResult.user.role)) {
+    return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+  }
+
   const { key } = await params;
   const fileKey = key.join('/');
 

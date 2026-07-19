@@ -11,6 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
+import { usePwa } from '@/hooks/use-pwa';
+import { PwaInstallButton } from '@/components/PwaInstallButton';
 
 // ─── RE-EXPORT SHARED TYPES (backward compatibility) ────
 export type {
@@ -102,21 +104,24 @@ function AdminLoginScreen() {
             </div>
           </CardContent>
         </Card>
+        {process.env.NODE_ENV === 'development' && (
         <div className="mt-6 text-center">
           <p className="text-xs text-muted-foreground">Demo: admin@yourqueueapp.com / admin123</p>
         </div>
+        )}
       </motion.div>
     </div>
   );
 }
 
 // ─── ADMIN SIDEBAR ──────────────────────────────────────
-function AdminSidebar({ navItems, adminTab, setAdminTab, adminUser, logout }: {
+function AdminSidebar({ navItems, adminTab, setAdminTab, adminUser, logout, pwa }: {
   navItems: Array<{ id: AdminTab; label: string; icon: typeof Shield }>;
   adminTab: AdminTab;
   setAdminTab: (tab: AdminTab) => void;
   adminUser: { id: string; email: string; name: string };
   logout: () => void;
+  pwa: { canInstall: boolean; isInstalled: boolean; isSupported: boolean; promptInstall: () => Promise<boolean> };
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -157,6 +162,7 @@ function AdminSidebar({ navItems, adminTab, setAdminTab, adminUser, logout }: {
             <p className="text-xs text-muted-foreground truncate">{adminUser.email}</p>
           </div>
         </div>
+        <PwaInstallButton canInstall={pwa.canInstall} isInstalled={pwa.isInstalled} isSupported={pwa.isSupported} promptInstall={pwa.promptInstall} variant="sidebar" />
         <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={logout}>
           <LogOut className="w-4 h-4 mr-2" /> Sign Out
         </Button>
@@ -170,6 +176,7 @@ export default function PlatformAdminView() {
   const { adminUser, adminToken, adminLogout, setCurrentView } = useAppStore();
   const [adminTab, setAdminTab] = useState<AdminTab>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pwa = usePwa(!!adminUser);
 
   // Restore admin auth from localStorage on mount
   useEffect(() => {
@@ -198,7 +205,7 @@ export default function PlatformAdminView() {
     <div className="h-screen flex flex-row overflow-hidden bg-slate-50">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 border-r bg-white shrink-0 h-full">
-        <AdminSidebar navItems={navItems} adminTab={adminTab} setAdminTab={(t) => { setAdminTab(t); setSidebarOpen(false); }} adminUser={adminUser} logout={adminLogout} />
+        <AdminSidebar navItems={navItems} adminTab={adminTab} setAdminTab={(t) => { setAdminTab(t); setSidebarOpen(false); }} adminUser={adminUser} logout={adminLogout} pwa={pwa} />
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -207,7 +214,7 @@ export default function PlatformAdminView() {
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
             <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="fixed left-0 top-0 bottom-0 w-64 bg-white z-50 shadow-xl md:hidden">
-              <AdminSidebar navItems={navItems} adminTab={adminTab} setAdminTab={(t) => { setAdminTab(t); setSidebarOpen(false); }} adminUser={adminUser} logout={adminLogout} />
+              <AdminSidebar navItems={navItems} adminTab={adminTab} setAdminTab={(t) => { setAdminTab(t); setSidebarOpen(false); }} adminUser={adminUser} logout={adminLogout} pwa={pwa} />
             </motion.aside>
           </>
         )}

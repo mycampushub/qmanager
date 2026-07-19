@@ -45,7 +45,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
   const [loadingMore, setLoadingMore] = useState(false);
   const [overviewDate, setOverviewDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [agentQueues, setAgentQueues] = useState<Queue[]>([]);
-  const [activeBreaks, setActiveBreaks] = useState<{ reason: string; level: string }[]>([]);
+  const [activeBreaks, setActiveBreaks] = useState<{ id: string; reason: string; level: string }[]>([]);
   const [counters, setCounters] = useState<{ id: string; name: string }[]>([]);
   const [selectedCounterId, setSelectedCounterId] = useState<string | undefined>(undefined);
   const ticketListCursorRef = useRef<number | undefined>(undefined);
@@ -82,7 +82,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
         if (res.ok) {
           const data = await res.json();
           const active = (data.breaks ?? []).filter((b: { isActive: boolean }) => b.isActive);
-          setActiveBreaks(active.map((b: { reason: string | null; level: string }) => ({ reason: b.reason || 'Break', level: b.level })));
+          setActiveBreaks(active.map((b: { id: string; reason: string | null; level: string }) => ({ id: b.id, reason: b.reason || 'Break', level: b.level })));
         }
       } catch { /* silent */ }
     };
@@ -126,7 +126,8 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       }, 1000);
       return () => clearInterval(timerRef.current);
     }
-  }, [currentTicket]);
+    setServingTime(0);
+  }, [currentTicket?.id, currentTicket?.servedAt]);
 
   // F1: Auto-detect currently serving ticket on queue switch / login
   useEffect(() => {
@@ -426,11 +427,41 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     <div className="space-y-4">
       {/* Active Break Banner */}
       {activeBreaks.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-2 text-amber-800">
-          <span className="text-base">⚠️</span>
-          <span className="text-sm font-medium">
-            Break in progress — {activeBreaks.map(b => b.reason).join(', ')}. Service may be limited.
-          </span>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between gap-2 text-amber-800">
+          <div className="flex items-center gap-2">
+            <span className="text-base">⚠️</span>
+            <span className="text-sm font-medium">
+              Break in progress — {activeBreaks.map(b => b.reason).join(', ')}. Service may be limited.
+            </span>
+          </div>
+          <div className="flex gap-2">
+            {activeBreaks.map((b) => (
+              <Button
+                key={b.id}
+                size="sm"
+                variant="outline"
+                className="border-amber-300 text-amber-800 hover:bg-amber-100 text-xs"
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/breaks', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+                      body: JSON.stringify({ breakId: b.id }),
+                    });
+                    if (res.ok) {
+                      setActiveBreaks(prev => prev.filter(x => x.id !== b.id));
+                      onRefresh();
+                    } else {
+                      const err = await res.json().catch(() => ({}));
+                      toast.error(err.error || 'Failed to end break');
+                    }
+                  } catch { toast.error('Failed to end break'); }
+                }}
+              >
+                End Break
+              </Button>
+            ))}
+          </div>
         </div>
       )}
 

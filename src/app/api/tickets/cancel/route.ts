@@ -15,6 +15,7 @@ interface TicketWithQueue {
   status: string;
   customer_name: string;
   customer_phone: string | null;
+  device_id: string | null;
   created_at: string;
   served_at: string | null;
   queue_name: string;
@@ -123,6 +124,24 @@ export async function POST(req: NextRequest) {
         { error: 'Ticket not found' },
         { status: 404 }
       );
+    }
+
+    // H5: Public users must verify ownership via phone or device_id
+    if (!isStaff) {
+      const bodyPhone = body.customerPhone as string | undefined;
+      const bodyDeviceId = body.deviceId as string | undefined;
+      if (!bodyPhone && !bodyDeviceId) {
+        return NextResponse.json(
+          { error: 'customerPhone or deviceId is required to cancel a ticket' },
+          { status: 400 }
+        );
+      }
+      if (bodyPhone && ticket.customer_phone !== bodyPhone) {
+        return NextResponse.json({ error: 'Phone number does not match ticket' }, { status: 403 });
+      }
+      if (bodyDeviceId && ticket.device_id !== bodyDeviceId) {
+        return NextResponse.json({ error: 'Device ID does not match ticket' }, { status: 403 });
+      }
     }
 
     // D3: Validate cancel transition via state machine

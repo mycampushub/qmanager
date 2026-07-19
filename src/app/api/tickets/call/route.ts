@@ -210,8 +210,8 @@ export const POST = withAuth(
             .bind('COMPLETED', nowISO, prevServing.id, 'SERVING'),
           d1
             .prepare(
-              `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds)
-               VALUES (?, ?, ?, ?, ?, ?)`
+              `INSERT INTO service_logs (id, tenant_id, queue_id, agent_id, ticket_id, duration_seconds, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
             )
             .bind(
               crypto.randomUUID(),
@@ -270,7 +270,7 @@ export const POST = withAuth(
       await d1.batch(statements as Parameters<typeof d1.batch>[0]);
 
       // Stats for response
-      const [remainingResult, serviceLogsResult, counterCountResult] = await Promise.all([
+      const [remainingResult, serviceLogsResult, counterCountResult, servingCountResult] = await Promise.all([
         d1
           .prepare(
             'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
@@ -289,10 +289,17 @@ export const POST = withAuth(
           )
           .bind(queueId)
           .first<{ cnt: number }>(),
+        d1
+          .prepare(
+            "SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'SERVING'"
+          )
+          .bind(queueId)
+          .first<{ cnt: number }>(),
       ]);
 
       const remainingWaiting = remainingResult?.cnt ?? 0;
       const counterCount = counterCountResult?.cnt ?? 0;
+      const currentServing = servingCountResult?.cnt ?? 0;
 
       const avgServiceTime =
         serviceLogsResult.results.length > 0
@@ -304,8 +311,8 @@ export const POST = withAuth(
             )
           : queue.default_service_time_sec;
 
-      // EWT: remaining waiting ÷ active positions (now serving this ticket + 1 for next caller, or counter count)
-      const activePositions = Math.max(1 + 1, counterCount > 0 ? counterCount : 1); // +1 because this ticket is now SERVING
+      // EWT: remaining waiting ÷ active positions (now serving + 1 for the next caller, or counter count)
+      const activePositions = Math.max(currentServing + 1, counterCount > 0 ? counterCount : 1);
       const ewt = remainingWaiting > 0 ? Math.ceil(remainingWaiting * avgServiceTime / activePositions) : 0;
 
       const formattedSerial = `${queue.prefix}${String(nextWaiting.serial_number).padStart(3, '0')}`;

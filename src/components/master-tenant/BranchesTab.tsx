@@ -13,7 +13,9 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
-import { type BranchData, type PlanTier, mtHeaders, PlanTierBadge } from './mt-types';
+import { type BranchData, type PlanTier } from './mt-types';
+import { mtHeaders } from './mt-utils';
+import { PlanTierBadge } from './PlanTierBadge';
 
 // ─── ADD BRANCH DIALOG ──────────────────────────────────────
 function AddBranchDialog({

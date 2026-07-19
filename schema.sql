@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   type          TEXT NOT NULL,
   amount_cents  INTEGER NOT NULL,
   description   TEXT,
+  status        TEXT NOT NULL DEFAULT 'COMPLETED',
   created_by    TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE

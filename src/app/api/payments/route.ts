@@ -78,13 +78,13 @@ export const POST = withAuth(
       const now = dbNow();
       const methodLabel = METHOD_LABELS[paymentMethod];
       const paymentDescription =
-        description || `Payment via ${methodLabel} (PENDING)`;
+        description || `Payment via ${methodLabel}`;
 
-      // Create a PENDING CREDIT transaction
+      // Create a PENDING CREDIT transaction with proper status column
       await d1
         .prepare(
-          `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, created_by, created_at)
-           VALUES (?, ?, 'CREDIT', ?, ?, ?, ?)`
+          `INSERT INTO transactions (id, tenant_id, type, amount_cents, description, status, created_by, created_at)
+           VALUES (?, ?, 'CREDIT', ?, ?, 'PENDING', ?, ?)`
         )
         .bind(transactionId, effectiveTenantId, amountCents, paymentDescription, user.userId, now)
         .run();
@@ -157,7 +157,7 @@ export const PUT = withAuth(
       // Fetch the pending transaction
       const transaction = await d1
         .prepare(
-          `SELECT id, tenant_id, type, amount_cents, description, created_by, created_at
+          `SELECT id, tenant_id, type, amount_cents, description, status, created_by, created_at
            FROM transactions WHERE id = ?`
         )
         .bind(transactionId)
@@ -167,6 +167,7 @@ export const PUT = withAuth(
           type: string;
           amount_cents: number;
           description: string | null;
+          status: string;
           created_by: string | null;
           created_at: string;
         }>();
@@ -182,8 +183,8 @@ export const PUT = withAuth(
         );
       }
 
-      // Check PENDING status via description
-      if (!transaction.description?.includes('(PENDING)')) {
+      // M9 FIX: Check PENDING status via proper status column (not description string hack)
+      if (transaction.status !== 'PENDING') {
         return NextResponse.json({ error: 'Transaction is not in PENDING status' }, { status: 400 });
       }
 
@@ -198,15 +199,14 @@ export const PUT = withAuth(
       }
 
       const now = dbNow();
-      const confirmedDescription = transaction.description!.replace('(PENDING)', '(CONFIRMED)');
       const ip = getClientIp(req);
 
       // ─── Atomic batch: confirm transaction + credit wallet + audit log ───
       await d1.batch([
-        // 1. Update transaction description: PENDING → CONFIRMED
+        // 1. Update transaction status: PENDING → CONFIRMED
         d1
-          .prepare(`UPDATE transactions SET description = ? WHERE id = ?`)
-          .bind(confirmedDescription, transactionId),
+          .prepare(`UPDATE transactions SET status = 'CONFIRMED' WHERE id = ? AND status = 'PENDING'`)
+          .bind(transactionId),
         // 2. Credit the tenant's wallet balance
         d1
           .prepare(
@@ -243,7 +243,7 @@ export const PUT = withAuth(
           tenantId: transaction.tenant_id,
           type: transaction.type,
           amountCents: transaction.amount_cents,
-          description: confirmedDescription,
+          description: transaction.description,
           status: 'CONFIRMED',
           createdBy: transaction.created_by,
           createdAt: transaction.created_at,

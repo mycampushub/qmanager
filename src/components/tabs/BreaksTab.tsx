@@ -118,7 +118,7 @@ export default function BreaksTab({ tenantId }: { tenantId: string }) {
       });
       if (res.ok) {
         const d = await res.json();
-        const list = Array.isArray(d.tenant?._queues) ? d.tenant._queues : (Array.isArray(d.queues) ? d.queues : []);
+        const list = Array.isArray(d.tenant?.queues) ? d.tenant.queues : [];
         setQueues(list.map((q: { id: string; name: string; prefix: string }) => ({ id: q.id, name: q.name, prefix: q.prefix })));
       }
     } catch {
@@ -190,13 +190,20 @@ export default function BreaksTab({ tenantId }: { tenantId: string }) {
 
     setSaving(true);
     try {
+      // Calculate endsAt from durationMinutes
+      let endsAt: string | null = null;
+      if (formDuration !== '0') {
+        const mins = parseInt(formDuration);
+        endsAt = new Date(Date.now() + mins * 60_000).toISOString();
+      }
+
       const body: Record<string, unknown> = {
         tenantId,
         level: formLevel,
         queueId: formLevel !== 'ROOM' ? formQueueId || null : null,
         counterId: formLevel === 'COUNTER' ? (formCounterId || null) : null,
         reason: formReason.trim() || null,
-        durationMinutes: formDuration === '0' ? null : parseInt(formDuration),
+        endsAt,
       };
       // If COUNTER level and using manual name, include it
       if (formLevel === 'COUNTER' && !formCounterId && formCounterName.trim()) {
@@ -224,7 +231,7 @@ export default function BreaksTab({ tenantId }: { tenantId: string }) {
       const res = await fetch('/api/breaks', {
         method: 'PUT',
         headers: authHeaders(),
-        body: JSON.stringify({ id, endedBy: authUserId }),
+        body: JSON.stringify({ breakId: id }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Failed to end break'); return; }

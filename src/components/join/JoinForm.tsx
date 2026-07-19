@@ -18,6 +18,8 @@ interface JoinFormProps {
   selectedQueue: string | null;
   onSubmit: () => void;
   onBack: () => void;
+  /** Phone country code prefix (default: '+880' for Bangladesh) */
+  phoneCountryCode?: string;
 }
 
 export default function JoinForm({
@@ -32,6 +34,7 @@ export default function JoinForm({
   selectedQueue,
   onSubmit,
   onBack,
+  phoneCountryCode = '+880',
 }: JoinFormProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -54,7 +57,7 @@ export default function JoinForm({
         <div className="relative">
           <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <div className="absolute left-10 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium pointer-events-none">
-            +880
+            {phoneCountryCode}
           </div>
           <Input
             placeholder="Phone number (optional)"

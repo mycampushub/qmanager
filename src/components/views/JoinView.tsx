@@ -252,7 +252,7 @@ export default function JoinView() {
     [setActiveTicket, goTo]
   );
 
-  const handleBackToHome = useCallback(() => {
+  const handleHome = useCallback(() => {
     setJoinTenantId(null);
     setJoinQueueId(null);
     setTenantWithQueues(null);
@@ -286,16 +286,6 @@ export default function JoinView() {
       toast.error('Failed to leave the queue');
     }
   }, [ticket, setActiveTicket, goTo]);
-
-  const handleHome = useCallback(() => {
-    setJoinTenantId(null);
-    setJoinQueueId(null);
-    setTenantWithQueues(null);
-    setQueues([]);
-    setTicket(null);
-    setActiveTicket(null);
-    setCurrentView('marketing');
-  }, [setJoinTenantId, setJoinQueueId, setActiveTicket, setCurrentView]);
 
   // --- Effects ---
 
@@ -417,7 +407,7 @@ export default function JoinView() {
             size="sm"
             className="min-h-[44px] min-w-[44px] px-2"
             onClick={() => {
-              if (step === 'queue') handleBackToHome();
+              if (step === 'queue') handleHome();
               else if (step === 'confirmation') handleNewTicket();
               else if (step === 'myTickets') goTo('confirmation', -1);
               else handleHome();
@@ -449,7 +439,7 @@ export default function JoinView() {
                 joining={joining}
                 initialQueueId={joinQueueId}
                 onJoin={handleJoin}
-                onBack={handleBackToHome}
+                onBack={handleHome}
               />
             </motion.div>
           )}

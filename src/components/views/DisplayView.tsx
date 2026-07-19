@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/stores/app-store';
 import { useQueueEvents } from '@/hooks/use-queue-events';
+import { formatEwt } from '@/components/join/join-helpers';
 import { useLocale } from '@/lib/i18n';
 import { announceTicket, preloadVoices } from '@/lib/voice';
 import type { Tenant, Queue, BrandingConfig } from '@/lib/types';
@@ -58,12 +59,6 @@ function formatSerial(queue: Queue): string {
 
 function formatSerialFromParts(prefix: string, serialNumber: number): string {
   return `${prefix}-${String(serialNumber).padStart(3, '0')}`;
-}
-
-function formatEwt(seconds: number): string {
-  if (seconds <= 0) return '0 min';
-  if (seconds < 60) return '< 1 min';
-  return `~${Math.ceil(seconds / 60)} min`;
 }
 
 function waitColor(count: number): string {

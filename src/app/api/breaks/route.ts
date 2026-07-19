@@ -142,10 +142,13 @@ export const POST = withAuth(
 
       // Verify counter exists and belongs to tenant (if provided)
       if (counterId) {
-        const counter = await d1
-          .prepare('SELECT id FROM service_counters WHERE id = ? AND tenant_id = ? AND is_active = 1')
-          .bind(counterId, tenantId)
-          .first();
+        let counterSql = 'SELECT id FROM service_counters WHERE id = ? AND tenant_id = ? AND is_active = 1';
+        const counterBinds: unknown[] = [counterId, tenantId];
+        if (queueId) {
+          counterSql += ' AND queue_id = ?';
+          counterBinds.push(queueId);
+        }
+        const counter = await d1.prepare(counterSql).bind(...counterBinds).first();
         if (!counter) {
           return NextResponse.json({ error: 'Counter not found or inactive' }, { status: 404 });
         }

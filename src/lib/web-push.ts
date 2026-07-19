@@ -40,7 +40,6 @@ export async function sendWebPush(
       method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
-        'Content-Encoding': 'aes128gcm',
         'TTL': '86400',
         'Authorization': `vapid t=${vapidPublicKey},k=${vapidPrivateKey}`,
       },

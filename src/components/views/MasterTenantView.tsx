@@ -14,6 +14,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import type { MasterTenantAdminUser } from '@/stores/app-store';
+import { usePwa } from '@/hooks/use-pwa';
+import { PwaInstallButton } from '@/components/PwaInstallButton';
 import type { MTTab } from '@/components/master-tenant/mt-types';
 import BranchesTab from '@/components/master-tenant/BranchesTab';
 import CrossBranchAnalyticsTab from '@/components/master-tenant/CrossBranchAnalytics';
@@ -109,9 +111,11 @@ function MTLoginScreen() {
             </div>
           </CardContent>
         </Card>
+        {process.env.NODE_ENV === 'development' && (
         <div className="mt-6 text-center">
           <p className="text-xs text-muted-foreground">Demo: hq@cityhealthgroup.com / manager123</p>
         </div>
+        )}
       </motion.div>
     </div>
   );
@@ -125,6 +129,7 @@ function MTSidebar({
   userName,
   corporateName,
   logout,
+  pwa,
 }: {
   navItems: Array<{ id: MTTab; label: string; icon: typeof Building2 }>;
   mtTab: MTTab;
@@ -132,6 +137,7 @@ function MTSidebar({
   userName: string;
   corporateName: string;
   logout: () => void;
+  pwa: { canInstall: boolean; isInstalled: boolean; isSupported: boolean; promptInstall: () => Promise<boolean> };
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -174,6 +180,7 @@ function MTSidebar({
             <p className="text-xs text-muted-foreground truncate">HQ Admin</p>
           </div>
         </div>
+        <PwaInstallButton canInstall={pwa.canInstall} isInstalled={pwa.isInstalled} isSupported={pwa.isSupported} promptInstall={pwa.promptInstall} variant="sidebar" />
         <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground" onClick={logout}>
           <LogOut className="w-4 h-4 mr-2" /> Sign Out
         </Button>
@@ -187,6 +194,7 @@ export default function MasterTenantView() {
   const { mtUser, mtToken, mtLogout, setCurrentView } = useAppStore();
   const [mtTab, setMTTab] = useState<MTTab>('branches');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pwa = usePwa(!!mtUser);
 
   // Restore MT auth from localStorage on mount
   useEffect(() => {
@@ -223,6 +231,7 @@ export default function MasterTenantView() {
           userName={mtUser.name}
           corporateName={corporateName}
           logout={mtLogout}
+          pwa={pwa}
         />
       </aside>
 
@@ -251,6 +260,7 @@ export default function MasterTenantView() {
                 userName={mtUser.name}
                 corporateName={corporateName}
                 logout={mtLogout}
+                pwa={pwa}
               />
             </motion.aside>
           </>

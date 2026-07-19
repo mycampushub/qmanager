@@ -74,7 +74,7 @@ export default function CountersTab({ tenantId }: { tenantId: string }) {
       });
       if (res.ok) {
         const d = await res.json();
-        const list = Array.isArray(d.tenant?._queues) ? d.tenant._queues : (Array.isArray(d.queues) ? d.queues : []);
+        const list = Array.isArray(d.tenant?.queues) ? d.tenant.queues : [];
         const mapped = list.map((q: { id: string; name: string; prefix: string }) => ({ id: q.id, name: q.name, prefix: q.prefix }));
         setQueues(mapped);
         // Auto-select first queue if none selected
@@ -154,7 +154,7 @@ export default function CountersTab({ tenantId }: { tenantId: string }) {
 
     setSaving(true);
     try {
-      const url = editingCounter ? `/api/counters/${editingCounter.id}` : '/api/counters';
+      const url = '/api/counters';
       const method = editingCounter ? 'PUT' : 'POST';
       const body: Record<string, unknown> = {
         tenantId,
@@ -163,6 +163,9 @@ export default function CountersTab({ tenantId }: { tenantId: string }) {
         description: formDescription.trim() || null,
         isActive: formIsActive,
       };
+      if (editingCounter) {
+        body.counterId = editingCounter.id;
+      }
 
       const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) });
       const data = await res.json();
@@ -193,10 +196,10 @@ export default function CountersTab({ tenantId }: { tenantId: string }) {
 
     setDeleting(true);
     try {
-      const res = await fetch(`/api/counters/${deleteTarget.id}`, {
+      const res = await fetch('/api/counters', {
         method: 'DELETE',
         headers: authHeaders(),
-        body: JSON.stringify({ tenantId }),
+        body: JSON.stringify({ counterId: deleteTarget.id }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -459,7 +462,7 @@ export default function CountersTab({ tenantId }: { tenantId: string }) {
                           {isServing && servingTicket && (
                             <Badge className="text-xs bg-emerald-600 text-white hover:bg-emerald-600">
                               <UserCheck className="w-3 h-3 mr-1" />
-                              Serving {servingTicket.formattedSerial}
+                              Serving {selectedQueue?.prefix || ''}{String(servingTicket.serialNumber).padStart(3, '0')}
                             </Badge>
                           )}
                         </div>
@@ -470,7 +473,7 @@ export default function CountersTab({ tenantId }: { tenantId: string }) {
                             <div className="flex items-center gap-2 text-sm">
                               <UserCheck className="w-4 h-4 text-emerald-600" />
                               <span className="font-medium text-emerald-800">
-                                {servingTicket.formattedSerial}
+                                {selectedQueue?.prefix || ''}{String(servingTicket.serialNumber).padStart(3, '0')}
                               </span>
                               {servingTicket.customerName && (
                                 <span className="text-emerald-600">— {servingTicket.customerName}</span>

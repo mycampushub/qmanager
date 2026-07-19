@@ -41,7 +41,7 @@ export default function OverviewTab() {
     { label: 'Total Tenants', value: stats.totalTenants, icon: Building2, color: 'text-emerald-600 bg-emerald-50' },
     { label: 'Active Today', value: stats.activeToday, icon: Users, color: 'text-amber-600 bg-amber-50' },
     { label: 'Total Tickets Served', value: stats.totalTicketsServed.toLocaleString(), icon: BarChart3, color: 'text-teal-600 bg-teal-50' },
-    { label: 'Total Revenue', value: `$${(stats.totalRevenue / 100).toLocaleString()}`, icon: Crown, color: 'text-purple-600 bg-purple-50' },
+    { label: 'Total Revenue', value: `৳${(stats.totalRevenue / 100).toLocaleString()}`, icon: Crown, color: 'text-purple-600 bg-purple-50' },
   ];
 
   return (

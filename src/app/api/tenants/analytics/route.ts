@@ -106,7 +106,7 @@ export const GET = withAuth(
 
       const hourBuckets = new Array(24).fill(0) as number[];
       for (const t of hourTickets.results) {
-        hourBuckets[new Date(t.created_at).getHours()]++;
+        hourBuckets[new Date(t.created_at + 'Z').getUTCHours()]++;
       }
       const peakHour = hourBuckets.indexOf(Math.max(...hourBuckets));
 
@@ -265,8 +265,8 @@ export const GET = withAuth(
 
       return NextResponse.json({
         totalTickets,
-        completedToday: completedTickets,
-        skippedToday: skippedTickets,
+        completedCount: completedTickets,
+        skippedCount: skippedTickets,
         avgWaitTimeSec,
         avgServiceTimeSec,
         peakHour: `${String(peakHour).padStart(2, '0')}:00`,

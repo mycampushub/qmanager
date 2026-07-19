@@ -109,7 +109,7 @@ export const GET = withAuth(
 
       const hourBuckets = new Array(24).fill(0) as number[];
       for (const t of hourTickets.results) {
-        hourBuckets[new Date(t.created_at).getHours()]++;
+        hourBuckets[new Date(t.created_at + 'Z').getUTCHours()]++;
       }
       const peakHour = hourBuckets.indexOf(Math.max(...hourBuckets));
 
@@ -155,7 +155,19 @@ export const GET = withAuth(
                 )
               : queue.default_service_time_sec;
 
-          const ewt = (waitingResult?.cnt ?? 0) * queueAvgServiceTime;
+          // Fetch serving count and counter count for this queue
+          const servingQResult = await d1
+            .prepare(`SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = 'SERVING'`)
+            .bind(queue.id)
+            .first<{ cnt: number }>();
+          const counterQResult = await d1
+            .prepare(`SELECT count(*) as cnt FROM service_counters WHERE queue_id = ? AND is_active = 1`)
+            .bind(queue.id)
+            .first<{ cnt: number }>();
+          const servingQ = servingQResult?.cnt ?? 0;
+          const counterQ = counterQResult?.cnt ?? 0;
+          const activePositions = Math.max(servingQ + 1, counterQ > 0 ? counterQ : 1);
+          const ewt = (waitingResult?.cnt ?? 0) > 0 ? Math.ceil(((waitingResult?.cnt ?? 0) * queueAvgServiceTime) / activePositions) : 0;
 
           return {
             queueId: queue.id,
@@ -207,8 +219,8 @@ export const GET = withAuth(
 
       const analyticsData: Record<string, unknown> = {
         totalTickets,
-        completedToday: completedTickets,
-        skippedToday: skippedTickets,
+        completedCount: completedTickets,
+        skippedCount: skippedTickets,
         avgWaitTimeSec,
         avgServiceTimeSec,
         peakHour: `${String(peakHour).padStart(2, '0')}:00`,

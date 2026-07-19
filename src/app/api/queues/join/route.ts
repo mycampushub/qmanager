@@ -517,7 +517,6 @@ export async function POST(req: NextRequest) {
       tenantName: platformTenant.name,
       branding,
       lowBalanceWarning,
-      newBalance,
     });
   } catch (error: unknown) {
     console.error('Join queue error:', error);

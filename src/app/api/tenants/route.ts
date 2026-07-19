@@ -257,9 +257,13 @@ export const PUT = withAuth(
         return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
       }
 
-      // Fetch active queues for this tenant
+      // Fetch active queues for this tenant with location info
       const queuesResult = await d1.prepare(`
-        SELECT * FROM queues WHERE tenant_id = ? AND is_active = 1 ORDER BY name ASC
+        SELECT q.*, l.id as _location_id, l.name as _location_name
+        FROM queues q
+        LEFT JOIN locations l ON q.location_id = l.id AND l.is_active = 1
+        WHERE q.tenant_id = ? AND q.is_active = 1
+        ORDER BY q.name ASC
       `).bind(tenantId).all<{
         id: string;
         tenant_id: string;
@@ -270,8 +274,12 @@ export const PUT = withAuth(
         current_serial: number;
         now_serving_serial: number;
         is_active: number;
+        join_paused: number;
+        location_id: string | null;
         created_at: string;
         updated_at: string;
+        _location_id: string | null;
+        _location_name: string | null;
       }>();
 
       // Compute stats for each queue
@@ -295,6 +303,18 @@ export const PUT = withAuth(
             ? Math.round(logs.reduce((sum, s) => sum + s.duration_seconds, 0) / logs.length)
             : queue.default_service_time_sec;
 
+          // Fetch active counter count for this queue
+          const counterResult = await d1
+            .prepare(`SELECT count(*) as cnt FROM service_counters WHERE queue_id = ? AND is_active = 1`)
+            .bind(queue.id)
+            .first<{ cnt: number }>();
+          const counterCount = counterResult?.cnt ?? 0;
+
+          // EWT accounts for active serving positions (currently SERVING + 1 for the next caller)
+          const activePositions = Math.max(serving + 1, counterCount > 0 ? counterCount : 1);
+          const rawEwt = waiting * avgServiceTime;
+          const ewt = Math.ceil(rawEwt / activePositions);
+
           return {
             id: queue.id,
             tenantId: queue.tenant_id,
@@ -305,11 +325,15 @@ export const PUT = withAuth(
             currentSerial: queue.current_serial,
             nowServingSerial: queue.now_serving_serial,
             isActive: queue.is_active === 1,
+            locationId: queue._location_id || queue.location_id || null,
+            joinPaused: (queue.join_paused as number) === 1,
+            location: queue._location_id ? { id: queue._location_id, name: queue._location_name } : null,
             _waitingCount: waiting,
             _servingCount: serving,
             _skippedCount: skipped,
             _avgServiceTime: avgServiceTime,
-            _ewt: waiting * avgServiceTime,
+            _ewt: ewt,
+            _activeCounterCount: counterCount,
           };
         })
       );

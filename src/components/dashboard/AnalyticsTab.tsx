@@ -102,11 +102,11 @@ export function AnalyticsTab({ tenantId }: { tenantId: string }) {
 
   const stats = [
     { label: "Today's Tickets", value: analytics.totalTickets, icon: Hash, color: 'text-emerald-600' },
-    { label: 'Completed', value: analytics.completedToday, icon: CheckCircle2, color: 'text-green-600' },
+    { label: 'Completed', value: analytics.completedCount, icon: CheckCircle2, color: 'text-green-600' },
     { label: 'Avg Wait', value: `${Math.floor(analytics.avgWaitTimeSec / 60)}m ${analytics.avgWaitTimeSec % 60}s`, icon: Clock, color: 'text-amber-600' },
     { label: 'Avg Service', value: `${Math.floor(analytics.avgServiceTimeSec / 60)}m ${analytics.avgServiceTimeSec % 60}s`, icon: Timer, color: 'text-teal-600' },
     { label: 'Peak Hour', value: analytics.peakHour, icon: TrendingUp, color: 'text-rose-600' },
-    { label: 'Skipped', value: analytics.skippedToday, icon: SkipForward, color: 'text-gray-500' },
+    { label: 'Skipped', value: analytics.skippedCount, icon: SkipForward, color: 'text-gray-500' },
   ];
 
   const formatDuration = (secs: number) => {

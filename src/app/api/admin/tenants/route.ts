@@ -37,7 +37,7 @@ export const GET = withAuth(
         d1.prepare(`SELECT count(*) as cnt FROM tenants t${whereClause}`).bind(...whereBinds),
         d1.prepare(
           `SELECT t.id, t.name, t.plan_tier, t.wallet_balance, t.is_active, t.master_tenant_id,
-                  t.created_at, t.updated_at,
+                  t.created_at, t.updated_at, t.block_level, t.block_reason,
                   mt.id as mt_id, mt.corporate_name as mt_name,
                   (SELECT count(*) FROM users u WHERE u.tenant_id = t.id AND u.is_active = 1) as staff_count
            FROM tenants t
@@ -54,6 +54,7 @@ export const GET = withAuth(
         id: string; name: string; plan_tier: string; wallet_balance: number;
         is_active: number; master_tenant_id: string | null; created_at: string; updated_at: string;
         mt_id: string | null; mt_name: string | null; staff_count: number;
+        block_level: string | null; block_reason: string | null;
       };
 
       const tenantRows = (tenantResult.results as TenantRow[]) ?? [];
@@ -61,11 +62,11 @@ export const GET = withAuth(
       // Fetch today's ticket counts in a single GROUP BY query
       let ticketCounts: Map<string, number> = new Map();
       try {
-        const countResult = await d1
+        const ticketCountResult = await d1
           .prepare('SELECT tenant_id, count(*) as cnt FROM tickets WHERE created_at >= ? GROUP BY tenant_id')
           .bind(todayISO)
           .all<{ tenant_id: string; cnt: number }>();
-        for (const row of countResult.results) {
+        for (const row of ticketCountResult.results) {
           ticketCounts.set(row.tenant_id, row.cnt);
         }
       } catch { /* query failed */ }
@@ -76,6 +77,8 @@ export const GET = withAuth(
         planTier: tenant.plan_tier,
         walletBalance: tenant.wallet_balance,
         isActive: tenant.is_active === 1,
+        blockLevel: (tenant.block_level || 'NONE') as string,
+        blockReason: tenant.block_reason || null,
         masterTenant: tenant.mt_id ? { id: tenant.mt_id, corporateName: tenant.mt_name } : null,
         staffCount: tenant.staff_count,
         todayTicketCount: ticketCounts.get(tenant.id) ?? 0,
