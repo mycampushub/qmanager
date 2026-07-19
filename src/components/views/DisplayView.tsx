@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Clock, Users, Timer, CheckCircle2, QrCode, Globe } from 'lucide-react';
+import { ArrowLeft, Clock, Users, Timer, CheckCircle2, QrCode, Globe, ListOrdered } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -230,10 +230,13 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
   /* Rotate active queue for the big "NOW SERVING" display */
   const queues = useMemo(() => tenant?._queues ?? [], [tenant]);
 
-  // Group queues by location tag for the status grid
+  // Group queues by location name for the status grid
+  const allLocationNames = useMemo(() => [...new Set(queues.map(q => q.location?.name || 'General'))], [queues]);
+  const [activeLocationFilter, setActiveLocationFilter] = useState<string>('all');
+  const filteredQueues = activeLocationFilter === 'all' ? queues : queues.filter(q => (q.location?.name || 'General') === activeLocationFilter);
   const { groupedQueues, locationTags } = useMemo(() => {
-    const grouped = queues.reduce<Record<string, typeof queues>>((acc, q) => {
-      const tag = q.locationTag || 'General';
+    const grouped = filteredQueues.reduce<Record<string, typeof queues>>((acc, q) => {
+      const tag = q.location?.name || 'General';
       if (!acc[tag]) acc[tag] = [];
       acc[tag].push(q);
       return acc;
@@ -244,7 +247,25 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
       return a.localeCompare(b);
     });
     return { groupedQueues: grouped, locationTags: tags };
-  }, [queues]);
+  }, [filteredQueues]);
+
+  // Fetch active breaks every 15 seconds
+  const [activeBreaks, setActiveBreaks] = useState<{ reason: string; level: string }[]>([]);
+  useEffect(() => {
+    const fetchBreaks = async () => {
+      try {
+        const res = await fetch(`/api/breaks?tenantId=${tenantId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const active = (data.breaks ?? []).filter((b: { isActive: boolean }) => b.isActive);
+          setActiveBreaks(active.map((b: { reason: string | null; level: string }) => ({ reason: b.reason || 'Break', level: b.level })));
+        }
+      } catch { /* silent */ }
+    };
+    fetchBreaks();
+    const interval = setInterval(fetchBreaks, 15000);
+    return () => clearInterval(interval);
+  }, [tenantId]);
 
   useEffect(() => {
     if (queues.length <= 1) return;
@@ -405,44 +426,101 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -30, scale: 0.9 }}
                 transition={{ duration: 0.5, ease: 'easeOut' }}
-                className="flex flex-col items-center"
+                className="flex flex-col items-center w-full max-w-5xl"
               >
                 <p className="text-2xl font-semibold uppercase tracking-[0.3em] text-slate-400 mb-4">
                   {t('display.nowServing')}
                 </p>
 
-                {/* Big ticket number */}
-                <div
-                  className="relative rounded-2xl border-2 px-16 py-8 mb-4"
-                  style={{ borderColor: `${accentColor}40`, backgroundColor: `${accentColor}08` }}
-                >
-                  <motion.p
-                    className="text-[clamp(80px,12vw,160px)] font-black font-mono leading-none tracking-wider"
-                    style={{ color: accentColor }}
-                    animate={
-                      flashActive
-                        ? {
-                            textShadow: [
-                              `0 0 20px ${accentColor}80`,
-                              `0 0 60px ${accentColor}40`,
-                              `0 0 0px transparent`,
-                            ],
+                {/* Multi-counter serving panels OR single big ticket number */}
+                {activeQueue._servingTickets && activeQueue._servingTickets.length > 1 ? (
+                  /* Multiple counters active — show grid of counter panels */
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4 w-full">
+                    {activeQueue._servingTickets.map((st) => (
+                      <div
+                        key={st.counterId || st.ticketId}
+                        className="rounded-xl border-2 px-4 py-5 text-center"
+                        style={{ borderColor: `${accentColor}40`, backgroundColor: `${accentColor}08` }}
+                      >
+                        {st.counterName && st.counterName !== 'Counter' && (
+                          <p className="text-xs font-medium text-slate-500 mb-1">{st.counterName}</p>
+                        )}
+                        <motion.p
+                          className="text-3xl sm:text-4xl lg:text-5xl font-black font-mono leading-none"
+                          style={{ color: accentColor }}
+                          animate={
+                            flashActive
+                              ? {
+                                  textShadow: [
+                                    `0 0 20px ${accentColor}80`,
+                                    `0 0 40px ${accentColor}40`,
+                                    `0 0 0px transparent`,
+                                  ],
+                                }
+                              : { textShadow: '0 0 0px transparent' }
                           }
-                        : { textShadow: '0 0 0px transparent' }
-                    }
-                    transition={{ duration: 0.8 }}
-                  >
-                    {formatSerial(activeQueue)}
-                  </motion.p>
-                </div>
+                          transition={{ duration: 0.8 }}
+                        >
+                          {formatSerialFromParts(activeQueue.prefix, st.serialNumber)}
+                        </motion.p>
+                        {st.customerName && (
+                          <p className="text-sm text-slate-400 mt-2 truncate">{st.customerName}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* Single counter / no counters — show big number */
+                  <>
+                    <div
+                      className="relative rounded-2xl border-2 px-16 py-8 mb-4"
+                      style={{ borderColor: `${accentColor}40`, backgroundColor: `${accentColor}08` }}
+                    >
+                      <motion.p
+                        className="text-[clamp(80px,12vw,160px)] font-black font-mono leading-none tracking-wider"
+                        style={{ color: accentColor }}
+                        animate={
+                          flashActive
+                            ? {
+                                textShadow: [
+                                  `0 0 20px ${accentColor}80`,
+                                  `0 0 60px ${accentColor}40`,
+                                  `0 0 0px transparent`,
+                                ],
+                              }
+                            : { textShadow: '0 0 0px transparent' }
+                        }
+                        transition={{ duration: 0.8 }}
+                      >
+                        {formatSerial(activeQueue)}
+                      </motion.p>
+                    </div>
+                    {/* Show counter name if serving at a specific counter */}
+                    {activeQueue._servingTickets?.[0]?.counterName && activeQueue._servingTickets[0].counterName !== 'Counter' && (
+                      <p className="text-sm text-slate-500 -mt-2 mb-3">
+                        {activeQueue._servingTickets[0].counterName}
+                        {activeQueue._servingTickets[0].customerName && ` — ${activeQueue._servingTickets[0].customerName}`}
+                      </p>
+                    )}
+                  </>
+                )}
 
-                {/* Queue + Window info */}
-                <div className="flex items-center gap-4 mb-4">
+                {/* Queue + Counter + Waiting info */}
+                <div className="flex items-center gap-3 flex-wrap justify-center mb-4">
                   <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800/80 border border-slate-700/50">
                     <Users className="w-4 h-4 text-slate-400" />
                     <span className="text-slate-400 text-sm">{locale === 'bn' ? 'কিউ:' : 'Queue:'}</span>
                     <span className="text-white font-semibold text-lg">{activeQueue.name}</span>
                   </div>
+                  {/* Active counters badge */}
+                  {(activeQueue._activeCounterCount ?? 0) > 0 && (
+                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-800/80 border border-slate-700/50">
+                      <ListOrdered className="w-4 h-4 text-emerald-400" />
+                      <span className="text-emerald-400 font-semibold text-sm">
+                        {activeQueue._activeCounterCount} {activeQueue._activeCounterCount === 1 ? (locale === 'bn' ? 'কাউন্টার' : 'Counter') : (locale === 'bn' ? 'কাউন্টার' : 'Counters')}
+                      </span>
+                    </div>
+                  )}
                   {(activeQueue._waitingCount ?? 0) > 0 && (
                     <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800/80 border border-slate-700/50">
                       <Clock className="w-4 h-4 text-slate-400" />
@@ -518,6 +596,38 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
                 {t('queue.status')}
               </h2>
               <div className="flex-1 h-px bg-slate-800/60" />
+              {/* Location filter tabs */}
+              {allLocationNames.length > 1 && (
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveLocationFilter('all')}
+                    className={`px-2.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                      activeLocationFilter === 'all'
+                        ? 'text-white'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                    style={activeLocationFilter === 'all' ? { backgroundColor: accentColor } : undefined}
+                  >
+                    All
+                  </button>
+                  {allLocationNames.map(loc => (
+                    <button
+                      key={loc}
+                      type="button"
+                      onClick={() => setActiveLocationFilter(loc)}
+                      className={`px-2.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                        activeLocationFilter === loc
+                          ? 'text-white'
+                          : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                      style={activeLocationFilter === loc ? { backgroundColor: accentColor } : undefined}
+                    >
+                      {loc}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <ScrollArea className="w-full">
@@ -548,12 +658,17 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
                         >
                           <div className="flex items-center justify-between mb-3">
                             <h3 className="font-semibold text-white truncate">{queue.name}</h3>
-                            <Badge
-                              variant="outline"
-                              className="border-slate-700 text-slate-400 text-xs shrink-0"
-                            >
-                              {queue.prefix}
-                            </Badge>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {queue.joinPaused && (
+                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">Paused</span>
+                              )}
+                              <Badge
+                                variant="outline"
+                                className="border-slate-700 text-slate-400 text-xs shrink-0"
+                              >
+                                {queue.prefix}
+                              </Badge>
+                            </div>
                           </div>
 
                           <p
@@ -617,6 +732,20 @@ function MainDisplay({ tenantId }: { tenantId: string }) {
       >
         <ArrowLeft className="w-4 h-4" />
       </button>
+
+      {/* Break Overlay — ROOM level breaks */}
+      {activeBreaks.some(b => b.level === 'ROOM') && (
+        <div className="fixed inset-0 z-30 bg-amber-500/20 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
+          <div className="text-center">
+            <p className="text-4xl sm:text-5xl font-bold text-amber-400 uppercase tracking-[0.3em] mb-3">
+              ON BREAK
+            </p>
+            <p className="text-lg text-amber-300/80">
+              {activeBreaks.filter(b => b.level === 'ROOM').map(b => b.reason).join(', ')}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

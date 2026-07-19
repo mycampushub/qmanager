@@ -45,6 +45,9 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
   const [loadingMore, setLoadingMore] = useState(false);
   const [overviewDate, setOverviewDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [agentQueues, setAgentQueues] = useState<Queue[]>([]);
+  const [activeBreaks, setActiveBreaks] = useState<{ reason: string; level: string }[]>([]);
+  const [counters, setCounters] = useState<{ id: string; name: string }[]>([]);
+  const [selectedCounterId, setSelectedCounterId] = useState<string | undefined>(undefined);
   const ticketListCursorRef = useRef<number | undefined>(undefined);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const authToken = useAppStore((s) => s.authToken);
@@ -68,6 +71,43 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       } catch { /* silent - fallback to tenantData.queues */ }
     })();
   }, [authToken, user.role]);
+
+  // Fetch active breaks every 30 seconds
+  useEffect(() => {
+    const fetchBreaks = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+        const res = await fetch(`/api/breaks?tenantId=${user.tenantId}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          const active = (data.breaks ?? []).filter((b: { isActive: boolean }) => b.isActive);
+          setActiveBreaks(active.map((b: { reason: string | null; level: string }) => ({ reason: b.reason || 'Break', level: b.level })));
+        }
+      } catch { /* silent */ }
+    };
+    fetchBreaks();
+    const interval = setInterval(fetchBreaks, 30000);
+    return () => clearInterval(interval);
+  }, [authToken, user.tenantId]);
+
+  // Fetch counters when queue changes
+  useEffect(() => {
+    if (!selectedQueueId || !authToken) { setCounters([]); setSelectedCounterId(undefined); return; }
+    (async () => {
+      try {
+        const res = await fetch(`/api/counters?queueId=${selectedQueueId}`, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const c = (data.counters ?? []) as { id: string; name: string; isActive: boolean }[];
+          setCounters(c.filter(x => x.isActive));
+          setSelectedCounterId(undefined);
+        }
+      } catch { /* silent */ }
+    })();
+  }, [selectedQueueId, authToken]);
 
   // Sync skippedAvailable from queue data on switch/load
   useEffect(() => {
@@ -173,7 +213,7 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
       const res = await fetch('/api/tickets/call', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ queueId: selectedQueueId, agentId: user.id }),
+        body: JSON.stringify({ queueId: selectedQueueId, agentId: user.id, counterId: selectedCounterId }),
       });
       const data = await res.json();
       if (data.calledTicket) {
@@ -360,9 +400,12 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     [queues, tenantName],
   );
 
-  // Group queues by location tag
-  const groupedQueues = queues.reduce<Record<string, typeof queues>>((acc, q) => {
-    const tag = q.locationTag || 'General';
+  // Group queues by location name
+  const allLocationNames = [...new Set(queues.map(q => q.location?.name || 'General'))];
+  const [activeLocationFilter, setActiveLocationFilter] = useState<string>('all');
+  const filteredQueues = activeLocationFilter === 'all' ? queues : queues.filter(q => (q.location?.name || 'General') === activeLocationFilter);
+  const groupedQueues = filteredQueues.reduce<Record<string, typeof queues>>((acc, q) => {
+    const tag = q.location?.name || 'General';
     if (!acc[tag]) acc[tag] = [];
     acc[tag].push(q);
     return acc;
@@ -381,6 +424,16 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
 
   return (
     <div className="space-y-4">
+      {/* Active Break Banner */}
+      {activeBreaks.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center gap-2 text-amber-800">
+          <span className="text-base">⚠️</span>
+          <span className="text-sm font-medium">
+            Break in progress — {activeBreaks.map(b => b.reason).join(', ')}. Service may be limited.
+          </span>
+        </div>
+      )}
+
       {/* Queue Selector */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -401,6 +454,36 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
             </Button>
           </div>
         </div>
+        {/* Location Filter Tabs */}
+        {allLocationNames.length > 1 && (
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            <button
+              type="button"
+              onClick={() => setActiveLocationFilter('all')}
+              className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                activeLocationFilter === 'all'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              All
+            </button>
+            {allLocationNames.map(loc => (
+              <button
+                key={loc}
+                type="button"
+                onClick={() => setActiveLocationFilter(loc)}
+                className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  activeLocationFilter === loc
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                {loc}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="space-y-3 overflow-x-auto pb-1 -mx-1 px-1">
           {locationTags.map(tag => (
             <div key={tag}>
@@ -447,10 +530,33 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
               </div>
             </div>
           ))}
+          {filteredQueues.length === 0 && queues.length > 0 && (
+            <p className="text-sm text-muted-foreground py-4">No queues in this location</p>
+          )}
           {queues.length === 0 && (
             <p className="text-sm text-muted-foreground py-4">{tr('queue.noQueues')}</p>
           )}
         </div>
+        {/* Counter Selector */}
+        {counters.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">Counter:</span>
+            {counters.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setSelectedCounterId(selectedCounterId === c.id ? undefined : c.id)}
+                className={`flex-shrink-0 px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                  selectedCounterId === c.id
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                    : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Walk-in Form — Full screen on mobile with Sheet-like behavior */}

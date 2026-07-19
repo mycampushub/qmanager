@@ -271,12 +271,98 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
 );
 
 -- =============================================================================
+-- LOCATIONS (Phase 0: Replace location_tag text with proper entity)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS locations (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  description     TEXT,
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  is_active       INTEGER NOT NULL DEFAULT 1,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(tenant_id, name),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+
+-- Add location_id FK to queues (NULL-safe for migration)
+-- After migration, location_tag can be deprecated
+ALTER TABLE queues ADD COLUMN location_id TEXT;
+-- ALTER TABLE queues ADD COLUMN join_paused INTEGER NOT NULL DEFAULT 0; -- done below
+
+-- =============================================================================
+-- TENANT BLOCK (Phase 2: NONE / SOFT / HARD)
+-- =============================================================================
+
+ALTER TABLE tenants ADD COLUMN block_level TEXT NOT NULL DEFAULT 'NONE';
+ALTER TABLE tenants ADD COLUMN block_reason TEXT;
+
+-- =============================================================================
+-- JOIN PAUSE (Phase 1: per-queue join pause/close)
+-- =============================================================================
+
+ALTER TABLE queues ADD COLUMN join_paused INTEGER NOT NULL DEFAULT 0;
+
+-- =============================================================================
+-- BREAK PERIODS (Phase 3: ROOM / LINE / COUNTER levels)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS break_periods (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  level           TEXT NOT NULL DEFAULT 'ROOM' CHECK(level IN ('ROOM','LINE','COUNTER')),
+  queue_id        TEXT,
+  counter_id      TEXT,
+  reason          TEXT,
+  started_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  ends_at         TEXT,
+  ended_at        TEXT,
+  ended_by        TEXT,
+  is_active       INTEGER NOT NULL DEFAULT 1,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  FOREIGN KEY (queue_id) REFERENCES queues(id) ON DELETE SET NULL,
+  FOREIGN KEY (ended_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- =============================================================================
+-- SERVICE COUNTERS (Phase 4: Multi-counter serving lines)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS service_counters (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  queue_id        TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  description     TEXT,
+  is_active       INTEGER NOT NULL DEFAULT 1,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(queue_id, name),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  FOREIGN KEY (queue_id) REFERENCES queues(id) ON DELETE CASCADE
+);
+
+-- Add counter_id to tickets for counter-scoped serving
+ALTER TABLE tickets ADD COLUMN counter_id TEXT;
+
+-- =============================================================================
 -- INDEXES
 -- =============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_queues_tenant_active ON queues(tenant_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_queues_tenant_location ON queues(tenant_id, location_tag);
+CREATE INDEX IF NOT EXISTS idx_queues_location_id ON queues(location_id);
+CREATE INDEX IF NOT EXISTS idx_locations_tenant ON locations(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_break_periods_tenant_active ON break_periods(tenant_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_break_periods_queue ON break_periods(queue_id);
+CREATE INDEX IF NOT EXISTS idx_break_periods_counter ON break_periods(counter_id);
+CREATE INDEX IF NOT EXISTS idx_service_counters_queue ON service_counters(queue_id);
+CREATE INDEX IF NOT EXISTS idx_service_counters_tenant ON service_counters(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_counter ON tickets(counter_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_tenant_status ON tickets(tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_tickets_queue_status_serial ON tickets(queue_id, status, serial_number);
 CREATE INDEX IF NOT EXISTS idx_tickets_phone_tenant ON tickets(customer_phone, tenant_id);
@@ -390,4 +476,18 @@ CREATE TRIGGER IF NOT EXISTS trg_queue_assignments_updated
   FOR EACH ROW
   BEGIN
     UPDATE queue_assignments SET updated_at = datetime('now') WHERE id = OLD.id;
+  END;
+
+CREATE TRIGGER IF NOT EXISTS trg_locations_updated
+  AFTER UPDATE ON locations
+  FOR EACH ROW
+  BEGIN
+    UPDATE locations SET updated_at = datetime('now') WHERE id = OLD.id;
+  END;
+
+CREATE TRIGGER IF NOT EXISTS trg_service_counters_updated
+  AFTER UPDATE ON service_counters
+  FOR EACH ROW
+  BEGIN
+    UPDATE service_counters SET updated_at = datetime('now') WHERE id = OLD.id;
   END;

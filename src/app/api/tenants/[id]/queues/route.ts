@@ -31,8 +31,10 @@ export async function GET(
     .prepare(
       `SELECT q.id, q.tenant_id, q.name, q.description, q.default_service_time_sec,
               q.prefix, q.current_serial, q.now_serving_serial, q.is_active,
-              q.created_at, q.updated_at
+              q.created_at, q.updated_at, q.join_paused,
+              l.id as location_id, l.name as location_name
        FROM queues q
+       LEFT JOIN locations l ON q.location_id = l.id
        WHERE q.tenant_id = ? AND q.is_active = 1
        ORDER BY q.name ASC`
     )
@@ -41,6 +43,7 @@ export async function GET(
       id: string; tenant_id: string; name: string; description: string | null;
       default_service_time_sec: number; prefix: string; current_serial: number;
       now_serving_serial: number; is_active: number; created_at: string; updated_at: string;
+      join_paused: number; location_id: string | null; location_name: string | null;
     }>();
 
   // Get waiting counts for all queues in one query
@@ -71,6 +74,9 @@ export async function GET(
     currentSerial: q.current_serial,
     nowServingSerial: q.now_serving_serial,
     isActive: q.is_active === 1,
+    joinPaused: q.join_paused === 1,
+    locationId: q.location_id,
+    locationName: q.location_name,
     createdAt: q.created_at,
     updatedAt: q.updated_at,
     _waitingCount: waitingCounts[q.id] ?? 0,

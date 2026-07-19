@@ -7,10 +7,17 @@ import { emitWSEvent } from '@/lib/ws-emit';
 
 // Helper: map a queue DB row to the API response shape
 function mapQueue(q: Record<string, unknown>): Record<string, unknown> {
-  return {
+  const mapped: Record<string, unknown> = {
     ...toCamel(q),
     isActive: q.is_active === 1,
+    joinPaused: (q.join_paused as number) === 1,
   };
+  // Attach location info if joined
+  if (q._location_id) {
+    mapped.locationId = q._location_id;
+    mapped.location = { id: q._location_id, name: q._location_name };
+  }
+  return mapped;
 }
 
 // GET: List queues for user's tenant
@@ -37,12 +44,15 @@ export const GET = withAuth(
         sql = `SELECT q.*,
   COALESCE(wc.waiting_count, 0) as waiting_count,
   COALESCE(sc.serving_count, 0) as serving_count,
-  COALESCE(skpc.skipped_count, 0) as skipped_count
+  COALESCE(skpc.skipped_count, 0) as skipped_count,
+  loc.id as _location_id,
+  loc.name as _location_name
 FROM queues q
 LEFT JOIN (SELECT queue_id, count(*) as waiting_count FROM tickets WHERE status = 'WAITING' GROUP BY queue_id) wc ON wc.queue_id = q.id
 LEFT JOIN (SELECT queue_id, count(*) as serving_count FROM tickets WHERE status = 'SERVING' GROUP BY queue_id) sc ON sc.queue_id = q.id
 LEFT JOIN (SELECT queue_id, count(*) as skipped_count FROM tickets WHERE status = 'SKIPPED' GROUP BY queue_id) skpc ON skpc.queue_id = q.id
 LEFT JOIN queue_assignments qa ON qa.queue_id = q.id AND qa.agent_id = ? AND qa.is_active = 1
+LEFT JOIN locations loc ON loc.id = q.location_id AND loc.is_active = 1
 WHERE q.tenant_id = ? AND q.is_active = 1
 AND (qa.id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM queue_assignments WHERE agent_id = ? AND is_active = 1 AND tenant_id = ?))
 ORDER BY q.name ASC`;
@@ -52,11 +62,14 @@ ORDER BY q.name ASC`;
         sql = `SELECT q.*,
   COALESCE(wc.waiting_count, 0) as waiting_count,
   COALESCE(sc.serving_count, 0) as serving_count,
-  COALESCE(skpc.skipped_count, 0) as skipped_count
+  COALESCE(skpc.skipped_count, 0) as skipped_count,
+  loc.id as _location_id,
+  loc.name as _location_name
 FROM queues q
 LEFT JOIN (SELECT queue_id, count(*) as waiting_count FROM tickets WHERE status = 'WAITING' GROUP BY queue_id) wc ON wc.queue_id = q.id
 LEFT JOIN (SELECT queue_id, count(*) as serving_count FROM tickets WHERE status = 'SERVING' GROUP BY queue_id) sc ON sc.queue_id = q.id
 LEFT JOIN (SELECT queue_id, count(*) as skipped_count FROM tickets WHERE status = 'SKIPPED' GROUP BY queue_id) skpc ON skpc.queue_id = q.id
+LEFT JOIN locations loc ON loc.id = q.location_id AND loc.is_active = 1
 WHERE q.tenant_id = ? AND q.is_active = 1
 ORDER BY q.name ASC`;
         binds.push(tenantId);
@@ -102,6 +115,7 @@ export const POST = withAuth(
         prefix,
         defaultServiceTimeSec,
         locationTag,
+        locationId,
       } = body as {
         tenantId: string;
         name: string;
@@ -109,6 +123,7 @@ export const POST = withAuth(
         prefix: string;
         defaultServiceTimeSec?: number;
         locationTag?: string;
+        locationId?: string;
       };
 
       if (!tenantId || !name || !prefix) {
@@ -158,6 +173,19 @@ export const POST = withAuth(
 
       const d1 = await getD1FromEnv();
 
+      // Validate locationId if provided
+      let validatedLocationId: string | null = null;
+      if (locationId) {
+        const loc = await d1
+          .prepare('SELECT id, name FROM locations WHERE id = ? AND tenant_id = ? AND is_active = 1')
+          .bind(locationId, tenantId)
+          .first<{ id: string; name: string }>();
+        if (!loc) {
+          return NextResponse.json({ error: 'Location not found or inactive' }, { status: 404 });
+        }
+        validatedLocationId = locationId;
+      }
+
       // A18: Wrap count-check + create in a single batch to prevent race condition
       // Pre-reads for validation
       const tenant = await d1
@@ -198,10 +226,10 @@ export const POST = withAuth(
 
       await d1
         .prepare(
-          `INSERT INTO queues (id, tenant_id, name, location_tag, description, default_service_time_sec, prefix, current_serial, now_serving_serial, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 1)`
+          `INSERT INTO queues (id, tenant_id, name, location_tag, location_id, description, default_service_time_sec, prefix, current_serial, now_serving_serial, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 1)`
         )
-        .bind(id, tenantId, name, locationTag || null, description || null, svcTime, prefix.toUpperCase())
+        .bind(id, tenantId, name, locationTag || null, validatedLocationId, description || null, svcTime, prefix.toUpperCase())
         .run();
 
       // Audit log
@@ -226,12 +254,14 @@ export const POST = withAuth(
         tenantId,
         name,
         locationTag: locationTag || null,
+        locationId: validatedLocationId,
         description: description || null,
         defaultServiceTimeSec: svcTime,
         prefix: prefix.toUpperCase(),
         currentSerial: 0,
         nowServingSerial: 0,
         isActive: true,
+        joinPaused: false,
         createdAt: dbNow(),
         updatedAt: dbNow(),
       };
@@ -266,6 +296,8 @@ export const PUT = withAuth(
         defaultServiceTimeSec,
         isActive,
         locationTag,
+        locationId,
+        joinPaused,
       } = body as {
         queueId: string;
         name?: string;
@@ -274,6 +306,8 @@ export const PUT = withAuth(
         defaultServiceTimeSec?: number;
         isActive?: boolean;
         locationTag?: string;
+        locationId?: string;
+        joinPaused?: boolean;
       };
 
       if (!queueId) {
@@ -345,6 +379,23 @@ export const PUT = withAuth(
         setClauses.push('location_tag = ?');
         bindValues.push(locationTag || null);
       }
+      if (locationId !== undefined) {
+        if (locationId) {
+          const loc = await d1
+            .prepare('SELECT id FROM locations WHERE id = ? AND tenant_id = ? AND is_active = 1')
+            .bind(locationId, user.tenantId)
+            .first();
+          if (!loc) {
+            return NextResponse.json({ error: 'Location not found or inactive' }, { status: 404 });
+          }
+        }
+        setClauses.push('location_id = ?');
+        bindValues.push(locationId || null);
+      }
+      if (joinPaused !== undefined) {
+        setClauses.push('join_paused = ?');
+        bindValues.push(joinPaused ? 1 : 0);
+      }
 
       if (setClauses.length === 0) {
         return NextResponse.json(
@@ -378,6 +429,8 @@ export const PUT = withAuth(
       if (defaultServiceTimeSec !== undefined) updateData.defaultServiceTimeSec = defaultServiceTimeSec;
       if (isActive !== undefined) updateData.isActive = isActive;
       if (locationTag !== undefined) updateData.locationTag = locationTag || null;
+      if (locationId !== undefined) updateData.locationId = locationId || null;
+      if (joinPaused !== undefined) updateData.joinPaused = joinPaused;
 
       await d1
         .prepare(

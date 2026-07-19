@@ -7,6 +7,8 @@ export interface AdminAnalytics {
   totalRevenue: number;
 }
 
+export type BlockLevel = 'NONE' | 'SOFT' | 'HARD';
+
 export interface TenantRow {
   id: string;
   name: string;
@@ -15,6 +17,8 @@ export interface TenantRow {
   todayTicketCount: number;
   staffCount: number;
   isActive: boolean;
+  blockLevel: BlockLevel;
+  blockReason: string | null;
   masterTenantId: string | null;
   masterTenant?: { id: string; corporateName: string } | null;
   createdAt?: string;

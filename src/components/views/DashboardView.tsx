@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LogOut, Users, BarChart3, Wallet, Palette, ListOrdered,
   Phone, CalendarClock, Star, Webhook, Settings,
-  Menu, MoreHorizontal, KeyRound, Monitor, Globe
+  Menu, MoreHorizontal, KeyRound, Monitor, Globe,
+  MapPin, Coffee, MonitorDot
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,9 @@ import AppointmentsTab from '@/components/tabs/AppointmentsTab';
 import FeedbackTab from '@/components/tabs/FeedbackTab';
 import WebhooksTab from '@/components/tabs/WebhooksTab';
 import SettingsTab from '@/components/tabs/SettingsTab';
+import LocationsTab from '@/components/tabs/LocationsTab';
+import BreaksTab from '@/components/tabs/BreaksTab';
+import CountersTab from '@/components/tabs/CountersTab';
 
 // Extracted sub-components
 import { LoginScreen } from '@/components/dashboard/LoginForm';
@@ -248,6 +252,9 @@ export default function DashboardView() {
     { id: 'agent' as const, label: 'Agent View', icon: Phone },
     { id: 'queues' as const, label: 'Queues', icon: ListOrdered },
     ...(isManager ? [
+      { id: 'locations' as const, label: 'Locations', icon: MapPin },
+      { id: 'breaks' as const, label: 'Breaks', icon: Coffee },
+      { id: 'counters' as const, label: 'Counters', icon: MonitorDot },
       { id: 'analytics' as const, label: 'Analytics', icon: BarChart3 },
       { id: 'wallet' as const, label: 'Wallet', icon: Wallet },
       { id: 'service-windows' as const, label: 'Hours', icon: CalendarClock },
@@ -342,6 +349,15 @@ export default function DashboardView() {
               )}
               {dashboardTab === 'feedback' && isManager && (
                 <FeedbackTab tenantId={authUser.tenantId} />
+              )}
+              {dashboardTab === 'locations' && isManager && (
+                <LocationsTab tenantId={authUser.tenantId} />
+              )}
+              {dashboardTab === 'breaks' && isManager && (
+                <BreaksTab tenantId={authUser.tenantId} />
+              )}
+              {dashboardTab === 'counters' && isManager && (
+                <CountersTab tenantId={authUser.tenantId} />
               )}
               {dashboardTab === 'webhooks' && isManager && (
                 <WebhooksTab tenantId={authUser.tenantId} />

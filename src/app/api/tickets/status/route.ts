@@ -41,6 +41,26 @@ async function getWaitingAhead(
   return result?.cnt ?? 0;
 }
 
+// Helper: compute active serving positions (serving tickets + 1 for next caller, or counter count)
+async function getActivePositions(
+  d1: D1Database,
+  queueId: string
+): Promise<number> {
+  const [servingResult, counterResult] = await Promise.all([
+    d1
+      .prepare('SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?')
+      .bind(queueId, 'SERVING')
+      .first<{ cnt: number }>(),
+    d1
+      .prepare('SELECT count(*) as cnt FROM service_counters WHERE queue_id = ? AND is_active = 1')
+      .bind(queueId)
+      .first<{ cnt: number }>(),
+  ]);
+  const serving = servingResult?.cnt ?? 0;
+  const counters = counterResult?.cnt ?? 0;
+  return Math.max(serving + 1, counters > 0 ? counters : 1);
+}
+
 // POST: Find ticket by queueId + optional status filter (for AgentView)
 export const POST = withAuth(
   async (req: NextRequest, ctx: { user: JwtPayload }) => {
@@ -141,13 +161,11 @@ export const POST = withAuth(
         );
         position = waitingAhead + 1;
 
-        const avgServiceTime = await getAvgServiceTime(
-          d1,
-          tenantId,
-          queueId,
-          queue.default_service_time_sec
-        );
-        ewt = (waitingAhead + 1) * avgServiceTime;
+        const [avgServiceTime, activePositions] = await Promise.all([
+          getAvgServiceTime(d1, tenantId, queueId, queue.default_service_time_sec),
+          getActivePositions(d1, queueId),
+        ]);
+        ewt = Math.ceil((waitingAhead + 1) * avgServiceTime / activePositions);
       }
 
       // Convert to camelCase and add extra fields
@@ -269,14 +287,17 @@ export async function GET(req: NextRequest) {
         serialNumber
       );
 
-      const avgServiceTime = await getAvgServiceTime(
-        d1,
-        ticketTenantId,
-        ticket.queue_id as string,
-        ticket.queue_default_service_time_sec as number
-      );
+      const [avgServiceTime, activePositions] = await Promise.all([
+        getAvgServiceTime(
+          d1,
+          ticketTenantId,
+          ticket.queue_id as string,
+          ticket.queue_default_service_time_sec as number
+        ),
+        getActivePositions(d1, ticket.queue_id as string),
+      ]);
 
-      const ewt = (waitingAhead + 1) * avgServiceTime;
+      const ewt = Math.ceil((waitingAhead + 1) * avgServiceTime / activePositions);
       const formattedSerial = `${ticket.queue_prefix}${String(serialNumber).padStart(3, '0')}`;
 
       return NextResponse.json({
@@ -360,13 +381,11 @@ export async function GET(req: NextRequest) {
           );
           position = waitingAhead + 1;
 
-          const avgServiceTime = await getAvgServiceTime(
-            d1,
-            tenantId,
-            t.queue_id as string,
-            t.queue_default_service_time_sec as number
-          );
-          ewt = (waitingAhead + 1) * avgServiceTime;
+          const [avgServiceTime, activePositions] = await Promise.all([
+            getAvgServiceTime(d1, tenantId, t.queue_id as string, t.queue_default_service_time_sec as number),
+            getActivePositions(d1, t.queue_id as string),
+          ]);
+          ewt = Math.ceil((waitingAhead + 1) * avgServiceTime / activePositions);
         }
 
         const formattedSerial = `${t.queue_prefix}${String(t.serial_number).padStart(3, '0')}`;

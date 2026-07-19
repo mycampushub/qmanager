@@ -41,9 +41,10 @@ export const POST = withAuth(
 
     try {
       const body = await req.json();
-      const { queueId, agentId } = body as {
+      const { queueId, agentId, counterId } = body as {
         queueId: string;
         agentId?: string;
+        counterId?: string;
       };
 
       if (!queueId) {
@@ -97,16 +98,73 @@ export const POST = withAuth(
         );
       }
 
-      // A3: Pre-read for transaction
-      // Find current SERVING ticket
-      const prevServing = await d1
-        .prepare(
-          'SELECT * FROM tickets WHERE queue_id = ? AND status = ? LIMIT 1'
-        )
-        .bind(queueId, 'SERVING')
-        .first<TicketRow>();
+      // Validate counterId if provided
+      if (counterId) {
+        const counter = await d1
+          .prepare('SELECT id FROM service_counters WHERE id = ? AND tenant_id = ? AND queue_id = ? AND is_active = 1')
+          .bind(counterId, tenantId, queueId)
+          .first();
+        if (!counter) {
+          return NextResponse.json({ error: 'Counter not found or inactive' }, { status: 404 });
+        }
+      }
 
-      // Find next WAITING ticket
+      // Tenant HARD block check
+      const tenantBlock = await d1
+        .prepare('SELECT block_level FROM tenants WHERE id = ?')
+        .bind(tenantId)
+        .first<{ block_level: string }>();
+      if (tenantBlock && tenantBlock.block_level === 'HARD') {
+        return NextResponse.json(
+          { error: 'Cannot call next ticket — service is on break.' },
+          { status: 400 }
+        );
+      }
+
+      // Active break check
+      const breakBinds: unknown[] = [tenantId, queueId];
+      let breakSql = `SELECT id FROM break_periods
+        WHERE tenant_id = ? AND is_active = 1
+          AND (level = 'ROOM' OR (level = 'LINE' AND queue_id = ?))`;
+      if (counterId) {
+        breakSql += ` OR (level = 'COUNTER' AND counter_id = ?)`;
+        breakBinds.push(counterId);
+      }
+      breakSql += ` AND (ends_at IS NULL OR ends_at > datetime('now')) LIMIT 1`;
+      const activeBreak = await d1
+        .prepare(breakSql)
+        .bind(...breakBinds)
+        .first();
+      if (activeBreak) {
+        return NextResponse.json(
+          { error: 'Cannot call next ticket — service is on break.' },
+          { status: 400 }
+        );
+      }
+
+      // A3: Pre-read for transaction
+      // Find current SERVING ticket (scoped to counter if counterId provided)
+      // BUG FIX: When counterId is specified, ONLY auto-complete the ticket at THAT counter.
+      // Previously `OR counter_id IS NULL` would incorrectly complete another counter's unassigned ticket.
+      let prevServing: TicketRow | null;
+      if (counterId) {
+        prevServing = await d1
+          .prepare(
+            'SELECT * FROM tickets WHERE queue_id = ? AND status = ? AND counter_id = ? LIMIT 1'
+          )
+          .bind(queueId, 'SERVING', counterId)
+          .first<TicketRow>();
+      } else {
+        // No counter specified — complete any SERVING ticket (legacy single-counter behavior)
+        prevServing = await d1
+          .prepare(
+            'SELECT * FROM tickets WHERE queue_id = ? AND status = ? LIMIT 1'
+          )
+          .bind(queueId, 'SERVING')
+          .first<TicketRow>();
+      }
+
+      // Find next WAITING ticket (not scoped to counter — any counter can serve any ticket)
       const nextWaiting = await d1
         .prepare(
           'SELECT * FROM tickets WHERE queue_id = ? AND status = ? ORDER BY serial_number ASC LIMIT 1'
@@ -177,14 +235,24 @@ export const POST = withAuth(
         }
       }
 
-      // Update next ticket to SERVING
-      statements.push(
-        d1
-          .prepare(
-            'UPDATE tickets SET status = ?, served_at = ?, served_by_agent = ? WHERE id = ? AND status = ?'
-          )
-          .bind('SERVING', nowISO, validatedAgentId, nextWaiting.id, 'WAITING')
-      );
+      // Update next ticket to SERVING (set counter_id if counterId provided)
+      if (counterId) {
+        statements.push(
+          d1
+            .prepare(
+              'UPDATE tickets SET status = ?, served_at = ?, served_by_agent = ?, counter_id = ? WHERE id = ? AND status = ?'
+            )
+            .bind('SERVING', nowISO, validatedAgentId, counterId, nextWaiting.id, 'WAITING')
+        );
+      } else {
+        statements.push(
+          d1
+            .prepare(
+              'UPDATE tickets SET status = ?, served_at = ?, served_by_agent = ? WHERE id = ? AND status = ?'
+            )
+            .bind('SERVING', nowISO, validatedAgentId, nextWaiting.id, 'WAITING')
+        );
+      }
 
       // Update queue nowServingSerial
       const newNowServing = Math.max(
@@ -202,7 +270,7 @@ export const POST = withAuth(
       await d1.batch(statements as Parameters<typeof d1.batch>[0]);
 
       // Stats for response
-      const [remainingResult, serviceLogsResult] = await Promise.all([
+      const [remainingResult, serviceLogsResult, counterCountResult] = await Promise.all([
         d1
           .prepare(
             'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
@@ -215,9 +283,16 @@ export const POST = withAuth(
           )
           .bind(tenantId, queueId)
           .all<{ duration_seconds: number }>(),
+        d1
+          .prepare(
+            'SELECT count(*) as cnt FROM service_counters WHERE queue_id = ? AND is_active = 1'
+          )
+          .bind(queueId)
+          .first<{ cnt: number }>(),
       ]);
 
       const remainingWaiting = remainingResult?.cnt ?? 0;
+      const counterCount = counterCountResult?.cnt ?? 0;
 
       const avgServiceTime =
         serviceLogsResult.results.length > 0
@@ -229,7 +304,9 @@ export const POST = withAuth(
             )
           : queue.default_service_time_sec;
 
-      const ewt = remainingWaiting * avgServiceTime;
+      // EWT: remaining waiting ÷ active positions (now serving this ticket + 1 for next caller, or counter count)
+      const activePositions = Math.max(1 + 1, counterCount > 0 ? counterCount : 1); // +1 because this ticket is now SERVING
+      const ewt = remainingWaiting > 0 ? Math.ceil(remainingWaiting * avgServiceTime / activePositions) : 0;
 
       const formattedSerial = `${queue.prefix}${String(nextWaiting.serial_number).padStart(3, '0')}`;
 

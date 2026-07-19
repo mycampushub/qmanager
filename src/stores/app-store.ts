@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppView, StaffUser, Ticket, Tenant } from '@/lib/types';
+import type { AppView, StaffUser, Ticket, Tenant, Location } from '@/lib/types';
 
 export interface MasterTenantAdminUser {
   id: string;
@@ -37,12 +37,16 @@ interface AppState {
   mtLogout: () => void;
 
   // Dashboard sub-views
-  dashboardTab: 'agent' | 'manager' | 'analytics' | 'branding' | 'wallet' | 'queues' | 'staff' | 'service-windows' | 'appointments' | 'feedback' | 'webhooks' | 'settings';
+  dashboardTab: 'agent' | 'manager' | 'analytics' | 'branding' | 'wallet' | 'queues' | 'staff' | 'service-windows' | 'appointments' | 'feedback' | 'webhooks' | 'settings' | 'locations' | 'breaks' | 'counters';
   setDashboardTab: (tab: AppState['dashboardTab']) => void;
 
   // Selected tenant (for admin/master tenant views)
   selectedTenantId: string | null;
   setSelectedTenantId: (id: string | null) => void;
+
+  // Selected location filter (for join page, display, agent view)
+  selectedLocationId: string | null;
+  setSelectedLocationId: (id: string | null) => void;
 
   // Join page state
   joinTenantId: string | null;
@@ -139,6 +143,10 @@ export const useAppStore = create<AppState>((set) => ({
   // Selected tenant
   selectedTenantId: null,
   setSelectedTenantId: (id) => set({ selectedTenantId: id }),
+
+  // Selected location filter
+  selectedLocationId: null,
+  setSelectedLocationId: (id) => set({ selectedLocationId: id }),
 
   // Join page
   joinTenantId: null,

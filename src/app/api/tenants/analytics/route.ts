@@ -122,11 +122,13 @@ export const GET = withAuth(
       let liveCounts: { queue_id: string; waiting: number; serving: number }[] = [];
       // Single query for completed counts — with date filter
       let completedCounts: { queue_id: string; completed: number }[] = [];
+      // Counter count map for EWT calculation
+      let counterCountMap = new Map<string, number>();
 
       if (queueIds.length > 0) {
         const placeholders = queueIds.map(() => '?').join(', ');
 
-        const [liveResult, completedResult] = await d1.batch([
+        const [liveResult, completedResult, counterResult] = await d1.batch([
           d1
             .prepare(
               `SELECT queue_id,
@@ -145,10 +147,24 @@ export const GET = withAuth(
                GROUP BY queue_id`
             )
             .bind(tenantId, ...queueIds, ...dateBinds),
+          d1
+            .prepare(
+              `SELECT queue_id, count(*) as counter_count
+               FROM service_counters
+               WHERE tenant_id = ? AND queue_id IN (${placeholders}) AND is_active = 1
+               GROUP BY queue_id`
+            )
+            .bind(tenantId, ...queueIds),
         ]);
 
         liveCounts = liveResult.results as { queue_id: string; waiting: number; serving: number }[];
         completedCounts = completedResult.results as { queue_id: string; completed: number }[];
+
+        // Build counter count map for EWT calculation
+        counterCountMap = new Map<string, number>();
+        for (const c of (counterResult.results as { queue_id: string; counter_count: number }[])) {
+          counterCountMap.set(c.queue_id, c.counter_count);
+        }
       }
 
       // Build maps for quick lookup
@@ -195,7 +211,10 @@ export const GET = withAuth(
         const serving = live?.serving ?? 0;
         const completed = completedMap.get(queue.id) ?? 0;
         const queueAvgServiceTime = getAvgServiceTime(queue.id, queue.default_service_time_sec);
-        const ewt = waiting * queueAvgServiceTime;
+        // EWT accounts for active serving positions (serving + 1 for next caller, or counter count)
+        const counters = counterCountMap.get(queue.id) ?? 0;
+        const activePositions = Math.max(serving + 1, counters > 0 ? counters : 1);
+        const ewt = Math.ceil(waiting * queueAvgServiceTime / activePositions);
 
         return {
           queueId: queue.id,

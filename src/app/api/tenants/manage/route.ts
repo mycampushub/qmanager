@@ -299,6 +299,8 @@ export const PUT = withAuth(
         contactPhone,
         address,
         welcomeMessage,
+        blockLevel,
+        blockReason,
       } = body as {
         tenantId: string;
         name?: string;
@@ -308,6 +310,8 @@ export const PUT = withAuth(
         contactPhone?: string;
         address?: string;
         welcomeMessage?: string;
+        blockLevel?: string;
+        blockReason?: string;
       };
 
       if (!tenantId) {
@@ -325,7 +329,7 @@ export const PUT = withAuth(
           );
         }
 
-        if (planTier !== undefined || isActive !== undefined) {
+        if (planTier !== undefined || isActive !== undefined || blockLevel !== undefined || blockReason !== undefined) {
           return NextResponse.json(
             { error: 'Managers can only update tenant name and contact info' },
             { status: 403 }
@@ -354,6 +358,27 @@ export const PUT = withAuth(
         }
       }
 
+      // Validate blockLevel (PLATFORM_ADMIN only)
+      if (blockLevel !== undefined) {
+        const VALID_BLOCK_LEVELS = ['NONE', 'SOFT', 'HARD'];
+        if (!VALID_BLOCK_LEVELS.includes(blockLevel)) {
+          return NextResponse.json(
+            { error: 'Invalid blockLevel. Must be one of: NONE, SOFT, HARD' },
+            { status: 400 }
+          );
+        }
+      }
+
+      // Validate blockReason
+      if (blockReason !== undefined) {
+        if (typeof blockReason !== 'string' || blockReason.length > 500) {
+          return NextResponse.json(
+            { error: 'blockReason must be a string with at most 500 characters' },
+            { status: 400 }
+          );
+        }
+      }
+
       // Build SET clauses dynamically
       const setClauses: string[] = [];
       const bindValues: unknown[] = [];
@@ -365,6 +390,8 @@ export const PUT = withAuth(
       if (contactPhone !== undefined) { setClauses.push('contact_phone = ?'); bindValues.push(contactPhone); }
       if (address !== undefined) { setClauses.push('address = ?'); bindValues.push(address); }
       if (welcomeMessage !== undefined) { setClauses.push('welcome_message = ?'); bindValues.push(welcomeMessage); }
+      if (blockLevel !== undefined) { setClauses.push('block_level = ?'); bindValues.push(blockLevel); }
+      if (blockReason !== undefined) { setClauses.push('block_reason = ?'); bindValues.push(blockReason || null); }
 
       if (setClauses.length === 0) {
         return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
@@ -383,7 +410,7 @@ export const PUT = withAuth(
         user.userId,
         user.type,
         'TENANT_UPDATE',
-        JSON.stringify({ tenantId, updateData: { name, planTier, isActive, contactEmail, contactPhone, address, welcomeMessage } }),
+        JSON.stringify({ tenantId, updateData: { name, planTier, isActive, contactEmail, contactPhone, address, welcomeMessage, blockLevel, blockReason } }),
         getClientIp(req)
       );
 

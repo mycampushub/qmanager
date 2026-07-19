@@ -117,6 +117,54 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── Guard 1: Tenant block check ──
+    const tenantBlock = await d1
+      .prepare('SELECT block_level, block_reason FROM tenants WHERE id = ?')
+      .bind(tenantId)
+      .first<{ block_level: string; block_reason: string }>();
+
+    if (tenantBlock) {
+      if (tenantBlock.block_level === 'HARD') {
+        return NextResponse.json(
+          { error: 'Service is currently unavailable. Please try again later.' },
+          { status: 400 }
+        );
+      }
+      if (tenantBlock.block_level === 'SOFT') {
+        return NextResponse.json(
+          { error: 'New ticket joins are temporarily suspended.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ── Guard 2: Queue join_paused check ──
+    if ((queue.join_paused as number) === 1) {
+      return NextResponse.json(
+        { error: 'This queue is currently not accepting new entries.' },
+        { status: 400 }
+      );
+    }
+
+    // ── Guard 3: Active break check ──
+    const activeBreak = await d1
+      .prepare(
+        `SELECT id FROM break_periods
+         WHERE tenant_id = ? AND is_active = 1
+           AND (level = 'ROOM' OR (level = 'LINE' AND queue_id = ?))
+           AND (ends_at IS NULL OR ends_at > datetime('now'))
+         LIMIT 1`
+      )
+      .bind(tenantId, queueId)
+      .first();
+
+    if (activeBreak) {
+      return NextResponse.json(
+        { error: 'Service is currently on break. Please try again later.' },
+        { status: 400 }
+      );
+    }
+
     // D9: Check service windows
     // Use client-provided timezone or fall back to UTC (CF Workers run in UTC)
     const clientTimezone = req.headers.get('X-Timezone') || 'UTC';
@@ -385,7 +433,8 @@ export async function POST(req: NextRequest) {
     const formattedSerial = `${queue.prefix}${String(newSerial).padStart(3, '0')}`;
 
     // Calculate people ahead (WAITING tickets with lower serial, excluding SKIPPED)
-    const [aheadResult, avgServiceResult] = await Promise.all([
+    // Also count active serving positions for accurate EWT with multiple counters
+    const [aheadResult, avgServiceResult, servingCountResult, counterCountResult] = await Promise.all([
       d1
         .prepare(
           'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ? AND serial_number < ?'
@@ -398,13 +447,31 @@ export async function POST(req: NextRequest) {
         )
         .bind(tenantId, queueId)
         .all<{ duration_seconds: number }>(),
+      d1
+        .prepare(
+          'SELECT count(*) as cnt FROM tickets WHERE queue_id = ? AND status = ?'
+        )
+        .bind(queueId, 'SERVING')
+        .first<{ cnt: number }>(),
+      d1
+        .prepare(
+          'SELECT count(*) as cnt FROM service_counters WHERE queue_id = ? AND is_active = 1'
+        )
+        .bind(queueId)
+        .first<{ cnt: number }>(),
     ]);
 
     const peopleAhead = aheadResult?.cnt ?? 0;
     const avgServiceSec = avgServiceResult.results.length > 0
       ? Math.round(avgServiceResult.results.reduce((sum, s) => sum + s.duration_seconds, 0) / avgServiceResult.results.length)
       : (queue.default_service_time_sec as number);
-    const ewt = (peopleAhead + 1) * avgServiceSec;
+
+    // EWT accounts for active serving positions (currently SERVING + 1 for the next caller)
+    const servingCount = servingCountResult?.cnt ?? 0;
+    const counterCount = counterCountResult?.cnt ?? 0;
+    const activePositions = Math.max(servingCount + 1, counterCount > 0 ? counterCount : 1);
+    const rawEwt = (peopleAhead + 1) * avgServiceSec;
+    const ewt = Math.ceil(rawEwt / activePositions);
 
     // Fire webhooks (fire-and-forget)
     dispatchWebhooks(tenantId, 'TICKET_CREATED', {

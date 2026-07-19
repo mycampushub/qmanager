@@ -11,6 +11,8 @@ export interface BrandingConfig {
   welcomeMessage: string;
 }
 
+export type BlockLevel = 'NONE' | 'SOFT' | 'HARD';
+
 export interface Tenant {
   id: string;
   name: string;
@@ -20,6 +22,8 @@ export interface Tenant {
   brandingConfig: string | null;
   welcomeMessage: string | null;
   isActive: boolean;
+  blockLevel?: BlockLevel;
+  blockReason?: string | null;
   createdAt: string;
   masterTenant?: { id: string; corporateName: string } | null;
   _queues?: Queue[];
@@ -27,23 +31,79 @@ export interface Tenant {
   _activeTickets?: number;
 }
 
+export interface Location {
+  id: string;
+  tenantId: string;
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  _queueCount?: number;
+}
+
 export interface Queue {
   id: string;
   tenantId: string;
   name: string;
-  locationTag: string | null;
+  locationId: string | null;
+  locationTag: string | null; // deprecated, kept for backward compat
+  location?: Location | null;
   description: string | null;
   defaultServiceTimeSec: number;
   prefix: string;
   currentSerial: number;
   nowServingSerial: number;
   isActive: boolean;
+  joinPaused?: boolean;
   _waitingCount?: number;
   _servingCount?: number;
   _skippedCount?: number;
   _activeTickets?: number;
   _avgServiceTime?: number;
   _ewt?: number; // Estimated Wait Time in seconds
+  _activeCounterCount?: number; // Number of active service counters
+  _servingTickets?: Array<{
+    ticketId: string;
+    serialNumber: number;
+    customerName: string;
+    counterId: string | null;
+    counterName: string | null;
+    servedAt: string;
+  }>;
+  _waitingSerials?: Array<{ serialNumber: number; customerName: string }>;
+  _counters?: ServiceCounter[];
+}
+
+export interface ServiceCounter {
+  id: string;
+  tenantId: string;
+  queueId: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  createdAt: string;
+  _servingTicket?: { id: string; formattedSerial: string; customerName: string } | null;
+}
+
+export type BreakLevel = 'ROOM' | 'LINE' | 'COUNTER';
+
+export interface BreakPeriod {
+  id: string;
+  tenantId: string;
+  level: BreakLevel;
+  queueId: string | null;
+  counterId: string | null;
+  reason: string | null;
+  startedAt: string;
+  endsAt: string | null;
+  endedAt: string | null;
+  endedBy: string | null;
+  isActive: boolean;
+  createdAt: string;
+  _queueName?: string;
+  _counterName?: string;
+  _endedByName?: string;
 }
 
 export interface Ticket {
@@ -63,6 +123,7 @@ export interface Ticket {
   skippedAt?: string | null;
   servedByAgent?: string | null;
   skipCount?: number;
+  counterId?: string | null;
   queue?: Queue;
   tenant?: Tenant;
   _formattedSerial?: string;
@@ -158,6 +219,8 @@ export interface TenantRow {
   contact_email: string | null;
   contact_phone: string | null;
   address: string | null;
+  block_level: string;
+  block_reason: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -175,11 +238,24 @@ export interface UserRow {
   updated_at: string;
 }
 
+export interface LocationRow {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface QueueRow {
   id: string;
   tenant_id: string;
   name: string;
   location_tag: string | null;
+  location_id: string | null;
+  join_paused: number;
   description: string | null;
   default_service_time_sec: number;
   prefix: string;
@@ -202,6 +278,7 @@ export interface TicketRow {
   notes: string | null;
   served_by_agent: string | null;
   skip_count: number;
+  counter_id: string | null;
   created_at: string;
   served_at: string | null;
   completed_at: string | null;
@@ -312,6 +389,32 @@ export interface WebhookRow {
   success_count: number;
   failure_count: number;
   last_triggered_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BreakPeriodRow {
+  id: string;
+  tenant_id: string;
+  level: string;
+  queue_id: string | null;
+  counter_id: string | null;
+  reason: string | null;
+  started_at: string;
+  ends_at: string | null;
+  ended_at: string | null;
+  ended_by: string | null;
+  is_active: number;
+  created_at: string;
+}
+
+export interface ServiceCounterRow {
+  id: string;
+  tenant_id: string;
+  queue_id: string;
+  name: string;
+  description: string | null;
+  is_active: number;
   created_at: string;
   updated_at: string;
 }

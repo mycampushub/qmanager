@@ -54,8 +54,12 @@ export default function QueueSelector({
     onJoin(selectedQueue, customerName.trim(), phone, notes);
   };
 
-  const groupedQueues = queues.reduce<Record<string, typeof queues>>((acc, q) => {
-    const tag = q.locationTag || 'General';
+  const allLocationNames = [...new Set(queues.map(q => q.location?.name || 'General'))];
+  const [activeLocationFilter, setActiveLocationFilter] = useState<string>('all');
+  const filteredQueues = activeLocationFilter === 'all' ? queues : queues.filter(q => (q.location?.name || 'General') === activeLocationFilter);
+
+  const groupedQueues = filteredQueues.reduce<Record<string, typeof queues>>((acc, q) => {
+    const tag = q.location?.name || 'General';
     if (!acc[tag]) acc[tag] = [];
     acc[tag].push(q);
     return acc;
@@ -79,6 +83,38 @@ export default function QueueSelector({
       {/* Queue Selection */}
       <div>
         <Label className="text-sm font-semibold mb-2 block">Select a Queue</Label>
+        {/* Location Filter Tabs */}
+        {allLocationNames.length > 1 && (
+          <div className="flex gap-1.5 overflow-x-auto pb-2 mb-1">
+            <button
+              type="button"
+              onClick={() => setActiveLocationFilter('all')}
+              className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                activeLocationFilter === 'all'
+                  ? 'text-white'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+              }`}
+              style={activeLocationFilter === 'all' ? { backgroundColor: primaryColor } : undefined}
+            >
+              All
+            </button>
+            {allLocationNames.map(loc => (
+              <button
+                key={loc}
+                type="button"
+                onClick={() => setActiveLocationFilter(loc)}
+                className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  activeLocationFilter === loc
+                    ? 'text-white'
+                    : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                }`}
+                style={activeLocationFilter === loc ? { backgroundColor: primaryColor } : undefined}
+              >
+                {loc}
+              </button>
+            ))}
+          </div>
+        )}
         {loading ? (
           <div className="flex flex-col gap-3">
             {[1, 2].map((i) => (
@@ -108,10 +144,18 @@ export default function QueueSelector({
                     animate="visible"
                     whileTap={{ scale: 0.97 }}
                     className="w-full text-left"
-                    onClick={() => setSelectedQueue(q.id)}
+                    onClick={() => {
+                      if (q.joinPaused) {
+                        toast.warning('This queue is not accepting new entries right now.');
+                        return;
+                      }
+                      setSelectedQueue(q.id);
+                    }}
                   >
                     <Card
                       className={`py-3.5 px-4 transition-all cursor-pointer border-2 ${
+                        q.joinPaused ? 'opacity-60' : ''
+                      } ${
                         selectedQueue === q.id
                           ? 'bg-opacity-5 shadow-sm'
                           : 'border-transparent hover:bg-accent/50'
@@ -137,7 +181,10 @@ export default function QueueSelector({
                               </p>
                             </div>
                           </div>
-                          <div className="text-right shrink-0">
+                          <div className="text-right shrink-0 flex items-center gap-2">
+                            {q.joinPaused && (
+                              <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-700">Paused</span>
+                            )}
                             <div className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Timer className="size-3" />
                               <span>{formatEwt(q._ewt ?? 0)}</span>
