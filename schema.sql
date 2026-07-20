@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   notes            TEXT,
   served_by_agent  TEXT,
   skip_count       INTEGER NOT NULL DEFAULT 0,
+  source           TEXT NOT NULL DEFAULT 'WALK_IN',
   created_at       TEXT NOT NULL DEFAULT (datetime('now')),
   served_at        TEXT,
   completed_at     TEXT,
@@ -204,7 +205,7 @@ CREATE TABLE IF NOT EXISTS feedback (
   FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
 );
 
--- ─── Appointments (scheduled time slots) ─────────────────────────────────────
+-- ─── Appointments (scheduled time slots / online bookings) ────────────────────
 CREATE TABLE IF NOT EXISTS appointments (
   id               TEXT PRIMARY KEY,
   tenant_id        TEXT NOT NULL,
@@ -212,10 +213,12 @@ CREATE TABLE IF NOT EXISTS appointments (
   customer_name    TEXT NOT NULL,
   customer_phone   TEXT,
   scheduled_date   TEXT NOT NULL,
-  scheduled_time   TEXT NOT NULL,
+  scheduled_time   TEXT DEFAULT '',
   status           TEXT NOT NULL DEFAULT 'SCHEDULED',
   notes            TEXT,
   ticket_id        TEXT UNIQUE,
+  source           TEXT NOT NULL DEFAULT 'STAFF',
+  booking_order    INTEGER DEFAULT 0,
   created_at       TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
@@ -376,6 +379,8 @@ CREATE INDEX IF NOT EXISTS idx_service_windows_tenant_day ON service_windows(ten
 CREATE INDEX IF NOT EXISTS idx_feedback_tenant_created ON feedback(tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_appointments_tenant_date_status ON appointments(tenant_id, scheduled_date, status);
 CREATE INDEX IF NOT EXISTS idx_appointments_phone_tenant ON appointments(customer_phone, tenant_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_queue_date ON appointments(queue_id, scheduled_date, status);
+CREATE INDEX IF NOT EXISTS idx_tickets_source ON tickets(source);
 CREATE INDEX IF NOT EXISTS idx_customer_profiles_tenant_visits ON customer_profiles(tenant_id, total_visits);
 CREATE INDEX IF NOT EXISTS idx_queue_assignments_agent ON queue_assignments(agent_id);
 CREATE INDEX IF NOT EXISTS idx_queue_assignments_queue ON queue_assignments(queue_id);

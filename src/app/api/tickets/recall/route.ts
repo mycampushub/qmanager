@@ -45,6 +45,7 @@ export const POST = withAuth(
         skip_count: number;
         served_at: string | null;
         served_by_agent: string | null;
+        counter_id: string | null;
         created_at: string;
         queue_name: string;
         queue_prefix: string;
@@ -93,6 +94,25 @@ export const POST = withAuth(
         return NextResponse.json(
           { error: 'Invalid state transition' },
           { status: 400 }
+        );
+      }
+
+      // Break check — cannot recall during a LINE/ROOM/COUNTER break
+      const breakBinds: unknown[] = [tenantId, ticket.queue_id];
+      let breakSql = `SELECT id FROM break_periods
+        WHERE tenant_id = ? AND is_active = 1
+          AND (ends_at IS NULL OR ends_at > datetime('now'))
+          AND (level = 'ROOM' OR (level = 'LINE' AND queue_id = ?)`;
+      if (ticket.counter_id) {
+        breakSql += ` OR (level = 'COUNTER' AND counter_id = ?)`;
+        breakBinds.push(ticket.counter_id);
+      }
+      breakSql += `) LIMIT 1`;
+      const activeBreak = await d1.prepare(breakSql).bind(...breakBinds).first();
+      if (activeBreak) {
+        return NextResponse.json(
+          { error: 'Cannot recall ticket — service is on break.' },
+          { status: 403 }
         );
       }
 

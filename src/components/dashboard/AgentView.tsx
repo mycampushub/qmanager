@@ -45,7 +45,8 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
   const [loadingMore, setLoadingMore] = useState(false);
   const [overviewDate, setOverviewDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [agentQueues, setAgentQueues] = useState<Queue[]>([]);
-  const [activeBreaks, setActiveBreaks] = useState<{ id: string; reason: string; level: string }[]>([]);
+  const [activeBreaks, setActiveBreaks] = useState<{ id: string; reason: string; level: string; queueId?: string | null; queueName?: string | null }[]>([]);
+  const [endingBreakId, setEndingBreakId] = useState<string | null>(null);
   const [counters, setCounters] = useState<{ id: string; name: string }[]>([]);
   const [selectedCounterId, setSelectedCounterId] = useState<string | undefined>(undefined);
   const ticketListCursorRef = useRef<number | undefined>(undefined);
@@ -82,7 +83,13 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
         if (res.ok) {
           const data = await res.json();
           const active = (data.breaks ?? []).filter((b: { isActive: boolean }) => b.isActive);
-          setActiveBreaks(active.map((b: { id: string; reason: string | null; level: string }) => ({ id: b.id, reason: b.reason || 'Break', level: b.level })));
+          setActiveBreaks(active.map((b: Record<string, unknown>) => ({
+            id: b.id as string,
+            reason: (b.reason as string) || 'Break',
+            level: b.level as string,
+            queueId: b.queueId as string | null,
+            queueName: b._queueName as string | null,
+          })));
         }
       } catch { /* silent */ }
     };
@@ -205,6 +212,13 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     }
   }, [lastEvent, enhancedRefresh, clearLastEvent]);
 
+  // Determine if the selected queue is blocked by an active break
+  const isBreakActiveForQueue = activeBreaks.some((b) => {
+    if (b.level === 'ROOM') return true;
+    if (b.level === 'LINE' && b.queueId === selectedQueueId) return true;
+    return false;
+  });
+
   const handleCallNext = async () => {
     if (!selectedQueueId || callingNext) return;
     setCallingNext(true);
@@ -217,6 +231,10 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
         body: JSON.stringify({ queueId: selectedQueueId, agentId: user.id, counterId: selectedCounterId }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || tr('common.error'));
+        return;
+      }
       if (data.calledTicket) {
         const calledTicket = data.calledTicket;
         setCurrentTicket(calledTicket);
@@ -427,21 +445,26 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
     <div className="space-y-4">
       {/* Active Break Banner */}
       {activeBreaks.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between gap-2 text-amber-800">
-          <div className="flex items-center gap-2">
-            <span className="text-base">⚠️</span>
-            <span className="text-sm font-medium">
-              Break in progress — {activeBreaks.map(b => b.reason).join(', ')}. Service may be limited.
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-amber-800">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-base shrink-0">⚠️</span>
+            <span className="text-sm font-medium truncate">
+              {activeBreaks.length === 1
+                ? `${activeBreaks[0].level} break${activeBreaks[0].queueName ? ` — ${activeBreaks[0].queueName}` : ''}: ${activeBreaks[0].reason}`
+                : `${activeBreaks.length} active breaks`}
+              {isBreakActiveForQueue && selectedQueueId && ' — Call Next is disabled'}
             </span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             {activeBreaks.map((b) => (
               <Button
                 key={b.id}
                 size="sm"
                 variant="outline"
+                disabled={endingBreakId === b.id}
                 className="border-amber-300 text-amber-800 hover:bg-amber-100 text-xs"
                 onClick={async () => {
+                  setEndingBreakId(b.id);
                   try {
                     const res = await fetch('/api/breaks', {
                       method: 'PUT',
@@ -450,15 +473,17 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
                     });
                     if (res.ok) {
                       setActiveBreaks(prev => prev.filter(x => x.id !== b.id));
+                      toast.success(`Break ended (${b.level}${b.queueName ? ': ' + b.queueName : ''})`);
                       onRefresh();
                     } else {
                       const err = await res.json().catch(() => ({}));
-                      toast.error(err.error || 'Failed to end break');
+                      toast.error((err as Record<string, string>).error || 'Failed to end break');
                     }
                   } catch { toast.error('Failed to end break'); }
+                  finally { setEndingBreakId(null); }
                 }}
               >
-                End Break
+                {endingBreakId === b.id ? 'Ending…' : 'End Break'}
               </Button>
             ))}
           </div>
@@ -702,11 +727,12 @@ export function AgentView({ user, tenantData, tenantName, onRefresh }: { user: S
         </Button>
         <Button
           onClick={handleCallNext}
-          disabled={callingNext || !selectedQueueId}
-          className="flex-1 h-12 sm:h-14 text-sm sm:text-base font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-200 transition-all"
+          disabled={callingNext || !selectedQueueId || isBreakActiveForQueue}
+          className="flex-1 h-12 sm:h-14 text-sm sm:text-base font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed rounded-xl shadow-md shadow-emerald-200 transition-all"
+          title={isBreakActiveForQueue ? 'Cannot call next — service is on break. End the break first.' : undefined}
         >
           <Phone className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-          {tr('ticket.call').toUpperCase()}
+          {isBreakActiveForQueue ? 'ON BREAK' : tr('ticket.call').toUpperCase()}
         </Button>
       </div>
 

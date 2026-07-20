@@ -1,7 +1,7 @@
 export type TicketStatus = 'WAITING' | 'SERVING' | 'COMPLETED' | 'SKIPPED' | 'CANCELLED';
 type UserRole = 'MANAGER' | 'AGENT';
 type PlanTier = 'FREE' | 'PRO' | 'ENTERPRISE';
-export type AppView = 'marketing' | 'join' | 'dashboard' | 'display' | 'admin' | 'masterTenant' | 'signup';
+export type AppView = 'marketing' | 'join' | 'dashboard' | 'display' | 'admin' | 'masterTenant' | 'signup' | 'booking';
 // NOTE: 'kiosk' was removed — end users join only via QR code / direct link (?tenant=xxx)
 
 export interface BrandingConfig {
@@ -106,6 +106,8 @@ export interface BreakPeriod {
   _endedByName?: string;
 }
 
+export type TicketSource = 'WALK_IN' | 'ONLINE_BOOKING';
+
 export interface Ticket {
   id: string;
   tenantId: string;
@@ -116,6 +118,7 @@ export interface Ticket {
   customerPhone: string | null;
   deviceId: string | null;
   notes: string | null;
+  source?: TicketSource;
   createdAt: string;
   servedAt: string | null;
   completedAt: string | null;
@@ -129,6 +132,8 @@ export interface Ticket {
   _formattedSerial?: string;
   _peopleAhead?: number;
   _ewt?: number;
+  _estimatedServiceTime?: string;
+  _serviceOpensAt?: string;
   _position?: number;
 }
 
@@ -279,6 +284,7 @@ export interface TicketRow {
   served_by_agent: string | null;
   skip_count: number;
   counter_id: string | null;
+  source: string;
   created_at: string;
   served_at: string | null;
   completed_at: string | null;
@@ -375,6 +381,8 @@ export interface AppointmentRow {
   status: string;
   notes: string | null;
   ticket_id: string | null;
+  source: string;
+  booking_order: number;
   created_at: string;
   updated_at: string;
 }

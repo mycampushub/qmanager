@@ -193,6 +193,59 @@ export const POST = withAuth(
   { roles: ['MANAGER', 'AGENT'], requireTenantId: true }
 );
 
+// Helper: get absolute estimated service time for ONLINE_BOOKING tickets
+const DAY_MAP: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+async function getEstimatedServiceTime(
+  d1: D1Database,
+  tenantId: string,
+  queueId: string,
+  ewtSeconds: number,
+  timezone: string
+): Promise<{ estimatedServiceTime: string; serviceOpensAt: string }> {
+  const now = new Date();
+  const dayParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+  }).formatToParts(now);
+  const dayName = dayParts.find(p => p.type === 'weekday')?.value || 'Sun';
+  const dayOfWeek = DAY_MAP[dayName] ?? 0;
+
+  const windows = await d1
+    .prepare(
+      'SELECT open_time FROM service_windows WHERE tenant_id = ? AND day_of_week = ? AND is_active = 1 AND is_closed = 0 AND (queue_id = ? OR queue_id IS NULL) ORDER BY open_time ASC LIMIT 1'
+    )
+    .bind(tenantId, dayOfWeek, queueId)
+    .all<{ open_time: string }>();
+
+  if (windows.results.length === 0) {
+    return { estimatedServiceTime: `~${Math.ceil(ewtSeconds / 60)} min`, serviceOpensAt: '' };
+  }
+
+  const openTime = windows.results[0].open_time;
+  const [h, m] = openTime.split(':').map(Number);
+
+  try {
+    const openDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, m, 0));
+    const estimatedDate = new Date(openDate.getTime() + ewtSeconds * 1000);
+    const formatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(estimatedDate);
+    const openFormatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(openDate);
+    return { estimatedServiceTime: formatted, serviceOpensAt: openFormatted };
+  } catch {
+    return { estimatedServiceTime: `~${Math.ceil(ewtSeconds / 60)} min`, serviceOpensAt: openTime };
+  }
+}
+
 // GET: Public ticket status check (by ticketId or phone + tenantId)
 export async function GET(req: NextRequest) {
   try {
@@ -256,7 +309,7 @@ export async function GET(req: NextRequest) {
     // Single ticket lookup
     if (ticketId) {
       // If tenantId is provided, scope lookup; otherwise look up globally
-      let query = `SELECT t.id, t.tenant_id, t.queue_id, t.serial_number, t.status, t.customer_name, t.created_at,
+      let query = `SELECT t.id, t.tenant_id, t.queue_id, t.serial_number, t.status, t.customer_name, t.customer_phone, t.source, t.created_at,
                           q.name as queue_name, q.prefix as queue_prefix, q.default_service_time_sec as queue_default_service_time_sec
                    FROM tickets t
                    JOIN queues q ON t.queue_id = q.id
@@ -299,6 +352,17 @@ export async function GET(req: NextRequest) {
 
       const ewt = Math.ceil((waitingAhead + 1) * avgServiceTime / activePositions);
       const formattedSerial = `${ticket.queue_prefix}${String(serialNumber).padStart(3, '0')}`;
+      const ticketSource = (ticket.source as string) || 'WALK_IN';
+
+      // For ONLINE_BOOKING tickets, compute absolute estimated service time
+      let estimatedServiceTime: string | undefined;
+      let serviceOpensAt: string | undefined;
+      if (ticketSource === 'ONLINE_BOOKING' && ticket.status === 'WAITING') {
+        const clientTimezone = req.headers.get('X-Timezone') || 'Asia/Dhaka';
+        const est = await getEstimatedServiceTime(d1, ticketTenantId, ticket.queue_id as string, ewt, clientTimezone);
+        estimatedServiceTime = est.estimatedServiceTime;
+        serviceOpensAt = est.serviceOpensAt;
+      }
 
       return NextResponse.json({
         ticket: {
@@ -308,9 +372,13 @@ export async function GET(req: NextRequest) {
           serialNumber: ticket.serial_number,
           status: ticket.status,
           customerName: ticket.customer_name,
+          customerPhone: ticket.customer_phone || null,
+          source: ticketSource,
           _formattedSerial: formattedSerial,
           _peopleAhead: waitingAhead + 1,
           _ewt: ewt,
+          _estimatedServiceTime: estimatedServiceTime,
+          _serviceOpensAt: serviceOpensAt,
           queue: {
             name: ticket.queue_name,
             prefix: ticket.queue_prefix,
@@ -332,7 +400,7 @@ export async function GET(req: NextRequest) {
     // Phone lookup with pagination and date filter
     let countSql =
       'SELECT count(*) as cnt FROM tickets WHERE customer_phone = ? AND tenant_id = ?';
-    let dataSql = `SELECT t.id, t.queue_id, t.serial_number, t.status, t.created_at,
+    let dataSql = `SELECT t.id, t.queue_id, t.serial_number, t.status, t.source, t.created_at,
                           q.name as queue_name, q.prefix as queue_prefix, q.default_service_time_sec as queue_default_service_time_sec, q.tenant_id as queue_tenant_id
                    FROM tickets t
                    JOIN queues q ON t.queue_id = q.id
@@ -396,6 +464,7 @@ export async function GET(req: NextRequest) {
           queueId: t.queue_id,
           serialNumber: t.serial_number,
           status: t.status,
+          source: (t.source as string) || 'WALK_IN',
           customerName: null,
           customerPhone: phone,
           _formattedSerial: formattedSerial,

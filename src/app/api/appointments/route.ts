@@ -72,7 +72,7 @@ export const GET = withAuth(
         d1.prepare(`SELECT count(*) as cnt FROM appointments a WHERE ${whereSQL}`).bind(...binds),
         d1.prepare(
           `SELECT a.id, a.tenant_id, a.queue_id, a.customer_name, a.customer_phone,
-                  a.scheduled_date, a.scheduled_time, a.status, a.notes, a.ticket_id,
+                  a.scheduled_date, a.scheduled_time, a.status, a.notes, a.ticket_id, a.source,
                   a.created_at, a.updated_at,
                   q.name as queue_name, q.prefix as queue_prefix,
                   t.id as ticket_id_col, t.serial_number as ticket_serial, t.status as ticket_status
@@ -90,6 +90,7 @@ export const GET = withAuth(
       type ApptRow = {
         id: string; tenant_id: string; queue_id: string; customer_name: string; customer_phone: string | null;
         scheduled_date: string; scheduled_time: string; status: string; notes: string | null; ticket_id: string | null;
+        source: string | null;
         created_at: string; updated_at: string;
         queue_name: string; queue_prefix: string;
         ticket_id_col: string | null; ticket_serial: number | null; ticket_status: string | null;
@@ -106,6 +107,7 @@ export const GET = withAuth(
         scheduledDate: a.scheduled_date,
         scheduledTime: a.scheduled_time,
         status: a.status,
+        source: a.source || 'STAFF',
         notes: a.notes,
         ticketId: a.ticket_id,
         ticket: a.ticket_id_col
@@ -252,8 +254,8 @@ export const POST = withAuth(
       const newId = crypto.randomUUID();
 
       await d1.prepare(
-        `INSERT INTO appointments (id, tenant_id, queue_id, customer_name, customer_phone, scheduled_date, scheduled_time, notes, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED')`
+        `INSERT INTO appointments (id, tenant_id, queue_id, customer_name, customer_phone, scheduled_date, scheduled_time, notes, status, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SCHEDULED', 'STAFF')`
       ).bind(newId, effectiveTenantId, queueId, customerName, customerPhone || null, scheduledDate, scheduledTime, notes || null).run();
 
       const appointment = {

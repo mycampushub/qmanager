@@ -22,11 +22,14 @@ interface Appt {
   scheduledTime: string;
   status: string;
   notes: string | null;
+  source?: string;
   queue?: { id: string; name: string; prefix: string };
+  ticket?: { id: string; serialNumber: number; status: string; formattedSerial: string } | null;
 }
 
 const STATUS_CFG: Record<string, { label: string; cls: string; icon: React.ElementType }> = {
   SCHEDULED: { label: 'Scheduled', cls: 'bg-blue-100 text-blue-700', icon: Clock },
+  CONFIRMED: { label: 'Online Booking', cls: 'bg-violet-100 text-violet-700', icon: CalendarDays },
   CHECKED_IN: { label: 'Checked In', cls: 'bg-amber-100 text-amber-700', icon: UserCheck },
   SERVING: { label: 'Serving', cls: 'bg-emerald-100 text-emerald-700', icon: AlertTriangle },
   COMPLETED: { label: 'Completed', cls: 'bg-green-100 text-green-700', icon: CheckCircle2 },
@@ -47,6 +50,7 @@ export default function AppointmentsTab({ tenantId }: { tenantId: string }) {
   const [formQueue, setFormQueue] = useState('');
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [formTime, setFormTime] = useState('10:00');
+  const [tabFilter, setTabFilter] = useState<'all' | 'online' | 'staff'>('all');
 
   const authHeaders = useCallback((): Record<string, string> => {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -93,17 +97,31 @@ export default function AppointmentsTab({ tenantId }: { tenantId: string }) {
     } catch { toast.error('Network error'); }
   };
 
-  const stats = { total: appointments.length, checkedIn: appointments.filter(a => a.status === 'CHECKED_IN').length, completed: appointments.filter(a => a.status === 'COMPLETED').length, noShow: appointments.filter(a => a.status === 'NO_SHOW').length };
+  const stats = { total: appointments.length, online: appointments.filter(a => a.source === 'ONLINE').length, checkedIn: appointments.filter(a => a.status === 'CHECKED_IN').length, completed: appointments.filter(a => a.status === 'COMPLETED').length, noShow: appointments.filter(a => a.status === 'NO_SHOW').length };
 
   if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>;
 
-  const grouped = queues.map(q => ({ queue: q, items: appointments.filter(a => a.queueId === q.id) })).filter(g => g.items.length > 0);
+  const filteredAppointments = tabFilter === 'all' ? appointments : tabFilter === 'online' ? appointments.filter(a => a.source === 'ONLINE') : appointments.filter(a => a.source !== 'ONLINE');
+  const filteredGrouped = queues.map(q => ({ queue: q, items: filteredAppointments.filter(a => a.queueId === q.id) })).filter(g => g.items.length > 0);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-lg font-semibold">Appointments</h2>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+            {(['all', 'online', 'staff'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setTabFilter(f)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  tabFilter === f ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {f === 'all' ? 'All' : f === 'online' ? 'Online' : 'Staff'}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-2">
             <CalendarDays className="w-4 h-4 text-muted-foreground" />
             <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-36 sm:w-40" />
@@ -139,16 +157,22 @@ export default function AppointmentsTab({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {([{ l: 'Total', v: stats.total, c: '' }, { l: 'Checked In', v: stats.checkedIn, c: 'text-amber-600' }, { l: 'Completed', v: stats.completed, c: 'text-emerald-600' }, { l: 'No Shows', v: stats.noShow, c: 'text-red-600' }]).map((s) => (
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {([
+          { l: 'Total', v: stats.total, c: '' },
+          { l: 'Online', v: stats.online, c: 'text-violet-600' },
+          { l: 'Checked In', v: stats.checkedIn, c: 'text-amber-600' },
+          { l: 'Completed', v: stats.completed, c: 'text-emerald-600' },
+          { l: 'No Shows', v: stats.noShow, c: 'text-red-600' },
+        ]).map((s) => (
           <Card key={s.l}><CardContent className="pt-3 pb-3 text-center"><p className={`text-2xl font-bold ${s.c}`}>{s.v}</p><p className="text-xs text-muted-foreground">{s.l}</p></CardContent></Card>
         ))}
       </div>
 
-      {grouped.length === 0 ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">No appointments for {selectedDate}</CardContent></Card>
+      {filteredGrouped.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">No appointments for {selectedDate}{tabFilter !== 'all' ? ` (${tabFilter})` : ''}</CardContent></Card>
       ) : (
-        grouped.map(({ queue, items }) => (
+        filteredGrouped.map(({ queue, items }) => (
           <Card key={queue.id}>
             <CardHeader className="pb-2"><CardTitle className="text-sm">{queue.prefix} — {queue.name}</CardTitle></CardHeader>
             <CardContent className="space-y-2">
@@ -159,18 +183,27 @@ export default function AppointmentsTab({ tenantId }: { tenantId: string }) {
                   <div key={a.id} className="flex items-center gap-3 p-3 rounded-lg border">
                     <Icon className="w-5 h-5 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm">{a.customerName}</span>
                         <Badge variant="outline" className={cfg.cls}>{cfg.label}</Badge>
+                        {a.source === 'ONLINE' && <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-[10px] px-1.5 py-0">Online</Badge>}
+                        {a.ticket && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">{a.ticket.formattedSerial}</Badge>}
                       </div>
                       <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-                        <span>{a.scheduledTime}</span>
+                        {a.scheduledTime && <span>{a.scheduledTime}</span>}
+                        {a.source === 'ONLINE' && !a.scheduledTime && <span>Pre-booked</span>}
                         {a.customerPhone && <span>{a.customerPhone}</span>}
                       </div>
                     </div>
                     {a.status === 'SCHEDULED' && (
                       <div className="flex flex-col sm:flex-row gap-1">
                         <Button size="sm" variant="outline" className="h-7 text-xs w-full sm:w-auto" onClick={() => handleStatus(a.id, 'CHECKED_IN')}>Check In</Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 w-full sm:w-auto" onClick={() => handleStatus(a.id, 'NO_SHOW')}>No Show</Button>
+                      </div>
+                    )}
+                    {a.status === 'CONFIRMED' && (
+                      <div className="flex flex-col sm:flex-row gap-1">
+                        <Badge className="bg-violet-50 text-violet-700 text-xs">Has Ticket</Badge>
                         <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 w-full sm:w-auto" onClick={() => handleStatus(a.id, 'NO_SHOW')}>No Show</Button>
                       </div>
                     )}

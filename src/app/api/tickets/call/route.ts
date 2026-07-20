@@ -121,16 +121,18 @@ export const POST = withAuth(
         );
       }
 
-      // Active break check
+      // Active break check — all conditions must be inside one AND group
+      // to prevent OR from breaking out due to operator precedence.
       const breakBinds: unknown[] = [tenantId, queueId];
       let breakSql = `SELECT id FROM break_periods
         WHERE tenant_id = ? AND is_active = 1
-          AND (level = 'ROOM' OR (level = 'LINE' AND queue_id = ?))`;
+          AND (ends_at IS NULL OR ends_at > datetime('now'))
+          AND (level = 'ROOM' OR (level = 'LINE' AND queue_id = ?)`;
       if (counterId) {
         breakSql += ` OR (level = 'COUNTER' AND counter_id = ?)`;
         breakBinds.push(counterId);
       }
-      breakSql += ` AND (ends_at IS NULL OR ends_at > datetime('now')) LIMIT 1`;
+      breakSql += `) LIMIT 1`;
       const activeBreak = await d1
         .prepare(breakSql)
         .bind(...breakBinds)
@@ -138,7 +140,7 @@ export const POST = withAuth(
       if (activeBreak) {
         return NextResponse.json(
           { error: 'Cannot call next ticket — service is on break.' },
-          { status: 400 }
+          { status: 403 }
         );
       }
 

@@ -28,7 +28,7 @@
     {
       "binding": "DB",
       "database_name": "queueflow-db",
-      "database_id": "ec1a61b4-6c9a-413c-bf21-fe2ccfe0153e",
+      "database_id": "82eea52b-0d62-4f12-8f4c-b00e49e22e70",
       "migrations_dir": "migrations"
     }
   ],

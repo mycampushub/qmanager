@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Users, Clock, ArrowLeft, Loader2,
-  Wallet, RefreshCw, Hash, AlertTriangle,
-  LogOut, Star, History, CheckCircle2, ListOrdered,
+  Users, Clock, Loader2, ArrowLeft,
+  Hash, AlertTriangle,
+  Star, History, CheckCircle2, ListOrdered,
+  Wallet, Download, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,6 +27,7 @@ import type { Ticket } from '@/lib/types';
 import { toast } from 'sonner';
 import { QRCodeDisplay } from '@/components/QRCode';
 import { formatEwt, fadeInUp, parseBranding, STATUS_STYLES, StatusBadge } from './join-helpers';
+import { downloadTicketPdf } from '@/lib/download-ticket-pdf';
 
 // ---------------------------------------------------------------------------
 // Queue context data (now serving + waiting list) for the join confirmation view
@@ -246,7 +248,24 @@ export function TicketStatusView({
   const branding = parseBranding(tenant?.brandingConfig ?? null);
   const primaryColor = branding?.primaryColor || '#059669';
 
-  const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownloadTicket = async () => {
+    setDownloading(true);
+    try {
+      await downloadTicketPdf({
+        ticket,
+        peopleAhead: ticket._peopleAhead,
+        ewtSeconds: ticket._ewt,
+      });
+    } catch (err) {
+      console.error('PDF download failed', err);
+      toast.error('Failed to download ticket. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // Queue context: now serving + waiting list
   const [queueCtx, setQueueCtx] = useState<QueueContextData | null>(null);
@@ -536,64 +555,41 @@ export function TicketStatusView({
         </motion.div>
       )}
 
-      {/* Actions */}
+      {/* Actions — Only 2 buttons: Download Ticket + Cancel Ticket */}
       <div className="flex flex-col gap-2.5">
-        {!isTerminal && (
-          <Button
-            className="h-12 text-base font-semibold text-white w-full"
-            style={{ backgroundColor: primaryColor }}
-            onClick={onTrack}
-            disabled={tracking}
-          >
-            {tracking ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                Tracking Live…
-              </>
-            ) : (
-              <>
-                <RefreshCw className="size-4" />
-                Track Live
-              </>
-            )}
-          </Button>
-        )}
-
-        {ticket.customerPhone && (
-          <Button
-            variant="outline"
-            className="h-11 w-full"
-            onClick={onShowMyTickets}
-          >
-            <Wallet className="size-4" />
-            Check Other Tickets
-          </Button>
-        )}
+        <Button
+          className="h-12 text-base font-semibold text-white w-full"
+          style={{ backgroundColor: primaryColor }}
+          onClick={handleDownloadTicket}
+          disabled={downloading}
+        >
+          {downloading ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Download className="size-4" />
+          )}
+          {downloading ? 'Generating…' : 'Download Ticket'}
+        </Button>
 
         {ticket.status === 'WAITING' && (
           <Button
             variant="outline"
-            className="h-11 w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-            onClick={() => setShowLeaveDialog(true)}
+            className="h-12 text-base font-medium w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+            onClick={() => setShowCancelDialog(true)}
           >
-            <LogOut className="size-4" />
-            Leave Queue
+            <XCircle className="size-4" />
+            Cancel Ticket
           </Button>
         )}
-
-        <Button variant="ghost" className="h-11 w-full" onClick={onHome}>
-          <ArrowLeft className="size-4" />
-          Back to Home
-        </Button>
       </div>
 
-      {/* Leave Queue Confirmation Dialog */}
-      <AlertDialog open={showLeaveDialog} onOpenChange={setShowLeaveDialog}>
+      {/* Cancel Ticket Confirmation Dialog */}
+      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Leave Queue?</AlertDialogTitle>
+            <AlertDialogTitle>Cancel Ticket?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to leave the queue? Your ticket {serial} will be cancelled and you'll lose your position. This action cannot be undone.
+              Are you sure you want to cancel ticket {serial}? You will lose your position in the queue. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -601,11 +597,11 @@ export function TicketStatusView({
             <AlertDialogAction
               className="bg-red-600 hover:bg-red-700"
               onClick={() => {
-                setShowLeaveDialog(false);
+                setShowCancelDialog(false);
                 onLeaveQueue();
               }}
             >
-              Leave Queue
+              Cancel Ticket
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

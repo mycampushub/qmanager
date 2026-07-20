@@ -10,6 +10,7 @@ import DisplayView from '@/components/views/DisplayView';
 import PlatformAdminView from '@/components/views/PlatformAdminView';
 import MasterTenantView from '@/components/views/MasterTenantView';
 import SignupView from '@/components/views/SignupView';
+import BookingView from '@/components/views/BookingView';
 import { Toaster } from 'sonner';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -50,6 +51,7 @@ function HomeContent() {
   const searchParams = useSearchParams();
   const currentView = useAppStore((s) => s.currentView);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(getReducedMotion);
+  const bookingTenantId = searchParams.get('book');
 
   const loadTicketFromUrl = useCallback(async (ticketId: string) => {
     try {
@@ -93,12 +95,19 @@ function HomeContent() {
     }
   }, []);
 
-  // Handle URL params: ?tenant=xxx, ?display=xxx, ?ticket=xxx, ?queue=xxx
+  // Handle URL params: ?tenant=xxx, ?display=xxx, ?ticket=xxx, ?queue=xxx, ?book=xxx
   useEffect(() => {
     const tenantId = searchParams.get('tenant');
     const displayId = searchParams.get('display');
     const ticketId = searchParams.get('ticket');
     const queueId = searchParams.get('queue');
+    const bookId = searchParams.get('book');
+
+    // Booking widget takes priority
+    if (bookId) {
+      useAppStore.getState().setCurrentView('booking');
+      return;
+    }
 
     if (ticketId && !tenantId) {
       loadTicketFromUrl(ticketId);
@@ -185,7 +194,7 @@ function HomeContent() {
     // Auto-navigate based on restored auth
     // BUT: never redirect away from QR code / display / ticket URLs
     const url = new URL(window.location.href);
-    const hasPublicParams = url.searchParams.has('tenant') || url.searchParams.has('display') || url.searchParams.has('ticket');
+    const hasPublicParams = url.searchParams.has('tenant') || url.searchParams.has('display') || url.searchParams.has('ticket') || url.searchParams.has('book');
     const state = useAppStore.getState();
     if (!hasPublicParams && window.location.pathname !== '/dashboard') {
       if (state.adminUser) {
@@ -206,6 +215,16 @@ function HomeContent() {
       {currentView === 'admin' && <PlatformAdminView />}
       {currentView === 'masterTenant' && <MasterTenantView />}
       {currentView === 'signup' && <SignupView />}
+      {currentView === 'booking' && bookingTenantId && (
+        <BookingView
+          tenantId={bookingTenantId}
+          onHome={() => {
+            const store = useAppStore.getState();
+            store.setCurrentView('marketing');
+            window.history.replaceState({}, '', '/');
+          }}
+        />
+      )}
     </div>
   );
 

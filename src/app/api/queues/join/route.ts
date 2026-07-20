@@ -151,8 +151,8 @@ export async function POST(req: NextRequest) {
       .prepare(
         `SELECT id FROM break_periods
          WHERE tenant_id = ? AND is_active = 1
-           AND (level = 'ROOM' OR (level = 'LINE' AND queue_id = ?))
            AND (ends_at IS NULL OR ends_at > datetime('now'))
+           AND (level = 'ROOM' OR (level = 'LINE' AND queue_id = ?))
          LIMIT 1`
       )
       .bind(tenantId, queueId)
@@ -298,6 +298,47 @@ export async function POST(req: NextRequest) {
             code: 'DUPLICATE_TICKET',
             error: `You already have an active ticket (${serial}) in queue "${existingTicket.queue_name}"`,
             existingTicketId: existingTicket.id,
+            existingTenantId: tenantId,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Also check for active online bookings for today's date in the same queue
+      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: clientTimezone }).format(now);
+      const existingBooking = await d1
+        .prepare(
+          `SELECT a.id, a.ticket_id, q.name as queue_name, q.prefix as queue_prefix
+           FROM appointments a
+           JOIN queues q ON a.queue_id = q.id
+           WHERE a.tenant_id = ? AND a.queue_id = ? AND a.scheduled_date = ? AND a.customer_phone = ?
+             AND a.status NOT IN ('CANCELLED', 'NO_SHOW', 'COMPLETED')
+           LIMIT 1`
+        )
+        .bind(tenantId, queueId, todayStr, customerPhone)
+        .first<{
+          id: string;
+          ticket_id: string | null;
+          queue_name: string;
+          queue_prefix: string;
+        }>();
+
+      if (existingBooking) {
+        if (existingBooking.ticket_id) {
+          return NextResponse.json(
+            {
+              code: 'DUPLICATE_TICKET',
+              error: `You already have an online booking (${existingBooking.queue_prefix}—) in queue "${existingBooking.queue_name}". Track it from your ticket.`,
+              existingTicketId: existingBooking.ticket_id,
+              existingTenantId: tenantId,
+            },
+            { status: 400 }
+          );
+        }
+        return NextResponse.json(
+          {
+            code: 'DUPLICATE_TICKET',
+            error: `You already have an online booking in queue "${existingBooking.queue_name}" for today.`,
             existingTenantId: tenantId,
           },
           { status: 400 }
